@@ -1,0 +1,26 @@
+# Checks the extension with Mozilla's add-on linter: the same check addons.mozilla.org runs before it
+# signs an add-on. Findings appear as annotations on the run; errors fail it.
+name: Firefox package check
+
+on:
+  push:
+    paths-ignore:
+      - '**.md' # changes to documentation alone don't need a check
+  workflow_dispatch:
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+
+      - name: Run Mozilla's add-on linter
+        shell: bash
+        run: |
+          npx --yes addons-linter extension --output json --boring --max-manifest-version=3 > lint.json || true
+          node scripts/lint-firefox-report.mjs lint.json
