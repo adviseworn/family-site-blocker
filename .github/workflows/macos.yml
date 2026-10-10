@@ -32,10 +32,33 @@ jobs:
           npx playwright install chromium
 
       - name: Fast checks
-        run: npm test
+        shell: bash
+        run: npm test 2>&1 | tee fast.tap
 
       - name: Chromium tests
-        run: npm run test:browser
+        shell: bash
+        run: npm run test:browser 2>&1 | tee chromium.tap
 
       - name: Firefox tests
-        run: npm run test:firefox
+        shell: bash
+        run: npm run test:firefox 2>&1 | tee firefox.tap
+
+      # Posts what ran as annotations on the run, and fails if a suite was skipped or ran nothing.
+      - name: Report what ran
+        if: always()
+        shell: bash
+        run: |
+          chromium=$(node -e "import('playwright').then(async ({ chromium }) => { const b = await chromium.launch(); console.log(b.version()); await b.close(); })")
+          firefox=$(/Applications/Firefox.app/Contents/MacOS/firefox --version)
+          echo "::notice title=Machine::$(sw_vers -productName) $(sw_vers -productVersion) on $(uname -m); Chromium $chromium; $firefox"
+          status=0
+          for suite in fast chromium firefox; do
+            if [ ! -f "$suite.tap" ]; then echo "::error title=$suite tests::did not run"; status=1; continue; fi
+            count() { grep -E "^# $1 [0-9]+" "$suite.tap" | tail -1 | awk '{print $3}'; }
+            tests=$(count tests); pass=$(count pass); fail=$(count fail); skipped=$(count skipped)
+            echo "::notice title=$suite tests::$tests tests, $pass passed, $fail failed, $skipped skipped"
+            if [ "${tests:-0}" = 0 ] || [ "${skipped:-1}" != 0 ] || [ "${fail:-1}" != 0 ]; then
+              echo "::error title=$suite tests::not every test ran and passed"; status=1
+            fi
+          done
+          exit $status
