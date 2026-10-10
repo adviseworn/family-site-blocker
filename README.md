@@ -22,13 +22,31 @@ If `chrome://extensions` comes up blank, you're probably not in Chrome, Edge or 
 
 ### Firefox
 
+Firefox only keeps add-ons that Mozilla has signed. You can try this one straight away, but it stays loaded only until Firefox quits. To keep it after a restart, have Mozilla sign it first (see "Keep it installed" below).
+
+**Try it (until Firefox quits)**
+
 1. Click the address bar, type `about:debugging#/runtime/this-firefox` and press Enter. Or open the menu (**☰**), choose **Extensions and Themes**, click the gear (**⚙**) and choose **Debug Add-ons**.
 2. Click **Load Temporary Add-on…** and choose the `manifest.json` file inside the `extension` folder of the unzipped folder. The extension's settings page opens.
 3. If the settings page shows a **Website access** section, click **Allow access** and confirm. Without that access, sites on the list still open.
 4. In a normal (not private) window, type `exampleadultsite.com` in the address bar and press Enter. You should see "This site is blocked". If Firefox is set to never remember history, every window is private, so do step 5 first.
 5. For private windows, type `about:addons` in the address bar, choose Family Site Blocker and set **Run in Private Windows** to **Allow**. Firefox leaves this off for new add-ons, and the settings page tells you when it is still off.
 
-Firefox removes temporary add-ons when it quits, and the sites you added on the settings page go with them. After restarting Firefox, load it again, re-enter your sites and check the private windows setting. To install it permanently, it has to be signed by Mozilla first. Signing is free on addons.mozilla.org, the add-on can stay unlisted, and its manifest already declares that it collects no data, which signing requires.
+When Firefox quits, it removes the add-on and the sites you added on the settings page.
+
+**Keep it installed after Firefox quits**
+
+Signing is free, and the add-on can stay unlisted, so it isn't published on Mozilla's site.
+
+1. Get the upload file: run `npm run package:firefox`, which writes `dist/family-site-blocker-firefox.zip`, or use the `family-site-blocker-firefox.zip` you were sent. Don't compress the `extension` folder yourself. Mozilla needs `manifest.json` at the top of the zip, and Finder's **Compress** puts it inside a folder.
+2. Sign in at [addons.mozilla.org/developers](https://addons.mozilla.org/developers/) with a Mozilla account and choose **Submit a New Add-on**.
+3. When asked how to distribute it, choose **On your own**, then upload the zip. Mozilla runs the same check as `.github/workflows/firefox-package.yml`, which finds no errors in this add-on.
+4. When asked whether you need to submit source code, choose **No**: the add-on's code isn't minified or compiled.
+5. Submit the version. Mozilla signs it automatically. When it's ready, download the signed `.xpi` file from the version's page.
+6. In Firefox, remove the temporary copy if it's still loaded (on `about:debugging#/runtime/this-firefox`). Then open `about:addons`, click the gear (**⚙**), choose **Install Add-on From File…**, pick the `.xpi` and click **Add**. Tick **Allow this extension to run in Private Windows** if Firefox offers it.
+7. Quit Firefox, open it again and visit `exampleadultsite.com`. It's still blocked, and sites you add on the settings page now stay too.
+
+For a later version, raise `version` in `extension/manifest.json`, run `npm run package:firefox` again and upload the new zip on the same add-on's page.
 
 ### Settings page
 
@@ -81,3 +99,4 @@ No real website is contacted: every request goes to a small local server instead
 | `scripts/build-rules.mjs` | `npm run build`: turns `blocklists/` into `adult.json`. |
 | `test/` | Fast checks (`blocker.test.mjs`) and the real-browser tests (`browser.e2e.mjs` for Chromium, `firefox.e2e.mjs` for Firefox). |
 | `.github/workflows/macos.yml` | Runs all the tests on a Mac at GitHub after every push. |
+| `.github/workflows/firefox-package.yml` | Checks the extension with Mozilla's add-on linter after every push. |

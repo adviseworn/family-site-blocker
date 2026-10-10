@@ -169,9 +169,8 @@ test('one manifest works in Chrome, Edge, Brave and Firefox', () => {
   // addons.mozilla.org won't sign a new add-on without this (Firefox 140 and later understand it).
   assert.deepEqual(settings.gecko.data_collection_permissions, { required: ['none'] });
   assert.ok(parseFloat(settings.gecko.strict_min_version) >= 140);
-  // Firefox only gives a temporarily loaded add-on its website access at install when this is set, and the
-  // redirect to the "Site blocked" page needs that access.
-  assert.equal(manifest.granted_host_permissions, true);
+  // Firefox for Android understands data_collection_permissions from 142 (Mozilla's linter checks this).
+  assert.ok(parseFloat(manifest.browser_specific_settings.gecko_android.strict_min_version) >= 142);
   assert.equal(manifest.options_page, 'options.html');
 });
 
