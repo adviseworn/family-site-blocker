@@ -1,0 +1,173 @@
+/* System fonts only, matching the block page. */
+:root {
+  color-scheme: light dark;
+  --bg: #e6ece6;
+  --surface: #f8faf7;
+  --ink: #17302a;
+  --muted: #4f655d;
+  --line: #c5d1c8;
+  --edge: #7a8f85;
+  --gate: #2c5a4b;
+  --on-gate: #ffffff;
+  --latch: #9a6f12;
+  --ok: #1d6b3f;
+  --bad: #a3302a;
+  --serif: "Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua", Georgia, serif;
+  --sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0e1714;
+    --surface: #15211d;
+    --ink: #e4eee9;
+    --muted: #9bb0a6;
+    --line: #2a3a34;
+    --edge: #5f786d;
+    --gate: #7fb8a2;
+    --on-gate: #0e1714;
+    --latch: #e0b45c;
+    --ok: #7fd6a0;
+    --bad: #ff9d92;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+/* The button styles below set display, which would otherwise override the hidden attribute. */
+[hidden] {
+  display: none !important;
+}
+
+body {
+  margin: 0;
+  padding: clamp(24px, 6vw, 64px) 20px 96px;
+  background: var(--bg);
+  color: var(--ink);
+  font: 1.0625rem/1.55 var(--sans);
+}
+
+main {
+  max-width: 40rem;
+  margin: 0 auto;
+}
+
+h1 {
+  margin: 0 0 0.4rem;
+  font: 700 clamp(2rem, 1.4rem + 2.2vw, 2.75rem) / 1.1 var(--serif);
+  letter-spacing: -0.01em;
+}
+
+h2 {
+  margin: 0 0 0.75rem;
+  font: 700 1.5rem / 1.2 var(--serif);
+}
+
+p {
+  max-width: 60ch;
+  margin: 0 0 1rem;
+}
+
+#summary {
+  margin: 0;
+  color: var(--muted);
+}
+
+section {
+  margin-top: 2.5rem;
+  padding-top: 1.75rem;
+  border-top: 1px solid var(--line);
+}
+
+.button,
+button {
+  display: inline-block;
+  padding: 0.6em 1.2em;
+  border: 0;
+  border-radius: 8px;
+  background: var(--gate);
+  color: var(--on-gate);
+  font: inherit;
+  font-weight: 600;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.button:hover,
+button:hover {
+  filter: brightness(1.08);
+}
+
+:focus-visible {
+  outline: 3px solid var(--latch);
+  outline-offset: 3px;
+}
+
+.results {
+  margin: 0 0 1rem;
+  padding: 0;
+  list-style: none;
+  border-bottom: 1px solid var(--line);
+}
+
+.results li {
+  display: grid;
+  grid-template-columns: 4.5rem minmax(0, 1fr);
+  gap: 0 0.75rem;
+  padding: 0.65rem 0;
+  border-top: 1px solid var(--line);
+}
+
+.results small {
+  display: block;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.status {
+  font-weight: 600;
+}
+
+.passed .status {
+  color: var(--ok);
+}
+
+.failed .status {
+  color: var(--bad);
+}
+
+textarea {
+  display: block;
+  width: 100%;
+  min-height: 9rem;
+  padding: 0.7rem 0.8rem;
+  border: 1px solid var(--edge);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--ink);
+  font: 0.95rem / 1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  resize: vertical;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 1rem;
+  margin-top: 0.9rem;
+}
+
+#status {
+  color: var(--muted);
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}

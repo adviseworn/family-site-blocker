@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Site blocked</title>
+  <link rel="stylesheet" href="blocked.css">
+</head>
+<body>
+  <main id="blocked">
+    <svg class="gate" viewBox="0 0 240 200" aria-hidden="true" focusable="false">
+      <g class="gate-fill">
+        <rect x="38" y="40" width="8" height="120" rx="2"/>
+        <rect x="64" y="40" width="8" height="120" rx="2"/>
+        <rect x="90" y="40" width="8" height="120" rx="2"/>
+        <rect x="116" y="40" width="8" height="120" rx="2"/>
+        <rect x="142" y="40" width="8" height="120" rx="2"/>
+        <rect x="168" y="40" width="8" height="120" rx="2"/>
+        <rect x="194" y="40" width="8" height="120" rx="2"/>
+        <rect x="24" y="36" width="192" height="12" rx="3"/>
+        <rect x="24" y="152" width="192" height="12" rx="3"/>
+        <rect x="12" y="20" width="14" height="172" rx="4"/>
+        <rect x="214" y="20" width="14" height="172" rx="4"/>
+      </g>
+      <rect class="latch" x="196" y="92" width="36" height="14" rx="7"/>
+      <circle class="pivot" cx="224" cy="99" r="3"/>
+    </svg>
+    <div>
+      <h1>This site is blocked</h1>
+      <p>Family Site Blocker stopped this page from loading. If you think that's a mistake, ask the person who manages this browser.</p>
+      <button id="back" type="button" hidden>Go back</button>
+    </div>
+  </main>
+  <script src="blocked.js"></script>
+</body>
+</html>

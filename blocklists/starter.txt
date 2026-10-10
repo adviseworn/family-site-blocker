@@ -1,0 +1,30 @@
+# Starter blocklist. One domain per line; "#" starts a comment.
+# Blocking a domain also blocks all of its subdomains (www., m., cdn., ...).
+#
+# This list is short on purpose. For wider coverage, save a community list
+# (hosts-file format or one domain per line) as another .txt file in this
+# folder, run `npm run build`, then reload the extension.
+
+# Test case: navigating to this site must show the "Site blocked" page.
+exampleadultsite.com
+
+# Large, well-known adult sites
+pornhub.com
+xvideos.com
+xnxx.com
+xhamster.com
+redtube.com
+youporn.com
+spankbang.com
+eporner.com
+tube8.com
+tnaflix.com
+beeg.com
+motherless.com
+brazzers.com
+chaturbate.com
+stripchat.com
+bongacams.com
+livejasmin.com
+cam4.com
+onlyfans.com
