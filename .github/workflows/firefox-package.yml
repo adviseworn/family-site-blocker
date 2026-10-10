@@ -1,5 +1,6 @@
-# Checks the extension with Mozilla's add-on linter: the same check addons.mozilla.org runs before it
-# signs an add-on. Findings appear as annotations on the run; errors fail it.
+# Builds the zip to upload to addons.mozilla.org (npm run package:firefox) and checks it with Mozilla's
+# add-on linter: the same check addons.mozilla.org runs before it signs an add-on. Findings appear as
+# annotations on the run; errors and warnings fail it.
 name: Firefox package check
 
 on:
@@ -19,8 +20,11 @@ jobs:
         with:
           node-version: 22
 
-      - name: Run Mozilla's add-on linter
+      - name: Build the Firefox zip
+        run: npm run package:firefox
+
+      - name: Run Mozilla's add-on linter on the zip
         shell: bash
         run: |
-          npx --yes addons-linter extension --output json --boring --max-manifest-version=3 > lint.json || true
+          npx --yes addons-linter dist/family-site-blocker-firefox.zip --output json --boring --max-manifest-version=3 > lint.json || true
           node scripts/lint-firefox-report.mjs lint.json

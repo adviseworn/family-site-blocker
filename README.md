@@ -38,9 +38,9 @@ When Firefox quits, it removes the add-on and the sites you added on the setting
 
 Signing is free, and the add-on can stay unlisted, so it isn't published on Mozilla's site.
 
-1. Get the upload file: run `npm run package:firefox`, which writes `dist/family-site-blocker-firefox.zip`, or use the `family-site-blocker-firefox.zip` you were sent. Don't compress the `extension` folder yourself. Mozilla needs `manifest.json` at the top of the zip, and Finder's **Compress** puts it inside a folder.
+1. Get the upload file: run `npm run package:firefox`, which writes `dist/family-site-blocker-firefox.zip`, or use the `family-site-blocker-firefox.zip` you were sent. Don't compress the `extension` folder yourself. Mozilla needs `manifest.json` at the top of the zip, and Finder's **Compress** puts it inside a folder. The zip's copy of `manifest.json` also leaves out the `service_worker` line, which only Chrome, Edge and Brave use.
 2. Sign in at [addons.mozilla.org/developers](https://addons.mozilla.org/developers/) with a Mozilla account and choose **Submit a New Add-on**.
-3. When asked how to distribute it, choose **On your own**, then upload the zip. Mozilla runs the same check as `.github/workflows/firefox-package.yml`, which finds no errors in this add-on.
+3. When asked how to distribute it, choose **On your own**, then upload the zip. Mozilla runs the same check as `.github/workflows/firefox-package.yml`, which finds no errors or warnings in this zip.
 4. When asked whether you need to submit source code, choose **No**: the add-on's code isn't minified or compiled.
 5. Submit the version. Mozilla signs it automatically. When it's ready, download the signed `.xpi` file from the version's page.
 6. In Firefox, remove the temporary copy if it's still loaded (on `about:debugging#/runtime/this-firefox`). Then open `about:addons`, click the gear (**⚙**), choose **Install Add-on From File…**, pick the `.xpi` and click **Add**. Tick **Allow this extension to run in Private Windows** if Firefox offers it.
@@ -73,10 +73,10 @@ npm test                  # fast checks, no install needed
 npm install               # once, for the Chromium tests
 npx playwright install chromium    # once, if Playwright has no browser yet
 npm run test:browser      # 39 tests in a real Chromium
-npm run test:firefox      # 18 tests in the Firefox installed on this computer
+npm run test:firefox      # 22 tests in the Firefox installed on this computer
 ```
 
-`npm run test:browser` loads the extension the way "Load unpacked" does and drives it like a person would. `npm run test:firefox` does the same in Firefox, loading it the way "Load Temporary Add-on…" does. It finds Firefox in its usual place on macOS, Windows or Linux, or uses the one in `FIREFOX`, and is skipped if there is none.
+`npm run test:browser` loads the extension the way "Load unpacked" does and drives it like a person would. `npm run test:firefox` does the same in Firefox. It builds the zip that `npm run package:firefox` makes, loads it the way "Load Temporary Add-on…" does, and then checks that the `extension` folder itself loads too. It finds Firefox in its usual place on macOS, Windows or Linux, or uses the one in `FIREFOX`, and is skipped if there is none.
 
 On GitHub, every push runs all three suites on a GitHub-hosted Mac (`.github/workflows/macos.yml`). The run lists the macOS, Chromium and Firefox versions and each suite's totals, and fails if any test was skipped.
 
@@ -97,6 +97,7 @@ No real website is contacted: every request goes to a small local server instead
 | `extension/lib/` | Domain cleanup and rule building, shared with the build script. |
 | `blocklists/` | The built-in list, as plain text. |
 | `scripts/build-rules.mjs` | `npm run build`: turns `blocklists/` into `adult.json`. |
+| `scripts/package-firefox.mjs` | `npm run package:firefox`: makes the zip to upload to Mozilla, with Firefox's copy of `manifest.json`. |
 | `test/` | Fast checks (`blocker.test.mjs`) and the real-browser tests (`browser.e2e.mjs` for Chromium, `firefox.e2e.mjs` for Firefox). |
 | `.github/workflows/macos.yml` | Runs all the tests on a Mac at GitHub after every push. |
-| `.github/workflows/firefox-package.yml` | Checks the extension with Mozilla's add-on linter after every push. |
+| `.github/workflows/firefox-package.yml` | Builds the Firefox zip and checks it with Mozilla's add-on linter after every push. |

@@ -2,13 +2,16 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { existsSync, readFileSync, readdirSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { dirname, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { inflateRawSync } from 'node:zlib';
 
 import { normalizeDomain, parseDomainList } from '../extension/lib/domains.js';
 import { BLOCK_PAGE, CHUNK_SIZE, buildRules } from '../extension/lib/rules.js';
 import { RULES_PATH, loadBlocklists, renderRules } from '../scripts/build-rules.mjs';
+import { firefoxManifest, packageFirefox } from '../scripts/package-firefox.mjs';
 
 const EXT = resolve(dirname(fileURLToPath(import.meta.url)), '..', 'extension');
 const manifest = JSON.parse(readFileSync(join(EXT, 'manifest.json'), 'utf8'));
@@ -161,6 +164,7 @@ test('manifest points at files that exist', () => {
 test('one manifest works in Chrome, Edge, Brave and Firefox', () => {
   const { background, browser_specific_settings: settings } = manifest;
   // Chrome, Edge and Brave run the service worker; Firefox runs the same file as an event page.
+  // The extension folder keeps both, so it loads anywhere; the zip for Mozilla leaves out service_worker.
   assert.deepEqual(background.scripts, [background.service_worker]);
   // Both browsers accept the two keys side by side from version 121 (MDN: manifest.json/background).
   assert.ok(Number(manifest.minimum_chrome_version) >= 121);
@@ -172,6 +176,57 @@ test('one manifest works in Chrome, Edge, Brave and Firefox', () => {
   // Firefox for Android understands data_collection_permissions from 142 (Mozilla's linter checks this).
   assert.ok(parseFloat(manifest.browser_specific_settings.gecko_android.strict_min_version) >= 142);
   assert.equal(manifest.options_page, 'options.html');
+});
+
+test("Firefox's manifest leaves out only background.service_worker, which Mozilla's linter warns about", () => {
+  const firefox = firefoxManifest(manifest);
+  assert.deepEqual(firefox.background, { scripts: ['background.js'] });
+  assert.deepEqual({ ...firefox, background: null }, { ...manifest, background: null }, 'nothing else changes');
+  assert.equal(manifest.background.service_worker, 'background.js', 'the extension folder keeps it for Chrome, Edge and Brave');
+});
+
+/** Every file under a folder, as zip-style relative paths. */
+function filesIn(dir) {
+  return readdirSync(dir, { recursive: true })
+    .filter((path) => statSync(join(dir, path)).isFile())
+    .map((path) => path.split(sep).join('/'))
+    .sort();
+}
+
+/** Reads a zip with nothing but Node: file name → contents. */
+function readZip(file) {
+  const data = readFileSync(file);
+  const end = data.lastIndexOf(Buffer.from('PK\x05\x06', 'latin1'));
+  const files = new Map();
+  let at = data.readUInt32LE(end + 16);
+  for (let left = data.readUInt16LE(end + 10); left > 0; left--) {
+    const nameLength = data.readUInt16LE(at + 28);
+    const name = data.toString('utf8', at + 46, at + 46 + nameLength);
+    const local = data.readUInt32LE(at + 42);
+    const start = local + 30 + data.readUInt16LE(local + 26) + data.readUInt16LE(local + 28);
+    const stored = data.subarray(start, start + data.readUInt32LE(at + 20));
+    if (!name.endsWith('/')) files.set(name, data.readUInt16LE(at + 10) === 8 ? inflateRawSync(stored) : stored);
+    at += 46 + nameLength + data.readUInt16LE(at + 30) + data.readUInt16LE(at + 32);
+  }
+  return files;
+}
+
+const hasZip = spawnSync('zip', ['-v']).status === 0;
+
+test('npm run package:firefox zips the whole extension, manifest.json at the top, with Firefox\'s manifest', { skip: !hasZip && 'no zip command' }, () => {
+  const out = mkdtempSync(join(tmpdir(), 'family-site-blocker-package-'));
+  try {
+    const { zip } = packageFirefox({ outDir: out });
+    const files = readZip(zip);
+    const expected = filesIn(EXT).filter((path) => !path.startsWith('_metadata/') && !path.endsWith('.DS_Store'));
+    assert.deepEqual([...files.keys()].sort(), expected);
+    assert.deepEqual(JSON.parse(files.get('manifest.json')), firefoxManifest(manifest));
+    for (const [name, contents] of files) {
+      if (name !== 'manifest.json') assert.ok(contents.equals(readFileSync(join(EXT, name))), `${name} is copied unchanged`);
+    }
+  } finally {
+    rmSync(out, { recursive: true, force: true });
+  }
 });
 
 test('every file the pages reference exists', () => {

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Turns the JSON report from Mozilla's add-on linter into annotations on the GitHub run, and fails when
-// it found errors. addons.mozilla.org runs the same linter before it will sign an add-on.
+// it found errors or warnings. addons.mozilla.org runs the same linter before it will sign an add-on.
 // usage: node scripts/lint-firefox-report.mjs lint.json
 import { readFileSync } from 'node:fs';
 
@@ -16,4 +16,4 @@ for (const m of warnings) console.log(`::warning title=Firefox linter warning::$
 for (const m of notices) console.log(`::notice title=Firefox linter notice::${describe(m)}`);
 console.log(`::notice title=Firefox linter summary::${errors.length} errors, ${warnings.length} warnings, ${notices.length} notices`);
 
-process.exit(errors.length ? 1 : 0);
+process.exit(errors.length || warnings.length ? 1 : 0);

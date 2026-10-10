@@ -5,6 +5,7 @@ import { cpSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } 
 import net from 'node:net';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
+import { packageFirefox } from '../../scripts/package-firefox.mjs';
 import { EXTENSION_DIR } from './browser.mjs';
 
 const KNOWN_LOCATIONS = [
@@ -86,9 +87,11 @@ const sleep = (ms) => new Promise((done) => setTimeout(done, ms));
 
 /**
  * Starts Firefox (headless) with every request sent to the stub internet. With { extension: true } the
- * extension is loaded as a temporary add-on, exactly like "Load Temporary Add-on…" in about:debugging.
+ * extension is loaded as a temporary add-on, exactly like "Load Temporary Add-on…" in about:debugging:
+ * the zip that npm run package:firefox makes (the file Mozilla signs), or with { packaged: false } the
+ * extension folder itself, as the README's "Try it" steps load it.
  */
-export async function launchFirefox(stub, { extension = true, extensionDir = EXTENSION_DIR } = {}) {
+export async function launchFirefox(stub, { extension = true, extensionDir = EXTENSION_DIR, packaged = true } = {}) {
   const binary = findFirefox();
   const profile = mkdtempSync(join(tmpdir(), 'family-site-blocker-firefox-'));
   const marionettePort = 20000 + Math.floor(Math.random() * 20000);
@@ -138,7 +141,7 @@ export async function launchFirefox(stub, { extension = true, extensionDir = EXT
 
   let addonId = null;
   if (extension) {
-    // Load a copy, so Firefox never writes into ./extension.
+    // Work from a copy, so Firefox never writes into ./extension.
     const copy = join(profile, 'extension-under-test');
     cpSync(extensionDir, copy, { recursive: true });
     const manifest = JSON.parse(readFileSync(join(copy, 'manifest.json'), 'utf8'));
@@ -150,7 +153,8 @@ export async function launchFirefox(stub, { extension = true, extensionDir = EXT
       manifest.browser_specific_settings.gecko.strict_min_version = '121.0';
       writeFileSync(join(copy, 'manifest.json'), JSON.stringify(manifest, null, 2));
     }
-    addonId = await fx.send('Addon:Install', { path: copy, temporary: true });
+    const path = packaged ? packageFirefox({ extensionDir: copy, outDir: join(profile, 'package') }).zip : copy;
+    addonId = await fx.send('Addon:Install', { path, temporary: true });
     await sleep(1000);
   }
 
@@ -170,6 +174,19 @@ export async function launchFirefox(stub, { extension = true, extensionDir = EXT
         return await run(
           `const policy = WebExtensionPolicy.getByID(arguments[0]);
            return { origins: policy.allowedOrigins.patterns.map((p) => p.pattern), privateWindows: policy.privateBrowsingAllowed };`,
+          addonId,
+        );
+      } finally {
+        await fx.send('Marionette:SetContext', { value: 'content' });
+      }
+    },
+    /** The background key of the manifest as Firefox read it, and the warnings and errors it reported. */
+    async manifestReport() {
+      await fx.send('Marionette:SetContext', { value: 'chrome' });
+      try {
+        return await run(
+          `const { manifest, warnings, errors } = WebExtensionPolicy.getByID(arguments[0]).extension;
+           return { background: manifest.background, warnings, errors };`,
           addonId,
         );
       } finally {
