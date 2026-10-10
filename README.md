@@ -6,13 +6,15 @@ A browser extension for Chrome, Edge, Brave and Firefox that blocks websites on 
 
 ## Try it
 
-You need Chrome, Edge, Brave or Firefox on a computer. Phones, tablets, Safari and browsers built into other apps can't load this extension. First, unzip `family-site-blocker.zip`.
+You need Chrome, Edge, Brave or Firefox on a computer. Phones, tablets, Safari and browsers built into other apps can't load this extension.
+
+First, get the files onto your computer. On this repository's GitHub page, click **Code**, then **Download ZIP**, and unzip the download. If someone sent you `family-site-blocker.zip`, unzip that instead.
 
 ### Chrome, Edge or Brave
 
 1. Open the extensions page. Click the address bar at the top of the browser window, type `chrome://extensions` and press Enter (in Edge, `edge://extensions`). Or open the browser menu (**⋮** in Chrome, **⋯** in Edge), choose **Extensions**, then **Manage Extensions** if a submenu opens. Type the address rather than clicking it as a link: browsers don't let links open this page.
 2. Turn on the **Developer mode** switch (top right in Chrome). A **Load unpacked** button appears.
-3. Click **Load unpacked** and choose the `extension` folder inside the unzipped `family-site-blocker` folder. The extension's settings page opens.
+3. Click **Load unpacked** and choose the `extension` folder inside the unzipped folder. The extension's settings page opens.
 4. In a normal (not Incognito) window, type `exampleadultsite.com` in the address bar and press Enter. You should see "This site is blocked".
 5. Click **Details** under Family Site Blocker and turn on **Allow in Incognito**. Browsers switch extensions off in private windows unless you do this, and the settings page tells you when it is still off.
 
@@ -21,7 +23,7 @@ If `chrome://extensions` comes up blank, you're probably not in Chrome, Edge or 
 ### Firefox
 
 1. Click the address bar, type `about:debugging#/runtime/this-firefox` and press Enter. Or open the menu (**☰**), choose **Extensions and Themes**, click the gear (**⚙**) and choose **Debug Add-ons**.
-2. Click **Load Temporary Add-on…** and choose the `manifest.json` file inside the `extension` folder of the unzipped `family-site-blocker` folder. The extension's settings page opens.
+2. Click **Load Temporary Add-on…** and choose the `manifest.json` file inside the `extension` folder of the unzipped folder. The extension's settings page opens.
 3. If the settings page shows a **Website access** section, click **Allow access** and confirm. Without that access, sites on the list still open.
 4. In a normal (not private) window, type `exampleadultsite.com` in the address bar and press Enter. You should see "This site is blocked". If Firefox is set to never remember history, every window is private, so do step 5 first.
 5. For private windows, type `about:addons` in the address bar, choose Family Site Blocker and set **Run in Private Windows** to **Allow**. Firefox leaves this off for new add-ons, and the settings page tells you when it is still off.
