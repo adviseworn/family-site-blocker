@@ -1,5 +1,7 @@
-// Firefox tests. They load the extension the way about:debugging's "Load Temporary Add-on…" does and
-// drive Firefox the way a person would. Run with:  npm run test:firefox
+// Firefox tests. They build the zip that `npm run package:firefox` makes (the file Mozilla signs), load
+// it the way about:debugging's "Load Temporary Add-on…" does and drive Firefox the way a person would.
+// The last group loads the extension folder itself, as the README's "Try it" steps do.
+// Run with:  npm run test:firefox
 // Uses the Firefox installed on this computer, or the one in $FIREFOX. Skipped when there is none.
 //
 // As in the Chromium tests, no real website is contacted: Firefox sends every request to a small local
@@ -13,6 +15,11 @@ const SITE = 'exampleadultsite.com';
 const BLOCKED_URL = `http://${SITE}/`;
 const test = (name, fn) => it(name, { timeout: 60_000 }, fn);
 const sleep = (ms) => new Promise((done) => setTimeout(done, ms));
+
+// Firefox before 140 doesn't know data_collection_permissions and says so. Such a Firefox only runs these
+// tests with ALLOW_OLD_FIREFOX=1, so that one warning is let through there.
+const unexpected = (warnings, version) =>
+  warnings.filter((warning) => !(parseFloat(version) < 140 && warning.includes('data_collection_permissions')));
 
 describe('Firefox', { skip: findFirefox() ? false : 'no Firefox found (set FIREFOX=/path/to/firefox)' }, () => {
   let stub;
@@ -34,9 +41,9 @@ describe('Firefox', { skip: findFirefox() ? false : 'no Firefox found (set FIREF
   });
 
   /** Opens an address and checks the person lands on the "Site blocked" page without anything coming from the site. */
-  async function assertBlocked(url) {
+  async function assertBlocked(url, target = browser) {
     stub.clear();
-    const result = await browser.visit(url);
+    const result = await target.visit(url);
     const where = `${url} ended at ${result.finalUrl}${result.error ? ` (${result.error})` : ''}`;
     assert.equal(result.outcome, 'blocked page', where);
     assert.match(result.text, /This site is blocked/, where);
@@ -107,6 +114,14 @@ describe('Firefox', { skip: findFirefox() ? false : 'no Firefox found (set FIREF
   });
 
   describe('install and settings page', () => {
+    test("Firefox reads the zip's manifest without warnings and runs background.js from background.scripts", async () => {
+      const { background, warnings, errors } = await browser.manifestReport();
+      assert.deepEqual({ warnings: unexpected(warnings, browser.version), errors }, { warnings: [], errors: [] });
+      assert.equal(background.service_worker ?? null, null, 'the zip leaves out the line only Chrome, Edge and Brave use');
+      assert.equal(background.scripts.length, 1);
+      assert.match(background.scripts[0], /^moz-extension:\/\/.+\/background\.js$/);
+    });
+
     test('Firefox gives the temporary add-on access to websites, which the block page needs', async () => {
       const { origins } = await browser.grants();
       assert.ok(origins.includes('<all_urls>'), JSON.stringify(origins));
@@ -138,6 +153,32 @@ describe('Firefox', { skip: findFirefox() ? false : 'no Firefox found (set FIREF
       assert.equal(state.accessShown, false, 'no website access warning, because Firefox granted access');
       assert.match(state.privateStatus, /^Private windows are not blocked yet, .*about:addons.*“Run in Private Windows”/);
       assert.equal(state.privateButtonShown, false, 'no "Open Details page" button: Firefox does not let extensions open about:addons');
+    });
+  });
+
+  describe('the extension folder itself, loaded as the README\'s "Try it" steps do', () => {
+    let folder;
+    let tabsAfterLoad = [];
+
+    before(async () => {
+      folder = await launchFirefox(stub, { packaged: false });
+      tabsAfterLoad = await folder.tabs();
+      await folder.newTab();
+    });
+
+    after(() => folder?.close());
+
+    test('test case: exampleadultsite.com is blocked', () => assertBlocked(BLOCKED_URL, folder));
+
+    test('the settings page opens by itself after install', () => {
+      assert.ok(tabsAfterLoad.some(({ url }) => url.endsWith('/options.html')), JSON.stringify(tabsAfterLoad));
+    });
+
+    test('Firefox reads its manifest, service_worker line included, without warnings', async () => {
+      const { background, warnings, errors } = await folder.manifestReport();
+      assert.deepEqual({ warnings: unexpected(warnings, folder.version), errors }, { warnings: [], errors: [] });
+      assert.match(background.service_worker, /\/background\.js$/, 'the folder keeps the line for Chrome, Edge and Brave');
+      assert.match(background.scripts[0], /\/background\.js$/);
     });
   });
 });

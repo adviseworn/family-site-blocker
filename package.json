@@ -1,13 +1,13 @@
 {
   "name": "family-site-blocker",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "private": true,
   "type": "module",
   "description": "Chrome, Edge, Brave and Firefox extension that blocks adult websites",
   "scripts": {
     "build": "node scripts/build-rules.mjs",
     "icons": "node scripts/make-icons.mjs",
-    "package:firefox": "rm -f dist/family-site-blocker-firefox.zip && mkdir -p dist && cd extension && zip -qrX ../dist/family-site-blocker-firefox.zip . -x '_metadata/*' -x '*.DS_Store'",
+    "package:firefox": "node scripts/package-firefox.mjs",
     "test": "node --test test/*.test.mjs",
     "test:browser": "node --test test/browser.e2e.mjs",
     "test:firefox": "node --test test/firefox.e2e.mjs",
