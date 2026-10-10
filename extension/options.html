@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Family Site Blocker settings</title>
+  <link rel="stylesheet" href="options.css">
+</head>
+<body>
+  <main>
+    <header>
+      <h1>Family Site Blocker</h1>
+      <p id="summary" aria-live="polite">Loading the lists…</p>
+    </header>
+
+    <section id="access" aria-labelledby="access-heading" hidden>
+      <h2 id="access-heading">Website access</h2>
+      <p>This browser hasn’t given Family Site Blocker access to websites yet, so sites on the list can still open. Click <strong>Allow access</strong>, then confirm.</p>
+      <p><button id="access-allow" type="button">Allow access</button></p>
+    </section>
+
+    <section aria-labelledby="check-heading">
+      <h2 id="check-heading">Check that it works</h2>
+      <p>Open the test site. You should land on a “Site blocked” page instead of the site.</p>
+      <p><a class="button" href="https://exampleadultsite.com/" target="_blank" rel="noopener">Open exampleadultsite.com</a></p>
+      <p>You can also ask the browser whether it would block each of these addresses, without visiting them.</p>
+      <ul id="results" class="results"></ul>
+      <p id="check-note" aria-live="polite"></p>
+    </section>
+
+    <section aria-labelledby="private-heading">
+      <h2 id="private-heading">Private windows</h2>
+      <p id="private-status" aria-live="polite">Checking…</p>
+      <p><button id="private-open" type="button" hidden>Open Details page</button></p>
+    </section>
+
+    <section aria-labelledby="mine-heading">
+      <h2 id="mine-heading">Your blocked sites</h2>
+      <p>One site per line. Subdomains such as www and m are blocked too.</p>
+      <label class="visually-hidden" for="custom">Blocked sites, one per line</label>
+      <textarea id="custom" rows="8" spellcheck="false" autocapitalize="off" autocomplete="off" placeholder="example.com"></textarea>
+      <div class="actions">
+        <button id="save" type="button">Save changes</button>
+        <span id="status" role="status"></span>
+      </div>
+    </section>
+  </main>
+  <script type="module" src="options.js"></script>
+</body>
+</html>

@@ -1,0 +1,41 @@
+# Runs every test suite on a GitHub-hosted Mac: the fast checks, the extension in Chromium (the engine
+# behind Chrome, Edge and Brave) and the extension in Firefox. Runs on every push, or start it by hand
+# from the Actions tab.
+name: Tests on macOS
+
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  macos:
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+
+      - name: Make sure Firefox is installed
+        run: test -d /Applications/Firefox.app || brew install --cask firefox
+
+      - name: Show the Mac and browser versions
+        run: |
+          sw_vers
+          /Applications/Firefox.app/Contents/MacOS/firefox --version
+
+      - name: Install Playwright and its Chromium
+        run: |
+          npm install
+          npx playwright install chromium
+
+      - name: Fast checks
+        run: npm test
+
+      - name: Chromium tests
+        run: npm run test:browser
+
+      - name: Firefox tests
+        run: npm run test:firefox

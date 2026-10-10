@@ -1,0 +1,21 @@
+{
+  "name": "family-site-blocker",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Chrome and Edge extension that blocks adult websites",
+  "scripts": {
+    "build": "node scripts/build-rules.mjs",
+    "icons": "node scripts/make-icons.mjs",
+    "test": "node --test test/*.test.mjs",
+    "test:browser": "node --test test/browser.e2e.mjs",
+    "test:firefox": "node --test test/firefox.e2e.mjs",
+    "test:all": "npm test && npm run test:browser && npm run test:firefox"
+  },
+  "devDependencies": {
+    "playwright": "1.56.0"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
