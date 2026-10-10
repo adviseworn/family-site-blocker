@@ -5,6 +5,8 @@ name: Tests on macOS
 
 on:
   push:
+    paths-ignore:
+      - '**.md' # changes to documentation alone don't need a Mac
   workflow_dispatch:
 
 jobs:

@@ -58,6 +58,8 @@ npm run test:firefox      # 18 tests in the Firefox installed on this computer
 
 `npm run test:browser` loads the extension the way "Load unpacked" does and drives it like a person would. `npm run test:firefox` does the same in Firefox, loading it the way "Load Temporary Add-on…" does. It finds Firefox in its usual place on macOS, Windows or Linux, or uses the one in `FIREFOX`, and is skipped if there is none.
 
+On GitHub, every push runs all three suites on a GitHub-hosted Mac (`.github/workflows/macos.yml`). The run lists the macOS, Chromium and Firefox versions and each suite's totals, and fails if any test was skipped.
+
 No real website is contacted: every request goes to a small local server instead, so a request that never reaches that server was stopped by the browser. In both suites the first group is the test case itself, with a control that shows the site loading when the extension isn't installed. Set `HEADFUL=1` to watch the browser, or `EXTENSION_DIR=/path/to/build` to test a different build.
 
 ## Limits
@@ -76,3 +78,4 @@ No real website is contacted: every request goes to a small local server instead
 | `blocklists/` | The built-in list, as plain text. |
 | `scripts/build-rules.mjs` | `npm run build`: turns `blocklists/` into `adult.json`. |
 | `test/` | Fast checks (`blocker.test.mjs`) and the real-browser tests (`browser.e2e.mjs` for Chromium, `firefox.e2e.mjs` for Firefox). |
+| `.github/workflows/macos.yml` | Runs all the tests on a Mac at GitHub after every push. |
