@@ -1,0 +1,81 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>PayloadContent</key>
+	<array>
+		<dict>
+			<key>PayloadContent</key>
+			<dict>
+				<key>org.mozilla.firefox</key>
+				<dict>
+					<key>Forced</key>
+					<array>
+						<dict>
+							<key>mcx_preference_settings</key>
+							<dict>
+								<key>EnterprisePoliciesEnabled</key>
+								<true/>
+								<key>ExtensionSettings</key>
+								<dict>
+									<key>family-site-blocker@parental-controls.local</key>
+									<dict>
+										<key>installation_mode</key>
+										<string>force_installed</string>
+										<key>install_url</key>
+										<string>file:///Users/Shared/Family%20Site%20Blocker/family-site-blocker.xpi</string>
+										<key>private_browsing</key>
+										<true/>
+									</dict>
+								</dict>
+								<key>DisableSafeMode</key>
+								<true/>
+								<key>BlockAboutConfig</key>
+								<true/>
+								<key>DisableProfileRefresh</key>
+								<true/>
+								<key>Preferences</key>
+								<dict>
+									<key>extensions.dnr.enabled</key>
+									<dict>
+										<key>Value</key>
+										<true/>
+										<key>Status</key>
+										<string>locked</string>
+									</dict>
+								</dict>
+							</dict>
+						</dict>
+					</array>
+				</dict>
+			</dict>
+			<key>PayloadDisplayName</key>
+			<string>Firefox settings</string>
+			<key>PayloadIdentifier</key>
+			<string>local.parental-controls.family-site-blocker.firefox.settings</string>
+			<key>PayloadType</key>
+			<string>com.apple.ManagedClient.preferences</string>
+			<key>PayloadUUID</key>
+			<string>0EFB8910-7418-4CF0-BD41-6EA7EAEBC5CE</string>
+			<key>PayloadVersion</key>
+			<integer>1</integer>
+		</dict>
+	</array>
+	<key>PayloadDescription</key>
+	<string>Keeps the Family Site Blocker add-on installed and switched on in Firefox, for every account on this Mac. Firefox installs it from /Users/Shared/Family Site Blocker/family-site-blocker.xpi, and nobody can turn it off or remove it there. Troubleshoot Mode, about:config and Refresh Firefox, which could get round it, are turned off. The add-on also works in private windows. Only an administrator can remove this profile.</string>
+	<key>PayloadDisplayName</key>
+	<string>Family Site Blocker for Firefox</string>
+	<key>PayloadIdentifier</key>
+	<string>local.parental-controls.family-site-blocker.firefox</string>
+	<key>PayloadOrganization</key>
+	<string>Family Site Blocker</string>
+	<key>PayloadScope</key>
+	<string>System</string>
+	<key>PayloadType</key>
+	<string>Configuration</string>
+	<key>PayloadUUID</key>
+	<string>6F252FB6-AE14-4CE0-B9FD-53748AC5CE64</string>
+	<key>PayloadVersion</key>
+	<integer>1</integer>
+</dict>
+</plist>

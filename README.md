@@ -57,6 +57,19 @@ By hand:
 
 For a later version, raise `version` in `extension/manifest.json`, then run **Sign with Mozilla** again, or run `npm run package:firefox`, upload the new zip on the same add-on's page and carry on from step 5.
 
+**Lock it, so nobody can switch it off (Firefox on a Mac)**
+
+On its own, the add-on can be switched off or removed in the Add-ons Manager by anyone using Firefox. The Firefox lock stops that. Firefox installs the add-on itself and gives no way to switch it off, remove it or take away its access to websites. The lock also turns off Troubleshoot Mode, `about:config` and Refresh Firefox, which could otherwise get round it, and makes the add-on work in private windows. It applies to every account on the Mac, yours included.
+
+You need the signed `.xpi` and an administrator account. The person it's for should have a Standard account (**System Settings → Users & Groups**), so they can't remove the lock.
+
+1. Put the signed add-on where Firefox looks for it. In Finder, choose **Go → Go to Folder…**, type `/Users/Shared` and press Return. Make a folder there named `Family Site Blocker`, copy the signed `.xpi` into it and rename the copy `family-site-blocker.xpi`. Other accounts can read that folder but not change it.
+2. Double-click `mac/family-site-blocker-firefox.mobileconfig`. macOS says the profile was downloaded.
+3. Open **System Settings → General → Device Management**, double-click **Family Site Blocker for Firefox**, click **Install…** and enter your password.
+4. Quit Firefox and open it again. In the Add-ons Manager, Family Site Blocker can no longer be switched off or removed, and Firefox's settings say your browser is managed by your organization.
+
+For a new version, replace `family-site-blocker.xpi` in that folder with the new signed file. Firefox updates the add-on the next time it starts. To take the lock off, select the profile in **Device Management**, click the minus button (**−**) and enter your password.
+
 ### Settings page
 
 To open it later, click the puzzle-piece **Extensions** button in the toolbar and choose **Family Site Blocker** (in Chrome you can pin it there to keep its icon in view). In Chrome, Edge and Brave it also checks six addresses against the browser's own rule matcher and shows Passed or Failed for each. Firefox doesn't let extensions run that check, so use the **Open exampleadultsite.com** button there instead.
@@ -89,12 +102,15 @@ npm run test:firefox      # 22 tests in the Firefox installed on this computer
 
 On GitHub, every push runs all three suites on a GitHub-hosted Mac (`.github/workflows/macos.yml`). The run lists the macOS, Chromium and Firefox versions and each suite's totals, and fails if any test was skipped.
 
+The Firefox lock has its own tests, which need a signed `.xpi`: `SIGNED_XPI=path/to/signed.xpi npm run test:firefox-lock`. They put the lock in force, check that Firefox installs the add-on and won't let it be switched off, and take the lock away again. On a Mac they only run on GitHub (**Firefox lock check** in the Actions tab), because the lock covers every account on the computer.
+
 No real website is contacted: every request goes to a small local server instead, so a request that never reaches that server was stopped by the browser. In both suites the first group is the test case itself, with a control that shows the site loading when the extension isn't installed. Set `HEADFUL=1` to watch the browser, or `EXTENSION_DIR=/path/to/build` to test a different build.
 
 ## Limits
 
 - It is a browser extension. Safari, other browser profiles and apps are not covered. In Firefox it stays installed only until Firefox quits, unless Mozilla signs it.
-- Anyone who can open the extensions page can turn it off or remove it, and the settings page has no PIN. On a child's device, combine it with account or system controls. An administrator can also force-install the extension and turn off private windows with managed policies: `ExtensionInstallForcelist` and `IncognitoModeAvailability` in Chrome and Edge, `ExtensionSettings` and `DisablePrivateBrowsing` in Firefox. That needs the extension packaged or published (signed, for Firefox).
+- Without a lock, anyone who can open the extensions page can turn it off or remove it, and the settings page has no PIN. Firefox on a Mac has the lock above. In Chrome and Edge, an administrator can force-install the extension with the `ExtensionInstallForcelist` policy and turn off Incognito with `IncognitoModeAvailability`, which needs the extension packaged and published. The lock only covers Firefox, so on a child's account, keep other browsers out with account or system controls.
+- Sites added on the settings page are kept in the Firefox profile, so deleting the profile folder loses them (the add-on comes back by itself under the lock). For sites that must stay blocked whatever happens, add them to the built-in list.
 - Reaching a site by its IP address, through a proxy or VPN, or through a translation or cache service is not covered unless that address is on the list too.
 
 ## Files
@@ -109,7 +125,9 @@ No real website is contacted: every request goes to a small local server instead
 | `scripts/package-firefox.mjs` | `npm run package:firefox`: makes the zip to upload to Mozilla, with Firefox's copy of `manifest.json`. |
 | `scripts/package-signed.mjs` | `npm run package:signed`: puts the signed `.xpi` from Mozilla in a zip that gives it a clear name and the gate icon in Finder. |
 | `assets/finder-icon.icns` | The gate icon for Finder. `npm run icons` makes it along with the extension's icons. |
-| `test/` | Fast checks (`blocker.test.mjs`) and the real-browser tests (`browser.e2e.mjs` for Chromium, `firefox.e2e.mjs` for Firefox). |
+| `test/` | Fast checks (`*.test.mjs`) and the real-browser tests (`browser.e2e.mjs` for Chromium, `firefox.e2e.mjs` for Firefox, `firefox-lock.e2e.mjs` for the Firefox lock). |
+| `mac/family-site-blocker-firefox.mobileconfig` | The Firefox lock for a Mac, as a configuration profile. `npm run firefox-lock` makes it from `scripts/firefox-lock.mjs`. |
+| `.github/workflows/firefox-lock.yml` | **Firefox lock check**: tests the lock with the latest signed release on a GitHub-hosted Mac. Started by hand from the Actions tab. |
 | `.github/workflows/macos.yml` | Runs all the tests on a Mac at GitHub after every push. |
 | `.github/workflows/firefox-package.yml` | Builds the Firefox zip and checks it with Mozilla's add-on linter after every push. |
 | `.github/workflows/sign-firefox.yml` | **Sign with Mozilla**: gets the add-on signed and publishes the signed files as a release. Started by hand from the Actions tab. |
