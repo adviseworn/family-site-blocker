@@ -1,6 +1,6 @@
-# One-off check, on a temporary branch. 1) Does family-site-blocker-1.1.1.zip (made on Linux) give the .xpi the
-# gate icon when opened on a Mac? 2) The same with an icon set by macOS itself and zipped like Finder's Compress.
-# Results are posted as annotations; the Mac-made zip is committed back to this branch.
+# One-off check, on a temporary branch: what icon does macOS give the .xpi (1) after Get Info-style icon setting
+# (NSWorkspace.setIcon), (2) out of a zip made from that file by ditto (Finder's Compress), (3) out of
+# family-site-blocker-1.1.1.zip made on Linux? Results are annotations; the Mac-made zip is committed back.
 name: Finder icon check
 on: push
 jobs:
@@ -15,36 +15,35 @@ jobs:
         run: |
           swiftc -O icon.swift -o icon-renderer
           swiftc -O seticon.swift -o seticon
-      - name: Set the icon with macOS, and zip it the way Finder's Compress does
+      - name: Set the icon with macOS, then zip the file the way Finder's Compress does
         run: |
-          mkdir mac && cp signed.xpi mac/family-site-blocker-1.1.1.xpi
-          echo "setIcon: $(./seticon icon_1024.png mac/family-site-blocker-1.1.1.xpi)"
-          ditto -c -k --sequesterRsrc --keepParent mac/family-site-blocker-1.1.1.xpi family-site-blocker-1.1.1-mac.zip
-          unzip -l family-site-blocker-1.1.1-mac.zip
-      - name: Open both zips with ditto and with Archive Utility
+          mkdir set && cp signed.xpi set/family-site-blocker-1.1.1.xpi
+          echo "setIcon: $(./seticon icon_1024.png set/family-site-blocker-1.1.1.xpi)"
+          cd set && ditto -c -k --sequesterRsrc --keepParent family-site-blocker-1.1.1.xpi ../family-site-blocker-1.1.1-mac.zip
+          cd .. && unzip -l family-site-blocker-1.1.1-mac.zip
+      - name: Open both zips with Archive Utility, as double-clicking them in Finder does
         run: |
           for z in family-site-blocker-1.1.1 family-site-blocker-1.1.1-mac; do
-            mkdir "ditto-$z" && ditto -x -k "$z.zip" "ditto-$z"
             mkdir "au-$z" && cp "$z.zip" "au-$z/" && open -a "Archive Utility" "au-$z/$z.zip"
           done
           sleep 8
-          ls -la@ ditto-* au-*
+          ls -la@ au-*
+          cp signed.xpi plain.xpi
       - name: Report
         if: always()
         run: |
           echo "::notice title=Machine::$(sw_vers -productName) $(sw_vers -productVersion) on $(uname -m)"
           report() { # label file
             sha=$(shasum -a 256 "$2" | cut -d' ' -f1); same=no; [ "$sha" = "6732c1af58173bafd4e8c96dfb9b9d0acedfee4a541361e8eca6ff8cea93dee2" ] && same=yes
-            echo "::notice title=$1::same bytes as the signed file: $same; $(python3 inspect-fork.py "$2")"
-            echo "::notice title=$1 icon::$(./icon-renderer "$2" 64)"
+            info=$(xattr -px com.apple.FinderInfo "$2" 2>/dev/null | tr -d ' \n')
+            fork=$(xattr -px com.apple.ResourceFork "$2" 2>/dev/null | tr -d ' \n' | shasum | cut -c1-12)
+            echo "::notice title=$1::same bytes as the signed file: $same; Finder info ${info:-none}; resource fork digest $fork"
+            for how in custom effective workspace; do echo "::notice title=$1 $how icon::$(./icon-renderer "$2" $how)"; done
           }
-          report "set by macOS" mac/family-site-blocker-1.1.1.xpi
-          for z in family-site-blocker-1.1.1 family-site-blocker-1.1.1-mac; do
-            for how in ditto au; do
-              f="$how-$z/family-site-blocker-1.1.1.xpi"
-              if [ -f "$f" ]; then report "$z via $how" "$f"; else echo "::error title=$z via $how::no .xpi came out"; fi
-            done
-          done
+          report "A set by macOS" set/family-site-blocker-1.1.1.xpi
+          report "B mac zip via Archive Utility" au-family-site-blocker-1.1.1-mac/family-site-blocker-1.1.1.xpi
+          report "C linux zip via Archive Utility" au-family-site-blocker-1.1.1/family-site-blocker-1.1.1.xpi
+          report "D no icon" plain.xpi
       - name: Commit the Mac-made zip back to this branch
         run: |
           git config user.name "github-actions[bot]"
