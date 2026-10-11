@@ -5,7 +5,6 @@ import { cpSync, mkdtempSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { chromium } from 'playwright';
 
 // The extension under test is ./extension. Set EXTENSION_DIR to test a different build of it.
 export const EXTENSION_DIR = resolve(
@@ -105,6 +104,8 @@ export async function launchBrowser(stub, { extension = true, extensionDir = EXT
     args.push(`--disable-extensions-except=${loadedFrom}`, `--load-extension=${loadedFrom}`);
   }
 
+  // Loaded here, so the Firefox tests can use the stub internet without Playwright installed.
+  const { chromium } = await import('playwright');
   const context = await chromium.launchPersistentContext(profile, {
     channel: 'chromium', // the full Chromium build, which can run extensions in headless mode
     headless: process.env.HEADFUL !== '1',
