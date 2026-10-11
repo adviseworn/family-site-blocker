@@ -1,0 +1,37 @@
+# One-off check, on a temporary branch: does family-site-blocker-1.1.1.zip, opened on a Mac, give the .xpi
+# inside the gate icon in Finder, with the .xpi unchanged? Results are posted as annotations.
+name: Finder icon check
+on: push
+jobs:
+  icon:
+    runs-on: macos-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - name: Build the icon renderer
+        run: swiftc -O icon.swift -o icon-renderer
+      - name: Open the zip with ditto, and with Archive Utility (what double-clicking it in Finder uses)
+        run: |
+          mkdir ditto-out && ditto -x -k family-site-blocker-1.1.1.zip ditto-out
+          mkdir archive-utility && cp family-site-blocker-1.1.1.zip archive-utility/
+          open -a "Archive Utility" archive-utility/family-site-blocker-1.1.1.zip
+          for i in $(seq 1 40); do [ -f archive-utility/family-site-blocker-1.1.1.xpi ] && break; sleep 1; done
+          sleep 3
+          ls -la@ ditto-out archive-utility
+      - name: Report
+        if: always()
+        run: |
+          echo "::notice title=Machine::$(sw_vers -productName) $(sw_vers -productVersion) on $(uname -m)"
+          for dir in ditto-out archive-utility; do
+            f="$dir/family-site-blocker-1.1.1.xpi"
+            if [ ! -f "$f" ]; then echo "::error title=$dir::no .xpi came out"; ls -la "$dir"; continue; fi
+            sha=$(shasum -a 256 "$f" | cut -d' ' -f1)
+            same=no; [ "$sha" = "6732c1af58173bafd4e8c96dfb9b9d0acedfee4a541361e8eca6ff8cea93dee2" ] && same=yes
+            flags=$(xattr -px com.apple.FinderInfo "$f" 2>/dev/null | tr -d ' \n' | cut -c17-20)
+            fork=$(( $(xattr -px com.apple.ResourceFork "$f" 2>/dev/null | tr -d ' \n' | wc -c) / 2 ))
+            leftovers=$(ls -A "$dir" | grep -v -e '^family-site-blocker-1.1.1' | tr '\n' ' ')
+            echo "::notice title=$dir::same bytes as the signed file: $same; Finder flags: ${flags:-none}; resource fork: $fork bytes; other items: ${leftovers:-none}"
+            echo "::notice title=$dir icon::$(./icon-renderer "$f" 64)"
+          done
+          cp ditto-out/family-site-blocker-1.1.1.xpi plain.xpi && xattr -c plain.xpi
+          echo "::notice title=plain icon::$(./icon-renderer plain.xpi 64)"
