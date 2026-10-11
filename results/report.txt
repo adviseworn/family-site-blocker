@@ -1,0 +1,35 @@
+ProductName:		macOS
+ProductVersion:		26.6.2
+BuildVersion:		25G83
+arm64
+setIcon: true
+--- au-family-site-blocker-1.1.1-mac after Archive Utility:
+total 176
+drwxr-xr-x   5 runner  staff    160 Oct 11 02:09 .
+drwxr-xr-x  16 runner  staff    512 Oct 11 02:09 ..
+-rw-r--r--@  1 runner  staff   6148 Oct 11 02:09 .DS_Store
+	com.apple.FinderInfo	   32 
+-rw-r--r--@  1 runner  staff  79931 Oct 11 02:09 family-site-blocker-1.1.1-mac.zip
+	com.apple.lastuseddate#PS	   16 
+drwxr-xr-x   3 runner  staff     96 Oct 11 02:09 set
+--- au-family-site-blocker-1.1.1 after Archive Utility:
+total 296
+drwxr-xr-x   5 runner  staff    160 Oct 11 02:10 .
+drwxr-xr-x  18 runner  staff    576 Oct 11 02:10 ..
+-rw-r--r--@  1 runner  staff   6148 Oct 11 02:10 .DS_Store
+	com.apple.FinderInfo	   32 
+-rw-------@  1 runner  staff  25080 Oct 11 01:24 family-site-blocker-1.1.1.xpi
+	com.apple.FinderInfo	   32 
+	com.apple.ResourceFork	53668 
+-rw-r--r--@  1 runner  staff  56868 Oct 11 02:10 family-site-blocker-1.1.1.zip
+	com.apple.lastuseddate#PS	   16 
+A set by macOS.xpi: same bytes as the signed file: yes; Finder info 0000000000000000040000000000000000000000000000000000000000000000; resource fork digest f4ef12d0bb10
+  effective: saved
+  workspace: saved
+C from Linux zip.xpi: same bytes as the signed file: yes; Finder info 0000000000000000040000000000000000000000000000000000000000000000; resource fork digest 95f20ef9e2a6
+  effective: saved
+  workspace: saved
+D no icon.xpi: same bytes as the signed file: yes; Finder info none; resource fork digest da39a3ee5e6b
+  effective: saved
+  workspace: saved
+128
