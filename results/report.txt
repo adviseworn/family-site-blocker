@@ -1,0 +1,17 @@
+ProductName:		macOS
+ProductVersion:		26.6.2
+BuildVersion:		25G83
+arm64
+zip sha256: 7b52aba4022ae81d4cfec55ac56e8d926610b1240919feb7c5ec5684b71a68ee (expected 7b52aba4022ae81d4cfec55ac56e8d926610b1240919feb7c5ec5684b71a68ee)
+total 352
+drwxr-xr-x  6 runner  staff    192 Oct 11 02:12 .
+drwx------+ 4 runner  staff    128 Oct 11 02:12 ..
+-rw-r--r--@ 1 runner  staff   6148 Oct 11 02:12 .DS_Store
+	com.apple.FinderInfo	   32 
+-rw-r--r--@ 1 runner  staff  25080 Oct 11 01:24 family-site-blocker-1.1.1.xpi
+	com.apple.FinderInfo	   32 
+	com.apple.ResourceFork	53668 
+-rw-r--r--@ 1 runner  staff  56868 Oct 11 02:12 family-site-blocker-1.1.1.zip
+	com.apple.lastuseddate#PS	   16 
+-rw-r--r--  1 runner  staff  25080 Oct 11 02:12 plain copy without the icon.xpi
+extracted .xpi is byte-identical to the signed file: yes
