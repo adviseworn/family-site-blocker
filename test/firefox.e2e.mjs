@@ -158,6 +158,37 @@ describe('Firefox', { skip: findFirefox() ? false : 'no Firefox found (set FIREF
       assert.match(state.privateStatus, /^Private windows are not blocked yet, .*about:addons.*“Run in Private Windows”/);
       assert.equal(state.privateButtonShown, false, 'no "Open Details page" button: Firefox does not let extensions open about:addons');
     });
+
+    test('a password locked away with a short wait comes back after it, and is locked away again', async () => {
+      const settings = tabsAfterInstall.find(({ url }) => url.endsWith('/options.html'));
+      await browser.fx.send('WebDriver:SwitchToWindow', { handle: settings.handle });
+      const shown = () =>
+        browser.run(`return ['lockbox-empty', 'lockbox-locked', 'lockbox-open'].find((id) => !document.getElementById(id).hidden)`);
+      const waitUntilShown = async (id, ms = 20_000) => {
+        const until = Date.now() + ms;
+        while ((await shown()) !== id) {
+          if (Date.now() > until) throw new Error(`${id} never showed; status: ${await browser.run("return document.getElementById('lockbox-status').textContent")}`);
+          await sleep(200);
+        }
+      };
+
+      await waitUntilShown('lockbox-empty');
+      await browser.run(`
+        document.getElementById('lockbox-delay').append(new Option('3 seconds', '3', true, true));
+        document.getElementById('lockbox-secret').value = 'Firefox-Admin-Password';
+        document.getElementById('lockbox-lock').click();`);
+      await waitUntilShown('lockbox-locked');
+      assert.equal(await browser.run("return document.getElementById('lockbox-secret').value"), '');
+
+      const started = Date.now();
+      await browser.run("document.getElementById('lockbox-start').click()");
+      await waitUntilShown('lockbox-open');
+      assert.ok(Date.now() - started >= 1500, 'not sooner than the wait allows');
+      assert.equal(await browser.run("return document.getElementById('lockbox-revealed').value"), 'Firefox-Admin-Password');
+
+      await browser.run("document.getElementById('lockbox-hide').click()");
+      await waitUntilShown('lockbox-locked');
+    });
   });
 
   describe('the extension folder itself, loaded as the README\'s "Try it" steps do', () => {
