@@ -2,16 +2,17 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { inflateRawSync } from 'node:zlib';
 
 import { normalizeDomain, parseDomainList } from '../extension/lib/domains.js';
 import { BLOCK_PAGE, CHUNK_SIZE, buildRules } from '../extension/lib/rules.js';
 import { RULES_PATH, loadBlocklists, renderRules } from '../scripts/build-rules.mjs';
 import { firefoxManifest, packageFirefox } from '../scripts/package-firefox.mjs';
+import { ICNS_PATH, packageSigned } from '../scripts/package-signed.mjs';
+import { readZip } from '../scripts/read-zip.mjs';
 
 const EXT = resolve(dirname(fileURLToPath(import.meta.url)), '..', 'extension');
 const manifest = JSON.parse(readFileSync(join(EXT, 'manifest.json'), 'utf8'));
@@ -193,39 +194,119 @@ function filesIn(dir) {
     .sort();
 }
 
-/** Reads a zip with nothing but Node: file name → contents. */
-function readZip(file) {
-  const data = readFileSync(file);
-  const end = data.lastIndexOf(Buffer.from('PK\x05\x06', 'latin1'));
-  const files = new Map();
-  let at = data.readUInt32LE(end + 16);
-  for (let left = data.readUInt16LE(end + 10); left > 0; left--) {
-    const nameLength = data.readUInt16LE(at + 28);
-    const name = data.toString('utf8', at + 46, at + 46 + nameLength);
-    const local = data.readUInt32LE(at + 42);
-    const start = local + 30 + data.readUInt16LE(local + 26) + data.readUInt16LE(local + 28);
-    const stored = data.subarray(start, start + data.readUInt32LE(at + 20));
-    if (!name.endsWith('/')) files.set(name, data.readUInt16LE(at + 10) === 8 ? inflateRawSync(stored) : stored);
-    at += 46 + nameLength + data.readUInt16LE(at + 30) + data.readUInt16LE(at + 32);
-  }
-  return files;
-}
-
 const hasZip = spawnSync('zip', ['-v']).status === 0;
 
 test('npm run package:firefox zips the whole extension, manifest.json at the top, with Firefox\'s manifest', { skip: !hasZip && 'no zip command' }, () => {
   const out = mkdtempSync(join(tmpdir(), 'family-site-blocker-package-'));
   try {
     const { zip } = packageFirefox({ outDir: out });
-    const files = readZip(zip);
+    const files = readZip(readFileSync(zip));
     const expected = filesIn(EXT).filter((path) => !path.startsWith('_metadata/') && !path.endsWith('.DS_Store'));
     assert.deepEqual([...files.keys()].sort(), expected);
-    assert.deepEqual(JSON.parse(files.get('manifest.json')), firefoxManifest(manifest));
-    for (const [name, contents] of files) {
-      if (name !== 'manifest.json') assert.ok(contents.equals(readFileSync(join(EXT, name))), `${name} is copied unchanged`);
+    assert.deepEqual(JSON.parse(files.get('manifest.json').data), firefoxManifest(manifest));
+    for (const [name, { data }] of files) {
+      if (name !== 'manifest.json') assert.ok(data.equals(readFileSync(join(EXT, name))), `${name} is copied unchanged`);
     }
   } finally {
     rmSync(out, { recursive: true, force: true });
+  }
+});
+
+test('assets/finder-icon.icns holds the gate icon at every size Finder uses (npm run icons makes it)', () => {
+  const icns = readFileSync(ICNS_PATH);
+  assert.equal(icns.toString('latin1', 0, 4), 'icns');
+  assert.equal(icns.readUInt32BE(4), icns.length);
+  const found = [];
+  for (let at = 8; at < icns.length; at += icns.readUInt32BE(at + 4)) {
+    const png = icns.subarray(at + 8, at + icns.readUInt32BE(at + 4));
+    assert.ok(png.subarray(0, 8).equals(Buffer.from('\x89PNG\r\n\x1a\n', 'latin1')), 'each entry is a PNG');
+    found.push(`${icns.toString('latin1', at, at + 4)}=${png.readUInt32BE(16)}x${png.readUInt32BE(20)}`);
+  }
+  assert.deepEqual(found, ['icp4=16x16', 'icp5=32x32', 'ic11=32x32', 'ic12=64x64', 'ic07=128x128', 'ic13=256x256', 'ic08=256x256', 'ic14=512x512', 'ic09=512x512', 'ic10=1024x1024']);
+});
+
+/** Makes a stand-in for the .xpi Mozilla signs: a zip of the given files. */
+function makeXpi(dir, files) {
+  const folder = mkdtempSync(join(dir, 'xpi-'));
+  for (const [name, contents] of Object.entries(files)) {
+    mkdirSync(dirname(join(folder, name)), { recursive: true });
+    writeFileSync(join(folder, name), contents);
+  }
+  const xpi = `${folder}.xpi`;
+  assert.equal(spawnSync('zip', ['-qrX', xpi, '.'], { cwd: folder }).status, 0);
+  return xpi;
+}
+
+const signedFiles = (changes = {}) => ({
+  'manifest.json': JSON.stringify({ ...manifest, version: '9.8.7', ...changes }),
+  'background.js': '// …',
+  'META-INF/mozilla.rsa': 'signature',
+  'META-INF/cose.sig': 'signature',
+});
+
+test('npm run package:signed wraps a signed .xpi with a clear name and the Finder icon', { skip: !hasZip && 'no zip command' }, () => {
+  const dir = mkdtempSync(join(tmpdir(), 'family-site-blocker-signed-test-'));
+  try {
+    const signed = makeXpi(dir, signedFiles());
+    const result = packageSigned(signed, { outDir: dir });
+    assert.equal(result.zip, join(dir, 'family-site-blocker-9.8.7.zip'));
+    const files = readZip(readFileSync(result.zip));
+    assert.deepEqual([...files.keys()].sort(), ['__MACOSX/._family-site-blocker-9.8.7.xpi', 'family-site-blocker-9.8.7.xpi']);
+    assert.ok(files.get('family-site-blocker-9.8.7.xpi').data.equals(readFileSync(signed)), 'the signed file is stored unchanged');
+    for (const [name, { mode }] of files) assert.equal(mode, 0o100644, `${name} is readable by every account`);
+
+    // The sidecar, laid out the way macOS itself stores a file's custom icon (compared on macOS 26).
+    const sidecar = files.get('__MACOSX/._family-site-blocker-9.8.7.xpi').data;
+    assert.deepEqual([sidecar.readUInt32BE(0), sidecar.readUInt32BE(4), sidecar.readUInt16BE(24)], [0x00051607, 0x00020000, 2], 'AppleDouble with two entries');
+    assert.deepEqual([sidecar.readUInt32BE(26), sidecar.readUInt32BE(30), sidecar.readUInt32BE(34)], [9, 50, 32], 'Finder info');
+    assert.deepEqual([sidecar.readUInt32BE(38), sidecar.readUInt32BE(42), sidecar.readUInt32BE(46)], [2, 82, sidecar.length - 82], 'resource fork');
+    assert.equal(sidecar.readUInt16BE(50 + 8), 0x0400, 'Finder flags: has a custom icon');
+    const fork = sidecar.subarray(82);
+    const icns = readFileSync(ICNS_PATH);
+    const [dataAt, mapAt, dataLength, mapLength] = [0, 4, 8, 12].map((at) => fork.readUInt32BE(at));
+    assert.deepEqual([dataAt, mapAt, dataLength, mapLength], [256, 256 + 4 + icns.length, 4 + icns.length, 50]);
+    const map = fork.subarray(mapAt);
+    assert.ok(map.subarray(0, 16).equals(fork.subarray(0, 16)), 'the map starts with a copy of the header');
+    assert.deepEqual([map.readUInt16BE(24), map.readUInt16BE(26), map.readUInt16BE(28)], [28, 50, 0], 'one resource type, no names');
+    assert.deepEqual([map.toString('latin1', 30, 34), map.readUInt16BE(34), map.readUInt16BE(36)], ['icns', 0, 10], 'one icns resource');
+    assert.deepEqual([map.readInt16BE(38), map.readUInt16BE(40), map.readUInt32BE(42)], [-16455, 0xffff, 0], 'id -16455, where Finder looks');
+    assert.equal(fork.readUInt32BE(dataAt), icns.length);
+    assert.ok(fork.subarray(dataAt + 4, dataAt + 4 + icns.length).equals(icns), 'the resource is assets/finder-icon.icns');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('npm run package:signed refuses anything but this add-on, signed by Mozilla', { skip: !hasZip && 'no zip command' }, () => {
+  const dir = mkdtempSync(join(tmpdir(), 'family-site-blocker-signed-test-'));
+  try {
+    const { 'META-INF/mozilla.rsa': _, 'META-INF/cose.sig': __, ...unsigned } = signedFiles();
+    assert.throws(() => packageSigned(makeXpi(dir, unsigned), { outDir: dir }), /isn't signed by Mozilla/);
+    const other = { browser_specific_settings: { gecko: { id: 'someone-else@example.com' } } };
+    assert.throws(() => packageSigned(makeXpi(dir, signedFiles(other)), { outDir: dir }), /is a different add-on \(someone-else@example\.com\)/);
+    writeFileSync(join(dir, 'notes.xpi'), 'not a zip');
+    assert.throws(() => packageSigned(join(dir, 'notes.xpi'), { outDir: dir }), /isn't an add-on file/);
+    assert.deepEqual(readdirSync(dir).filter((name) => name.endsWith('.zip')), [], 'nothing written');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('on a Mac, opening the zip puts the icon on the .xpi', { skip: process.platform !== 'darwin' && 'needs macOS' }, () => {
+  const dir = mkdtempSync(join(tmpdir(), 'family-site-blocker-signed-test-'));
+  try {
+    const signed = makeXpi(dir, signedFiles());
+    const { zip } = packageSigned(signed, { outDir: dir });
+    // ditto unpacks zips the way Archive Utility does when you double-click one in Finder.
+    assert.equal(spawnSync('ditto', ['-x', '-k', zip, join(dir, 'opened')]).status, 0);
+    const opened = join(dir, 'opened', 'family-site-blocker-9.8.7.xpi');
+    assert.ok(readFileSync(opened).equals(readFileSync(signed)), 'the .xpi comes out unchanged');
+    const xattr = (name) => spawnSync('xattr', ['-px', name, opened], { encoding: 'utf8' }).stdout.replace(/\s/g, '').toLowerCase();
+    assert.equal(xattr('com.apple.FinderInfo').slice(16, 20), '0400', 'Finder flags: has a custom icon');
+    const sidecar = readZip(readFileSync(zip)).get('__MACOSX/._family-site-blocker-9.8.7.xpi').data;
+    assert.equal(xattr('com.apple.ResourceFork'), sidecar.subarray(82).toString('hex'), 'the icon is in the resource fork');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
   }
 });
 

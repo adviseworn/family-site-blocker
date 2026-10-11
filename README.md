@@ -42,15 +42,16 @@ Signing is free, and the add-on can stay unlisted, so it isn't published on Mozi
 2. Sign in at [addons.mozilla.org/developers](https://addons.mozilla.org/developers/) with a Mozilla account and choose **Submit a New Add-on**.
 3. When asked how to distribute it, choose **On your own**, then upload the zip. Mozilla runs the same check as `.github/workflows/firefox-package.yml`, which finds no errors or warnings in this zip.
 4. When asked whether you need to submit source code, choose **No**: the add-on's code isn't minified or compiled.
-5. Submit the version. Mozilla signs it automatically. When it's ready, download the signed `.xpi` file from the version's page. Mozilla names it with a code plus the version number, like `a138dee9ad3f4f03aa63-1.1.1.xpi`. You can rename it, for example to `family-site-blocker-1.1.1.xpi`. Renaming doesn't affect Mozilla's signature, and Firefox shows the add-on as Family Site Blocker either way.
-6. In Firefox, remove the temporary copy if it's still loaded (on `about:debugging#/runtime/this-firefox`). Then open `about:addons`, click the gear (**⚙**), choose **Install Add-on From File…**, pick the `.xpi` and click **Add**. Tick **Allow this extension to run in Private Windows** if Firefox offers it.
+5. Submit the version. Mozilla signs it automatically. When it's ready, download the signed `.xpi` file from the version's page. Mozilla names it with a code plus the version number, like `a138dee9ad3f4f03aa63-1.1.1.xpi`, and Finder shows it with a blank document icon.
+6. On a Mac, give it a clear name and the add-on's gate icon. Run `npm run package:signed --` followed by the path to the `.xpi`, for example `npm run package:signed -- ~/Downloads/a138dee9ad3f4f03aa63-1.1.1.xpi` (dragging the file into Terminal types its path). It checks that the file is Family Site Blocker, signed by Mozilla, and writes `dist/family-site-blocker-1.1.1.zip`. Double-click that zip in Finder to get `family-site-blocker-1.1.1.xpi` with the gate icon. It's the same signed file, so it installs the same way. To give it to another Mac, send the zip: the `.xpi` on its own arrives without the icon.
+
+   Without Node, you can do this by hand. Rename the file, then open `extension/icons/icon128.png` in Preview and choose **Edit → Select All**, then **Edit → Copy**. Select the `.xpi`, choose **File → Get Info**, click the small icon at the top of the window and choose **Edit → Paste**. Neither the name nor the icon affects Mozilla's signature, and Firefox shows the add-on as Family Site Blocker either way.
+7. In Firefox, remove the temporary copy if it's still loaded (on `about:debugging#/runtime/this-firefox`). Then open `about:addons`, click the gear (**⚙**), choose **Install Add-on From File…**, pick the `.xpi` and click **Add**. Tick **Allow this extension to run in Private Windows** if Firefox offers it.
 
    Double-clicking the `.xpi` in Finder won't work at first: macOS doesn't link `.xpi` files to Firefox, so it says no application is set to open it. To change that, select the file, choose **File → Get Info**, set **Open with** to Firefox and click **Change All…**. If Firefox isn't listed, choose **Other…**, set **Enable** to **All Applications** and pick Firefox. From then on, double-clicking a `.xpi` opens Firefox, which asks whether to add it.
+8. Quit Firefox, open it again and visit `exampleadultsite.com`. It's still blocked, and sites you add on the settings page now stay too.
 
-   Finder also shows the `.xpi` with a blank document icon. To give it the add-on's gate icon, open `extension/icons/icon128.png` in Preview and choose **Edit → Select All**, then **Edit → Copy**. Then select the `.xpi`, choose **File → Get Info**, click the small icon at the top of the window and choose **Edit → Paste**. Finder keeps the icon outside the file's contents, so Mozilla's signature still holds.
-7. Quit Firefox, open it again and visit `exampleadultsite.com`. It's still blocked, and sites you add on the settings page now stay too.
-
-For a later version, raise `version` in `extension/manifest.json`, run `npm run package:firefox` again and upload the new zip on the same add-on's page.
+For a later version, raise `version` in `extension/manifest.json`, run `npm run package:firefox` again, upload the new zip on the same add-on's page and carry on from step 5.
 
 ### Settings page
 
@@ -102,6 +103,8 @@ No real website is contacted: every request goes to a small local server instead
 | `blocklists/` | The built-in list, as plain text. |
 | `scripts/build-rules.mjs` | `npm run build`: turns `blocklists/` into `adult.json`. |
 | `scripts/package-firefox.mjs` | `npm run package:firefox`: makes the zip to upload to Mozilla, with Firefox's copy of `manifest.json`. |
+| `scripts/package-signed.mjs` | `npm run package:signed`: puts the signed `.xpi` from Mozilla in a zip that gives it a clear name and the gate icon in Finder. |
+| `assets/finder-icon.icns` | The gate icon for Finder. `npm run icons` makes it along with the extension's icons. |
 | `test/` | Fast checks (`blocker.test.mjs`) and the real-browser tests (`browser.e2e.mjs` for Chromium, `firefox.e2e.mjs` for Firefox). |
 | `.github/workflows/macos.yml` | Runs all the tests on a Mac at GitHub after every push. |
 | `.github/workflows/firefox-package.yml` | Builds the Firefox zip and checks it with Mozilla's add-on linter after every push. |
