@@ -46,6 +46,8 @@ Signing is free, and the add-on can stay unlisted, so it isn't published on Mozi
 6. In Firefox, remove the temporary copy if it's still loaded (on `about:debugging#/runtime/this-firefox`). Then open `about:addons`, click the gear (**⚙**), choose **Install Add-on From File…**, pick the `.xpi` and click **Add**. Tick **Allow this extension to run in Private Windows** if Firefox offers it.
 
    Double-clicking the `.xpi` in Finder won't work at first: macOS doesn't link `.xpi` files to Firefox, so it says no application is set to open it. To change that, select the file, choose **File → Get Info**, set **Open with** to Firefox and click **Change All…**. If Firefox isn't listed, choose **Other…**, set **Enable** to **All Applications** and pick Firefox. From then on, double-clicking a `.xpi` opens Firefox, which asks whether to add it.
+
+   Finder also shows the `.xpi` with a blank document icon. To give it the add-on's gate icon, open `extension/icons/icon128.png` in Preview and choose **Edit → Select All**, then **Edit → Copy**. Then select the `.xpi`, choose **File → Get Info**, click the small icon at the top of the window and choose **Edit → Paste**. Finder keeps the icon outside the file's contents, so Mozilla's signature still holds.
 7. Quit Firefox, open it again and visit `exampleadultsite.com`. It's still blocked, and sites you add on the settings page now stay too.
 
 For a later version, raise `version` in `extension/manifest.json`, run `npm run package:firefox` again and upload the new zip on the same add-on's page.
