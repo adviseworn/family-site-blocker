@@ -40,8 +40,8 @@ async function refresh() {
 }
 
 // Only some browsers let an extension ask their rule matcher directly: Chrome and Edge for extensions
-// loaded unpacked, Firefox only with an extra permission and a developer setting. Everywhere else, point
-// at the test site instead.
+// loaded unpacked, Firefox only with an extra permission and a developer setting. Everywhere else, the
+// sentence introducing the results stays hidden and the note points at the test site instead.
 async function runChecks() {
   const list = $('results');
   const note = $('check-note');
@@ -55,9 +55,13 @@ async function runChecks() {
       outcomes.push(matchedRules.length > 0);
     }
   } catch {
-    note.textContent = "This browser doesn't let extensions run this check. Use the button above to open the test site instead.";
+    $('check-intro').hidden = true;
+    note.textContent = isFirefox
+      ? "Firefox doesn't let add-ons run this check automatically, so use the button above."
+      : "This browser doesn't let extensions run this check automatically, so use the button above.";
     return;
   }
+  $('check-intro').hidden = false;
 
   let failed = 0;
   CHECKS.forEach((check, index) => {

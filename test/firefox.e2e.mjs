@@ -140,6 +140,8 @@ describe('Firefox', { skip: findFirefox() ? false : 'no Firefox found (set FIREF
         state = await browser.run(`return {
           summary: document.getElementById('summary').textContent,
           note: document.getElementById('check-note').textContent,
+          introShown: !document.getElementById('check-intro').hidden,
+          results: document.querySelectorAll('#results li').length,
           accessShown: !document.getElementById('access').hidden,
           privateStatus: document.getElementById('private-status').textContent,
           privateButtonShown: !document.getElementById('private-open').hidden,
@@ -149,7 +151,9 @@ describe('Firefox', { skip: findFirefox() ? false : 'no Firefox found (set FIREF
       } while (Date.now() < until);
 
       assert.match(state.summary, /^20 sites on the built-in list/);
-      assert.equal(state.note, "This browser doesn't let extensions run this check. Use the button above to open the test site instead.");
+      assert.equal(state.note, "Firefox doesn't let add-ons run this check automatically, so use the button above.");
+      assert.equal(state.introShown, false, 'no sentence promising a check Firefox cannot run');
+      assert.equal(state.results, 0);
       assert.equal(state.accessShown, false, 'no website access warning, because Firefox granted access');
       assert.match(state.privateStatus, /^Private windows are not blocked yet, .*about:addons.*“Run in Private Windows”/);
       assert.equal(state.privateButtonShown, false, 'no "Open Details page" button: Firefox does not let extensions open about:addons');
