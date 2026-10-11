@@ -66,7 +66,7 @@ You need the signed `.xpi` and an administrator account. The person it's for sho
 1. Put the signed add-on where Firefox looks for it. In Finder, choose **Go → Go to Folder…**, type `/Users/Shared` and press Return. Make a folder there named `Family Site Blocker`, copy the signed `.xpi` into it and rename the copy `family-site-blocker.xpi`. Other accounts can read that folder but not change it.
 2. Double-click `mac/family-site-blocker-firefox.mobileconfig`. macOS says the profile was downloaded.
 3. Open **System Settings → General → Device Management**, double-click **Family Site Blocker for Firefox**, click **Install…** and enter your password.
-4. Quit Firefox and open it again. In the Add-ons Manager, Family Site Blocker can no longer be switched off or removed, and Firefox's settings say your browser is managed by your organization.
+4. Quit Firefox and open it again, then open the Add-ons Manager. Family Site Blocker has no on/off switch any more, and its **⋯** menu says **Can't Be Removed**. If it had been switched off before the lock went on, it stays off and shows a switch to turn it on: turn it on once, and the switch disappears for good.
 
 For a new version, replace `family-site-blocker.xpi` in that folder with the new signed file. Firefox updates the add-on the next time it starts. To take the lock off, select the profile in **Device Management**, click the minus button (**−**) and enter your password.
 
