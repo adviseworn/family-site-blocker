@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 // Checks a signed .xpi against the folder that was uploaded for signing: every file there, unchanged, plus
 // Mozilla's signature files in META-INF/ and nothing else. manifest.json is compared as data, because
-// Mozilla rewrites its whitespace when it signs.
+// Mozilla rewrites its whitespace when it signs. Hidden files are skipped: web-ext never uploads them, and
+// it leaves one of its own (.amo-upload-uuid) in the folder.
 // usage: node scripts/check-signed.mjs <signed .xpi> <folder that was uploaded>
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, sep } from 'node:path';
@@ -17,7 +18,8 @@ if (!xpiPath || !folder) {
 const signed = readZip(readFileSync(xpiPath));
 const uploaded = readdirSync(folder, { recursive: true })
   .filter((path) => statSync(join(folder, path)).isFile())
-  .map((path) => path.split(sep).join('/'));
+  .map((path) => path.split(sep).join('/'))
+  .filter((path) => !path.split('/').some((part) => part.startsWith('.')));
 
 const problems = [];
 for (const name of uploaded) {
