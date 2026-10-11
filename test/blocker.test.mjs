@@ -292,6 +292,36 @@ test('npm run package:signed refuses anything but this add-on, signed by Mozilla
   }
 });
 
+test('scripts/check-signed.mjs accepts the uploaded files, unchanged, plus a signature, and nothing else', { skip: !hasZip && 'no zip command' }, () => {
+  const dir = mkdtempSync(join(tmpdir(), 'family-site-blocker-check-test-'));
+  try {
+    const uploaded = join(dir, 'uploaded');
+    mkdirSync(uploaded);
+    writeFileSync(join(uploaded, 'manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`);
+    writeFileSync(join(uploaded, 'background.js'), '// …');
+    const check = (files) => spawnSync(process.execPath, [join(EXT, '..', 'scripts', 'check-signed.mjs'), makeXpi(dir, files), uploaded], { encoding: 'utf8' });
+    const signature = { 'META-INF/mozilla.rsa': 'signature', 'META-INF/cose.sig': 'signature' };
+    const rewritten = JSON.stringify(manifest); // Mozilla rewrites the manifest's whitespace when it signs.
+
+    const ok = check({ 'manifest.json': rewritten, 'background.js': '// …', ...signature });
+    assert.equal(ok.status, 0, ok.stderr);
+    assert.match(ok.stdout, /the 2 files uploaded, unchanged, plus Mozilla's signature/);
+    for (const [files, problem] of [
+      [{ 'manifest.json': rewritten, 'background.js': '// changed', ...signature }, /background\.js is different/],
+      [{ 'manifest.json': rewritten, ...signature }, /background\.js is missing/],
+      [{ 'manifest.json': rewritten, 'background.js': '// …', 'extra.js': '', ...signature }, /extra\.js was added/],
+      [{ 'manifest.json': rewritten, 'background.js': '// …' }, /no signature files/],
+      [{ 'manifest.json': JSON.stringify({ ...manifest, version: '0.0.1' }), 'background.js': '// …', ...signature }, /manifest\.json is different/],
+    ]) {
+      const run = check(files);
+      assert.equal(run.status, 1, `should fail with ${problem}`);
+      assert.match(run.stderr, problem);
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('on a Mac, opening the zip puts the icon on the .xpi', { skip: process.platform !== 'darwin' && 'needs macOS' }, () => {
   const dir = mkdtempSync(join(tmpdir(), 'family-site-blocker-signed-test-'));
   try {

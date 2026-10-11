@@ -1,0 +1,84 @@
+# Signs the Firefox add-on with Mozilla (addons.mozilla.org, unlisted) and publishes the result as a GitHub
+# release named after the version: the signed .xpi, and the zip that gives it the add-on's icon on a Mac
+# (npm run package:signed). Start it from the Actions tab with "Run workflow".
+#
+# It needs two repository secrets (Settings → Secrets and variables → Actions), the two parts of an API key
+# from https://addons.mozilla.org/developers/addon/api/key/ : AMO_JWT_ISSUER (the "JWT issuer") and
+# AMO_JWT_SECRET (the "JWT secret").
+name: Sign with Mozilla
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write # to publish the release
+
+concurrency:
+  group: sign-with-mozilla
+
+jobs:
+  sign:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+
+      - name: Check that the API key is saved
+        env:
+          AMO_JWT_ISSUER: ${{ secrets.AMO_JWT_ISSUER }}
+          AMO_JWT_SECRET: ${{ secrets.AMO_JWT_SECRET }}
+        run: |
+          if [ -z "$AMO_JWT_ISSUER" ] || [ -z "$AMO_JWT_SECRET" ]; then
+            echo "::error title=No API key::Save AMO_JWT_ISSUER and AMO_JWT_SECRET under Settings → Secrets and variables → Actions. They come from https://addons.mozilla.org/developers/addon/api/key/"
+            exit 1
+          fi
+
+      - name: Build the Firefox package
+        id: build
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          npm run package:firefox
+          version=$(node -p "require('./extension/manifest.json').version")
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          if gh release view "v$version" >/dev/null 2>&1; then
+            echo "::error title=Already released::Version $version is already signed and released. Raise version in extension/manifest.json first."
+            exit 1
+          fi
+
+      - name: Upload to Mozilla and wait for the signed file
+        env:
+          WEB_EXT_API_KEY: ${{ secrets.AMO_JWT_ISSUER }}
+          WEB_EXT_API_SECRET: ${{ secrets.AMO_JWT_SECRET }}
+        run: npx --yes web-ext@10.7.0 sign --channel=unlisted --source-dir=dist/firefox --artifacts-dir=web-ext-artifacts --approval-timeout=1500000
+
+      - name: Check the signed file and make the Mac zip
+        env:
+          VERSION: ${{ steps.build.outputs.version }}
+        run: |
+          signed=$(ls web-ext-artifacts/*.xpi)
+          node scripts/check-signed.mjs "$signed" dist/firefox
+          npm run package:signed -- "$signed"
+          cp "$signed" "dist/family-site-blocker-$VERSION.xpi"
+          echo "::notice title=Signed::$(node scripts/check-signed.mjs "$signed" dist/firefox | sed 's/^[^:]*: //'); sha256 $(sha256sum "$signed" | cut -c1-16)…"
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.build.outputs.version }}
+        run: |
+          cat > notes.md <<EOF
+          Version $VERSION, signed by Mozilla for Firefox.
+
+          - **On a Mac:** download \`family-site-blocker-$VERSION.zip\` and double-click it. You get \`family-site-blocker-$VERSION.xpi\` with the add-on's icon.
+          - **Elsewhere:** download \`family-site-blocker-$VERSION.xpi\`.
+
+          Then in Firefox, open \`about:addons\`, click the gear (⚙), choose **Install Add-on From File…** and pick the \`.xpi\`.
+          EOF
+          gh release create "v$VERSION" "dist/family-site-blocker-$VERSION.zip" "dist/family-site-blocker-$VERSION.xpi" \
+            --target "$GITHUB_SHA" --title "Family Site Blocker $VERSION" --notes-file notes.md
+          echo "::notice title=Released::$(gh release view "v$VERSION" --json url --jq .url)"
