@@ -1,14 +1,23 @@
 #!/usr/bin/env node
 // The Firefox lock: enterprise policies that make Firefox install Family Site Blocker itself and keep it
 // switched on. With them in force, the Add-ons Manager can't turn the add-on off, remove it or take away
-// its website access, and the other ways round it are closed: Troubleshoot Mode (starts Firefox with
-// add-ons off), about:config (extensions.dnr.enabled switches off every add-on's blocking rules) and
-// Refresh Firefox (would wipe the sites added on the settings page). The add-on also runs in private windows.
+// its website access, and the other ways round it are closed: private windows (where add-ons don't run
+// unless someone allows it in the Add-ons Manager), Troubleshoot Mode (starts Firefox with add-ons off),
+// about:config (extensions.dnr.enabled switches off every add-on's blocking rules) and Refresh Firefox
+// (would wipe the sites added on the settings page).
+//
+// It has to work next to other programs that set Firefox policies, such as other blockers. Firefox takes
+// each policy, by name, from one place only: when a profile and another program both set one, the profile's
+// wins and the other program's is dropped whole. Other blockers lock their own add-ons with ExtensionSettings
+// (Plucky does), so this lock doesn't use it: it uses the older Extensions policy. Its other policies are the
+// ones such programs set the same way (Plucky sets all five alike). Preferences is the one that could
+// differ: if another program locks other preferences with it, the profile's Preferences replaces theirs.
 //
 // `npm run firefox-lock` writes them as mac/family-site-blocker-firefox.mobileconfig, a configuration
 // profile: installed once with an administrator's password, it applies to every account on the Mac, and only
-// an administrator can remove it. Firefox installs the add-on from XPI_PATH and, each time it starts, updates
-// it when a newer signed version has been put there.
+// an administrator can remove it. Firefox installs the add-on from XPI_PATH once in each Firefox profile (and
+// tries again at the next start if the file isn't there yet). It doesn't take a newer version from there by
+// itself; the lock still lets anyone install a newer signed version over it.
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, relative } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -20,11 +29,10 @@ export const PROFILE_PATH = join(ROOT, 'mac', 'family-site-blocker-firefox.mobil
 export const XPI_PATH = '/Users/Shared/Family Site Blocker/family-site-blocker.xpi';
 
 /** The policies, in the form Firefox reads them (policies.json, or the org.mozilla.firefox settings on a Mac). */
-export function firefoxPolicies(installUrl = pathToFileURL(XPI_PATH).href) {
+export function firefoxPolicies(xpiPath = XPI_PATH) {
   return {
-    ExtensionSettings: {
-      [ADDON_ID]: { installation_mode: 'force_installed', install_url: installUrl, private_browsing: true },
-    },
+    Extensions: { Install: [xpiPath], Locked: [ADDON_ID] },
+    DisablePrivateBrowsing: true,
     DisableSafeMode: true,
     BlockAboutConfig: true,
     DisableProfileRefresh: true,
@@ -70,21 +78,22 @@ export function mobileconfig(settings = macSettings()) {
         PayloadDisplayName: 'Firefox settings',
         PayloadIdentifier: 'local.parental-controls.family-site-blocker.firefox.settings',
         PayloadType: 'com.apple.ManagedClient.preferences',
-        PayloadUUID: '0EFB8910-7418-4CF0-BD41-6EA7EAEBC5CE',
+        PayloadUUID: '27DF5EE7-2FC4-49DA-8FBF-D509708E1522',
         PayloadVersion: 1,
       },
     ],
     PayloadDescription:
       'Keeps the Family Site Blocker add-on installed and switched on in Firefox, for every account on this Mac. ' +
       `Firefox installs it from ${XPI_PATH}, and nobody can turn it off or remove it there. ` +
-      'Troubleshoot Mode, about:config and Refresh Firefox, which could get round it, are turned off. ' +
-      'The add-on also works in private windows. Only an administrator can remove this profile.',
+      'Private windows, Troubleshoot Mode, about:config and Refresh Firefox, which could get round it, are turned off. ' +
+      'Settings that other programs, such as another blocker, give Firefox for their own add-ons stay in force. ' +
+      'Only an administrator can remove this profile.',
     PayloadDisplayName: 'Family Site Blocker for Firefox',
     PayloadIdentifier: 'local.parental-controls.family-site-blocker.firefox',
     PayloadOrganization: 'Family Site Blocker',
     PayloadScope: 'System',
     PayloadType: 'Configuration',
-    PayloadUUID: '6F252FB6-AE14-4CE0-B9FD-53748AC5CE64',
+    PayloadUUID: 'C3B0C6B7-3BE0-4536-A299-E2F9BF95B6E2',
     PayloadVersion: 1,
   });
 }

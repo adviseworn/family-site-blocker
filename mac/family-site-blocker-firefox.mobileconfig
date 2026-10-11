@@ -16,18 +16,19 @@
 							<dict>
 								<key>EnterprisePoliciesEnabled</key>
 								<true/>
-								<key>ExtensionSettings</key>
+								<key>Extensions</key>
 								<dict>
-									<key>family-site-blocker@parental-controls.local</key>
-									<dict>
-										<key>installation_mode</key>
-										<string>force_installed</string>
-										<key>install_url</key>
-										<string>file:///Users/Shared/Family%20Site%20Blocker/family-site-blocker.xpi</string>
-										<key>private_browsing</key>
-										<true/>
-									</dict>
+									<key>Install</key>
+									<array>
+										<string>/Users/Shared/Family Site Blocker/family-site-blocker.xpi</string>
+									</array>
+									<key>Locked</key>
+									<array>
+										<string>family-site-blocker@parental-controls.local</string>
+									</array>
 								</dict>
+								<key>DisablePrivateBrowsing</key>
+								<true/>
 								<key>DisableSafeMode</key>
 								<true/>
 								<key>BlockAboutConfig</key>
@@ -56,13 +57,13 @@
 			<key>PayloadType</key>
 			<string>com.apple.ManagedClient.preferences</string>
 			<key>PayloadUUID</key>
-			<string>0EFB8910-7418-4CF0-BD41-6EA7EAEBC5CE</string>
+			<string>27DF5EE7-2FC4-49DA-8FBF-D509708E1522</string>
 			<key>PayloadVersion</key>
 			<integer>1</integer>
 		</dict>
 	</array>
 	<key>PayloadDescription</key>
-	<string>Keeps the Family Site Blocker add-on installed and switched on in Firefox, for every account on this Mac. Firefox installs it from /Users/Shared/Family Site Blocker/family-site-blocker.xpi, and nobody can turn it off or remove it there. Troubleshoot Mode, about:config and Refresh Firefox, which could get round it, are turned off. The add-on also works in private windows. Only an administrator can remove this profile.</string>
+	<string>Keeps the Family Site Blocker add-on installed and switched on in Firefox, for every account on this Mac. Firefox installs it from /Users/Shared/Family Site Blocker/family-site-blocker.xpi, and nobody can turn it off or remove it there. Private windows, Troubleshoot Mode, about:config and Refresh Firefox, which could get round it, are turned off. Settings that other programs, such as another blocker, give Firefox for their own add-ons stay in force. Only an administrator can remove this profile.</string>
 	<key>PayloadDisplayName</key>
 	<string>Family Site Blocker for Firefox</string>
 	<key>PayloadIdentifier</key>
@@ -74,7 +75,7 @@
 	<key>PayloadType</key>
 	<string>Configuration</string>
 	<key>PayloadUUID</key>
-	<string>6F252FB6-AE14-4CE0-B9FD-53748AC5CE64</string>
+	<string>C3B0C6B7-3BE0-4536-A299-E2F9BF95B6E2</string>
 	<key>PayloadVersion</key>
 	<integer>1</integer>
 </dict>
