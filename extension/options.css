@@ -112,6 +112,11 @@ button:hover {
   border-bottom: 1px solid var(--line);
 }
 
+/* No results yet, or a browser that won't run the check: no stray line. */
+.results:empty {
+  display: none;
+}
+
 .results li {
   display: grid;
   grid-template-columns: 4.5rem minmax(0, 1fr);

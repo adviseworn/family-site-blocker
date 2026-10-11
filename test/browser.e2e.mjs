@@ -281,7 +281,7 @@ describe('real browser', () => {
       }
     });
 
-    test("if the browser won't run the rule check, as in Firefox, it says to open the test site instead", async () => {
+    test("if the browser won't run the rule check, as in Firefox, it says so plainly and points to the test site", async () => {
       const page = await browser.context.newPage();
       await page.addInitScript(() => {
         chrome.declarativeNetRequest.testMatchOutcome = undefined;
@@ -291,8 +291,9 @@ describe('real browser', () => {
         await page.waitForFunction(() => document.querySelector('#check-note')?.textContent.length > 0);
         assert.equal(
           await page.locator('#check-note').innerText(),
-          "This browser doesn't let extensions run this check. Use the button above to open the test site instead.",
+          "This browser doesn't let extensions run this check automatically, so use the button above.",
         );
+        assert.equal(await page.locator('#check-intro').isVisible(), false, 'no sentence promising a check that cannot run');
         assert.equal(await page.locator('#results li').count(), 0);
         assert.match(await page.locator('#summary').innerText(), /^20 sites on the built-in list/);
       } finally {
@@ -304,6 +305,7 @@ describe('real browser', () => {
       const page = await openSettings();
       try {
         assert.match(await page.locator('#check-note').innerText(), /^All \d+ checks passed\.$/);
+        assert.equal(await page.locator('#check-intro').isVisible(), true, 'the sentence introducing the results is shown');
         assert.deepEqual(page.errors, []);
       } finally {
         await page.close();
