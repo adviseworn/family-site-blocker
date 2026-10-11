@@ -126,16 +126,29 @@ describe('Firefox lock', { skip: whyNot() }, () => {
 
   test('test case: with the lock, exampleadultsite.com is blocked', () => assertBlocked(`http://${SITE}/`));
 
-  test('the Add-ons Manager offers no way to switch it off or remove it, and switching it off is refused', async () => {
-    // Its switch and Remove item only appear when the add-on's permissions include them (checked above);
-    // this is what flipping the switch would ask of Firefox.
-    const tried = await chrome(`
-      const a = await AddonManager.getAddonByID(arguments[0]);
-      let disable;
-      try { await a.disable(); disable = 'allowed'; } catch (error) { disable = 'refused'; }
-      const after = await AddonManager.getAddonByID(arguments[0]);
-      return { disable, stillActive: after.isActive, removeAllowedByPolicy: Services.policies.isAllowed('uninstall-extension:' + arguments[0]) };`, ADDON_ID);
-    assert.deepEqual(tried, { disable: 'refused', stillActive: true, removeAllowedByPolicy: false });
+  test('in the Add-ons Manager, Family Site Blocker has no on/off switch, and its menu says "Can’t Be Removed"', async () => {
+    await browser.fx.send('WebDriver:Navigate', { url: 'about:addons' });
+    await browser.run(`window.gViewController.loadView('addons://list/extension')`);
+    let card = null;
+    for (let i = 0; i < 40 && !card; i++) {
+      card = await browser.run(`
+        const card = document.querySelector('addon-card[addon-id="' + arguments[0] + '"]');
+        if (!card) return null;
+        card.querySelector('[action="more-options"]')?.click(); // open the "…" menu, as a person would
+        const onOff = card.querySelector('[action="toggle-disabled"]');
+        const remove = card.querySelector('panel-item[action="remove"]');
+        return {
+          name: card.addon && card.addon.name,
+          onOffSwitch: Boolean(onOff && !onOff.hidden),
+          removeItem: remove && { usable: !remove.hidden && !remove.disabled, label: remove.getAttribute('data-l10n-id') },
+        };`, ADDON_ID);
+      if (!card) await sleep(250);
+    }
+    assert.deepEqual(card, {
+      name: 'Family Site Blocker',
+      onOffSwitch: false,
+      removeItem: { usable: false, label: 'remove-addon-disabled-button' },
+    });
     await assertBlocked(`http://${SITE}/`);
   });
 
