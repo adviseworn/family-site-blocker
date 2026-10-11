@@ -36,7 +36,11 @@ When Firefox quits, it removes the add-on and the sites you added on the setting
 
 **Keep it installed after Firefox quits**
 
-Signing is free, and the add-on can stay unlisted, so it isn't published on Mozilla's site.
+Signing is free, and the add-on can stay unlisted, so it isn't published on Mozilla's site. GitHub can do steps 1 to 6 for you, or you can do them by hand.
+
+To let GitHub do it, first save an API key from Mozilla in this repository, once. Signed in at [addons.mozilla.org/developers/addon/api/key](https://addons.mozilla.org/developers/addon/api/key/), generate credentials. Then on GitHub, open **Settings → Secrets and variables → Actions** and add two repository secrets: `AMO_JWT_ISSUER` with the "JWT issuer", and `AMO_JWT_SECRET` with the "JWT secret". For each version, open the **Actions** tab, choose **Sign with Mozilla** and click **Run workflow**. It uploads the add-on, waits for Mozilla to sign it, checks that the signed file holds exactly what was uploaded, and publishes a release named after the version with the signed `.xpi` and the Mac zip from step 6. Download them from the repository's **Releases** page and carry on from step 7.
+
+By hand:
 
 1. Get the upload file: run `npm run package:firefox`, which writes `dist/family-site-blocker-firefox.zip`, or use the `family-site-blocker-firefox.zip` you were sent. Don't compress the `extension` folder yourself. Mozilla needs `manifest.json` at the top of the zip, and Finder's **Compress** puts it inside a folder. The zip's copy of `manifest.json` also leaves out the `service_worker` line, which only Chrome, Edge and Brave use.
 2. Sign in at [addons.mozilla.org/developers](https://addons.mozilla.org/developers/) with a Mozilla account and choose **Submit a New Add-on**.
@@ -51,7 +55,7 @@ Signing is free, and the add-on can stay unlisted, so it isn't published on Mozi
    Double-clicking the `.xpi` in Finder won't work at first: macOS doesn't link `.xpi` files to Firefox, so it says no application is set to open it. To change that, select the file, choose **File → Get Info**, set **Open with** to Firefox and click **Change All…**. If Firefox isn't listed, choose **Other…**, set **Enable** to **All Applications** and pick Firefox. From then on, double-clicking a `.xpi` opens Firefox, which asks whether to add it.
 8. Quit Firefox, open it again and visit `exampleadultsite.com`. It's still blocked, and sites you add on the settings page now stay too.
 
-For a later version, raise `version` in `extension/manifest.json`, run `npm run package:firefox` again, upload the new zip on the same add-on's page and carry on from step 5.
+For a later version, raise `version` in `extension/manifest.json`, then run **Sign with Mozilla** again, or run `npm run package:firefox`, upload the new zip on the same add-on's page and carry on from step 5.
 
 ### Settings page
 
@@ -108,3 +112,5 @@ No real website is contacted: every request goes to a small local server instead
 | `test/` | Fast checks (`blocker.test.mjs`) and the real-browser tests (`browser.e2e.mjs` for Chromium, `firefox.e2e.mjs` for Firefox). |
 | `.github/workflows/macos.yml` | Runs all the tests on a Mac at GitHub after every push. |
 | `.github/workflows/firefox-package.yml` | Builds the Firefox zip and checks it with Mozilla's add-on linter after every push. |
+| `.github/workflows/sign-firefox.yml` | **Sign with Mozilla**: gets the add-on signed and publishes the signed files as a release. Started by hand from the Actions tab. |
+| `scripts/check-signed.mjs` | Checks that a signed `.xpi` holds exactly the files that were uploaded, plus Mozilla's signature. |
