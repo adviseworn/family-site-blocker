@@ -244,6 +244,7 @@ describe('Firefox lock', { skip: SKIP }, () => {
 
   test('private windows are turned off: the menu item is gone, and asking for one opens an ordinary window, which blocks', async () => {
     const menu = await firefox.chrome(`
+      const { document } = Services.wm.getMostRecentWindow('navigator:browser');
       return {
         privateWindows: PrivateBrowsingUtils.enabled,
         menuItemHidden: document.getElementById('menu_newPrivateWindow').hidden,
@@ -314,7 +315,9 @@ describe('Firefox lock next to another blocker', { skip: SKIP || (!OTHER && "set
       return {
         ExtensionSettings: Object.keys(policies.ExtensionSettings || {}),
         Extensions: policies.Extensions,
-        dnrLocked: policies.Preferences && policies.Preferences['extensions.dnr.enabled'],
+        // A Mac's settings give true as 1, which Firefox reads as true.
+        dnrLocked: policies.Preferences && Object.fromEntries(Object.entries(policies.Preferences['extensions.dnr.enabled'] || {})
+          .map(([key, value]) => [key, key === 'Value' ? Boolean(value) : value])),
         switchedOn: arguments[0].filter((name) => policies[name] === true),
       };`, SWITCHES);
     assert.deepEqual(active, {
