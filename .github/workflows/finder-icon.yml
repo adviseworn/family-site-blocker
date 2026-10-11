@@ -1,6 +1,7 @@
-# One-off check, on a temporary branch: what icon does macOS give the .xpi (1) after Get Info-style icon setting
-# (NSWorkspace.setIcon), (2) out of a zip made from that file by ditto (Finder's Compress), (3) out of
-# family-site-blocker-1.1.1.zip made on Linux? Results are annotations; the Mac-made zip is committed back.
+# One-off check, on a temporary branch: which icon does Finder show for the .xpi when its icon was (A) set by
+# macOS (NSWorkspace.setIcon, as Get Info's paste does), (B) restored from a zip that ditto made from file A,
+# (C) restored from family-site-blocker-1.1.1.zip made on Linux, (D) never set? Both zips are opened with
+# Archive Utility, as double-clicking them in Finder does. Everything found goes to results/, committed back here.
 name: Finder icon check
 on: push
 jobs:
@@ -15,38 +16,47 @@ jobs:
         run: |
           swiftc -O icon.swift -o icon-renderer
           swiftc -O seticon.swift -o seticon
-      - name: Set the icon with macOS, then zip the file the way Finder's Compress does
+      - name: Make the four files
         run: |
-          mkdir set && cp signed.xpi set/family-site-blocker-1.1.1.xpi
-          echo "setIcon: $(./seticon icon_1024.png set/family-site-blocker-1.1.1.xpi)"
-          cd set && ditto -c -k --sequesterRsrc --keepParent family-site-blocker-1.1.1.xpi ../family-site-blocker-1.1.1-mac.zip
-          cd .. && unzip -l family-site-blocker-1.1.1-mac.zip
-      - name: Open both zips with Archive Utility, as double-clicking them in Finder does
-        run: |
-          for z in family-site-blocker-1.1.1 family-site-blocker-1.1.1-mac; do
+          mkdir -p results set
+          { sw_vers; uname -m; } > results/report.txt
+          cp signed.xpi set/family-site-blocker-1.1.1.xpi
+          echo "setIcon: $(./seticon icon_1024.png set/family-site-blocker-1.1.1.xpi)" >> results/report.txt
+          (cd set && ditto -c -k --sequesterRsrc --keepParent family-site-blocker-1.1.1.xpi ../family-site-blocker-1.1.1-mac.zip)
+          cp family-site-blocker-1.1.1-mac.zip results/
+          for z in family-site-blocker-1.1.1-mac family-site-blocker-1.1.1; do
             mkdir "au-$z" && cp "$z.zip" "au-$z/" && open -a "Archive Utility" "au-$z/$z.zip"
+            for i in $(seq 1 40); do [ -f "au-$z/family-site-blocker-1.1.1.xpi" ] && break; sleep 1; done
+            sleep 3
+            echo "--- au-$z after Archive Utility:" >> results/report.txt; ls -la@ "au-$z" >> results/report.txt
           done
-          sleep 8
-          ls -la@ au-*
-          cp signed.xpi plain.xpi
-      - name: Report
+          mkdir -p ~/Desktop/icons
+          cp -p set/family-site-blocker-1.1.1.xpi ~/Desktop/icons/"A set by macOS.xpi"
+          cp -p au-family-site-blocker-1.1.1-mac/family-site-blocker-1.1.1.xpi ~/Desktop/icons/"B from Mac zip.xpi" || true
+          cp -p au-family-site-blocker-1.1.1/family-site-blocker-1.1.1.xpi ~/Desktop/icons/"C from Linux zip.xpi" || true
+          cp signed.xpi ~/Desktop/icons/"D no icon.xpi"
+      - name: Look at them
         if: always()
         run: |
-          echo "::notice title=Machine::$(sw_vers -productName) $(sw_vers -productVersion) on $(uname -m)"
-          report() { # label file
-            sha=$(shasum -a 256 "$2" | cut -d' ' -f1); same=no; [ "$sha" = "6732c1af58173bafd4e8c96dfb9b9d0acedfee4a541361e8eca6ff8cea93dee2" ] && same=yes
-            info=$(xattr -px com.apple.FinderInfo "$2" 2>/dev/null | tr -d ' \n')
-            fork=$(xattr -px com.apple.ResourceFork "$2" 2>/dev/null | tr -d ' \n' | shasum | cut -c1-12)
-            echo "::notice title=$1::same bytes as the signed file: $same; Finder info ${info:-none}; resource fork digest $fork"
-            for how in custom effective workspace; do echo "::notice title=$1 $how icon::$(./icon-renderer "$2" $how)"; done
-          }
-          report "A set by macOS" set/family-site-blocker-1.1.1.xpi
-          report "B mac zip via Archive Utility" au-family-site-blocker-1.1.1-mac/family-site-blocker-1.1.1.xpi
-          report "C linux zip via Archive Utility" au-family-site-blocker-1.1.1/family-site-blocker-1.1.1.xpi
-          report "D no icon" plain.xpi
-      - name: Commit the Mac-made zip back to this branch
+          cd ~/Desktop/icons
+          for f in *.xpi; do
+            sha=$(shasum -a 256 "$f" | cut -d' ' -f1); same=no; [ "$sha" = "6732c1af58173bafd4e8c96dfb9b9d0acedfee4a541361e8eca6ff8cea93dee2" ] && same=yes
+            info=$(xattr -px com.apple.FinderInfo "$f" 2>/dev/null | tr -d ' \n')
+            fork=$(xattr -px com.apple.ResourceFork "$f" 2>/dev/null | tr -d ' \n' | shasum | cut -c1-12)
+            echo "$f: same bytes as the signed file: $same; Finder info ${info:-none}; resource fork digest $fork" >> "$GITHUB_WORKSPACE/results/report.txt"
+            base="${f%.xpi}"; base="${base// /-}"
+            echo "  effective: $("$GITHUB_WORKSPACE/icon-renderer" "$f" effective "$GITHUB_WORKSPACE/results/$base-effective.png")" >> "$GITHUB_WORKSPACE/results/report.txt"
+            echo "  workspace: $("$GITHUB_WORKSPACE/icon-renderer" "$f" workspace "$GITHUB_WORKSPACE/results/$base-workspace.png")" >> "$GITHUB_WORKSPACE/results/report.txt"
+          done
+          open ~/Desktop/icons
+          sleep 6
+          osascript -e 'tell application "Finder" to set current view of front window to icon view' -e 'tell application "Finder" to set icon size of icon view options of front window to 128' >> "$GITHUB_WORKSPACE/results/report.txt" 2>&1 || true
+          sleep 3
+          screencapture -x "$GITHUB_WORKSPACE/results/screen.png" >> "$GITHUB_WORKSPACE/results/report.txt" 2>&1 || echo "screencapture failed" >> "$GITHUB_WORKSPACE/results/report.txt"
+      - name: Commit the results back to this branch
+        if: always()
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          mkdir -p results && cp family-site-blocker-1.1.1-mac.zip results/
-          git add results && git commit -q -m "Mac-made zip" && git push -q origin HEAD:finder-icon-check
+          git add results && git commit -q -m "Results" && git push -q origin HEAD:finder-icon-check
+          echo "::notice title=Done::results committed"
