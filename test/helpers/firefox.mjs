@@ -32,6 +32,11 @@ class Marionette {
     this.socket = socket;
     this.greeting = new Promise((resolve) => (this.#greet = resolve));
     socket.on('data', (chunk) => this.#read(chunk));
+    // If Firefox goes away, fail whatever is still waiting for an answer instead of waiting forever.
+    socket.on('close', () => {
+      for (const waiter of this.#waiting.values()) waiter.reject(new Error('Firefox closed the automation connection'));
+      this.#waiting.clear();
+    });
   }
 
   // Messages are framed as "<byte length>:<JSON>". Replies are [1, id, error, result].
@@ -57,10 +62,12 @@ class Marionette {
   }
 
   send(command, parameters = {}) {
+    if (this.socket.destroyed) return Promise.reject(new Error(`Firefox's automation connection is closed (${command})`));
     const id = this.#next++;
     const json = JSON.stringify([0, id, command, parameters]);
+    const answer = new Promise((resolve, reject) => this.#waiting.set(id, { resolve, reject }));
     this.socket.write(`${Buffer.byteLength(json)}:${json}`);
-    return new Promise((resolve, reject) => this.#waiting.set(id, { resolve, reject }));
+    return answer;
   }
 }
 
@@ -89,11 +96,12 @@ const sleep = (ms) => new Promise((done) => setTimeout(done, ms));
  * Starts Firefox (headless) with every request sent to the stub internet. With { extension: true } the
  * extension is loaded as a temporary add-on, exactly like "Load Temporary Add-on…" in about:debugging:
  * the zip that npm run package:firefox makes (the file Mozilla signs), or with { packaged: false } the
- * extension folder itself, as the README's "Try it" steps load it.
+ * extension folder itself, as the README's "Try it" steps load it. A throwaway profile is used, unless
+ * { profile } names a folder to use (and keep) instead, so a later start can pick up where this one left off.
  */
-export async function launchFirefox(stub, { extension = true, extensionDir = EXTENSION_DIR, packaged = true } = {}) {
+export async function launchFirefox(stub, { extension = true, extensionDir = EXTENSION_DIR, packaged = true, profile: keep } = {}) {
   const binary = findFirefox();
-  const profile = mkdtempSync(join(tmpdir(), 'family-site-blocker-firefox-'));
+  const profile = keep ?? mkdtempSync(join(tmpdir(), 'family-site-blocker-firefox-'));
   const marionettePort = 20000 + Math.floor(Math.random() * 20000);
   const prefs = {
     'network.proxy.type': 1,
@@ -232,11 +240,15 @@ export async function launchFirefox(stub, { extension = true, extensionDir = EXT
       return { url, finalUrl, text, error, outcome };
     },
     async close() {
+      const running = process_.exitCode === null && process_.signalCode === null;
+      const exited = new Promise((done) => (running ? process_.once('exit', done) : done()));
       await fx.send('Marionette:Quit', { flags: ['eForceQuit'] }).catch(() => {});
       fx.socket.destroy();
+      // Let Firefox finish shutting down (it saves the profile then) before making sure it's gone.
+      await Promise.race([exited, sleep(keep ? 30_000 : 3_000)]);
       process_.kill();
       await sleep(300);
-      rmSync(profile, { recursive: true, force: true });
+      if (!keep) rmSync(profile, { recursive: true, force: true });
     },
   };
 }

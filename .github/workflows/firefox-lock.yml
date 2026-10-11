@@ -1,6 +1,10 @@
 # Checks the Firefox lock on a GitHub-hosted Mac: puts the settings from
 # mac/family-site-blocker-firefox.mobileconfig in force (as installing the profile would), with the latest
-# signed release in /Users/Shared/Family Site Blocker, and runs test/firefox-lock.e2e.mjs.
+# signed release in /Users/Shared/Family Site Blocker, and runs test/firefox-lock.e2e.mjs. That includes the
+# lock next to another blocker's policies, set in Firefox's own policies.json the way a program like Plucky
+# can set them (with LeechBlock NG, a site blocker from addons.mozilla.org, as that blocker's add-on), and the
+# lock arriving after an older signed version (1.1.1, fetched from Mozilla with the API key the Sign with
+# Mozilla workflow uses) was installed by hand and switched off.
 # Start it from the Actions tab with "Run workflow", for example after a new release or a new Firefox.
 name: Firefox lock check
 
@@ -31,12 +35,26 @@ jobs:
           gh release download --pattern 'family-site-blocker-*.xpi' --dir signed
           ls signed
 
+      - name: Get an older signed version from Mozilla
+        env:
+          AMO_JWT_ISSUER: ${{ secrets.AMO_JWT_ISSUER }}
+          AMO_JWT_SECRET: ${{ secrets.AMO_JWT_SECRET }}
+        run: node scripts/amo-signed.mjs 1.1.1 older
+
+      - name: Get another blocker's add-on (LeechBlock NG) from addons.mozilla.org
+        run: |
+          mkdir other
+          curl -fsSL --retry 3 -o other/leechblock-ng.xpi https://addons.mozilla.org/firefox/downloads/latest/leechblock-ng/latest.xpi
+          ls -l other
+
       - name: Check the profile is a valid property list
         run: plutil -lint mac/family-site-blocker-firefox.mobileconfig
 
       - name: Firefox lock tests
         shell: bash
-        run: SIGNED_XPI=$(ls signed/*.xpi) npm run test:firefox-lock 2>&1 | tee lock.tap
+        run: |
+          SIGNED_XPI=$(ls signed/*.xpi) OLDER_XPI=$(ls older/*.xpi) OTHER_XPI=other/leechblock-ng.xpi \
+            npm run test:firefox-lock 2>&1 | tee lock.tap
 
       - name: Report what ran
         if: always()

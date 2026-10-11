@@ -342,18 +342,22 @@ test('on a Mac, opening the zip puts the icon on the .xpi', { skip: process.plat
   }
 });
 
-test('the Firefox lock force-installs this add-on and closes the ways round it', () => {
+test('the Firefox lock installs and locks this add-on and closes the ways round it', () => {
   const policies = firefoxPolicies();
-  assert.deepEqual(policies.ExtensionSettings, {
-    [manifest.browser_specific_settings.gecko.id]: {
-      installation_mode: 'force_installed',
-      install_url: 'file:///Users/Shared/Family%20Site%20Blocker/family-site-blocker.xpi',
-      private_browsing: true,
-    },
-  });
   assert.equal(XPI_PATH, '/Users/Shared/Family Site Blocker/family-site-blocker.xpi');
-  for (const key of ['DisableSafeMode', 'BlockAboutConfig', 'DisableProfileRefresh']) assert.equal(policies[key], true, key);
+  assert.deepEqual(policies.Extensions, { Install: [XPI_PATH], Locked: [manifest.browser_specific_settings.gecko.id] });
+  for (const key of ['DisablePrivateBrowsing', 'DisableSafeMode', 'BlockAboutConfig', 'DisableProfileRefresh']) {
+    assert.equal(policies[key], true, key);
+  }
   assert.deepEqual(policies.Preferences, { 'extensions.dnr.enabled': { Value: true, Status: 'locked' } });
+});
+
+test("the Firefox lock leaves alone the policy other blockers lock their own add-ons with", () => {
+  // Firefox takes each policy from one place: if the profile set ExtensionSettings, another blocker's
+  // ExtensionSettings (Plucky's, for one) would be dropped, and its add-ons with it.
+  assert.deepEqual(Object.keys(firefoxPolicies()).sort(), [
+    'BlockAboutConfig', 'DisablePrivateBrowsing', 'DisableProfileRefresh', 'DisableSafeMode', 'Extensions', 'Preferences',
+  ]);
 });
 
 test('mac/family-site-blocker-firefox.mobileconfig is up to date (run npm run firefox-lock)', () => {
