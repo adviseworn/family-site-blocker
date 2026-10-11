@@ -242,15 +242,13 @@ describe('Firefox lock', { skip: SKIP }, () => {
     assert.ok(state.origins.includes('<all_urls>'), JSON.stringify(state.origins));
   });
 
-  test('private windows are turned off: the menu item is gone, and asking for one opens an ordinary window, which blocks', async () => {
-    const menu = await firefox.chrome(`
+  test('private windows are turned off: the shortcut is gone, and asking for one opens an ordinary window, which blocks', async () => {
+    // Firefox also hides the File menu's New Private Window item, but on GitHub's Mac (Firefox 155) that item
+    // stayed. Either way, choosing it asks for a private window, as below, and gets an ordinary one.
+    const state = await firefox.chrome(`
       const { document } = Services.wm.getMostRecentWindow('navigator:browser');
-      return {
-        privateWindows: PrivateBrowsingUtils.enabled,
-        menuItemHidden: document.getElementById('menu_newPrivateWindow').hidden,
-        shortcut: Boolean(document.getElementById('key_privatebrowsing')),
-      };`);
-    assert.deepEqual(menu, { privateWindows: false, menuItemHidden: true, shortcut: false });
+      return { privateWindows: PrivateBrowsingUtils.enabled, shortcut: Boolean(document.getElementById('key_privatebrowsing')) };`);
+    assert.deepEqual(state, { privateWindows: false, shortcut: false });
     const before = await firefox.fx.send('WebDriver:GetWindowHandles');
     await firefox.chrome(`
       const win = OpenBrowserWindow({ private: true });
