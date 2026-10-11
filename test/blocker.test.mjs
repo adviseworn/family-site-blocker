@@ -11,6 +11,7 @@ import { normalizeDomain, parseDomainList } from '../extension/lib/domains.js';
 import { BLOCK_PAGE, CHUNK_SIZE, buildRules } from '../extension/lib/rules.js';
 import { RULES_PATH, loadBlocklists, renderRules } from '../scripts/build-rules.mjs';
 import { firefoxManifest, packageFirefox } from '../scripts/package-firefox.mjs';
+import { PROFILE_PATH, XPI_PATH, firefoxPolicies, mobileconfig } from '../scripts/firefox-lock.mjs';
 import { ICNS_PATH, packageSigned } from '../scripts/package-signed.mjs';
 import { readZip } from '../scripts/read-zip.mjs';
 
@@ -339,6 +340,27 @@ test('on a Mac, opening the zip puts the icon on the .xpi', { skip: process.plat
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test('the Firefox lock force-installs this add-on and closes the ways round it', () => {
+  const policies = firefoxPolicies();
+  assert.deepEqual(policies.ExtensionSettings, {
+    [manifest.browser_specific_settings.gecko.id]: {
+      installation_mode: 'force_installed',
+      install_url: 'file:///Users/Shared/Family%20Site%20Blocker/family-site-blocker.xpi',
+      private_browsing: true,
+    },
+  });
+  assert.equal(XPI_PATH, '/Users/Shared/Family Site Blocker/family-site-blocker.xpi');
+  for (const key of ['DisableSafeMode', 'BlockAboutConfig', 'DisableProfileRefresh']) assert.equal(policies[key], true, key);
+  assert.deepEqual(policies.Preferences, { 'extensions.dnr.enabled': { Value: true, Status: 'locked' } });
+});
+
+test('mac/family-site-blocker-firefox.mobileconfig is up to date (run npm run firefox-lock)', () => {
+  const profile = readFileSync(PROFILE_PATH, 'utf8');
+  assert.equal(profile, mobileconfig());
+  assert.match(profile, /<key>PayloadScope<\/key>\s*<string>System<\/string>/, 'applies to every account');
+  assert.match(profile, /<key>EnterprisePoliciesEnabled<\/key>\s*<true\/>/, 'Firefox only reads its Mac settings with this');
 });
 
 test('every file the pages reference exists', () => {

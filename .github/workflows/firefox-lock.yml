@@ -1,0 +1,52 @@
+# Checks the Firefox lock on a GitHub-hosted Mac: puts the settings from
+# mac/family-site-blocker-firefox.mobileconfig in force (as installing the profile would), with the latest
+# signed release in /Users/Shared/Family Site Blocker, and runs test/firefox-lock.e2e.mjs.
+# Start it from the Actions tab with "Run workflow", for example after a new release or a new Firefox.
+name: Firefox lock check
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  lock:
+    runs-on: macos-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+
+      - name: Make sure Firefox is installed
+        run: test -d /Applications/Firefox.app || brew install --cask firefox
+
+      - name: Get the latest signed release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download --pattern 'family-site-blocker-*.xpi' --dir signed
+          ls signed
+
+      - name: Check the profile is a valid property list
+        run: plutil -lint mac/family-site-blocker-firefox.mobileconfig
+
+      - name: Firefox lock tests
+        shell: bash
+        run: SIGNED_XPI=$(ls signed/*.xpi) npm run test:firefox-lock 2>&1 | tee lock.tap
+
+      - name: Report what ran
+        if: always()
+        shell: bash
+        run: |
+          echo "::notice title=Machine::$(sw_vers -productName) $(sw_vers -productVersion) on $(uname -m); $(/Applications/Firefox.app/Contents/MacOS/firefox --version); $(ls signed)"
+          count() { grep -E "^# $1 [0-9]+" lock.tap | tail -1 | awk '{print $3}'; }
+          tests=$(count tests); pass=$(count pass); fail=$(count fail); skipped=$(count skipped)
+          echo "::notice title=Firefox lock tests::$tests tests, $pass passed, $fail failed, $skipped skipped"
+          grep -E "^\s+(not ok|ok) [0-9]+ - " lock.tap | sed 's/^ *//' | while read -r line; do echo "::notice title=lock::$line"; done
+          if [ "${tests:-0}" = 0 ] || [ "${skipped:-1}" != 0 ] || [ "${fail:-1}" != 0 ]; then
+            echo "::error title=Firefox lock tests::not every test ran and passed"; exit 1
+          fi
