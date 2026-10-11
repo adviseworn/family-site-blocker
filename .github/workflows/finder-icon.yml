@@ -1,7 +1,5 @@
-# One-off check, on a temporary branch: which icon does Finder show for the .xpi when its icon was (A) set by
-# macOS (NSWorkspace.setIcon, as Get Info's paste does), (B) restored from a zip that ditto made from file A,
-# (C) restored from family-site-blocker-1.1.1.zip made on Linux, (D) never set? Both zips are opened with
-# Archive Utility, as double-clicking them in Finder does. Everything found goes to results/, committed back here.
+# One-off check, on a temporary branch: open family-site-blocker-1.1.1.zip with Archive Utility, as double-clicking
+# it in Finder does, and look at the .xpi that comes out in Finder. Results go to results/, committed back here.
 name: Finder icon check
 on: push
 jobs:
@@ -12,51 +10,27 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v5
-      - name: Build the helpers
+      - name: Open the zip with Archive Utility and look at the result in Finder
         run: |
-          swiftc -O icon.swift -o icon-renderer
-          swiftc -O seticon.swift -o seticon
-      - name: Make the four files
-        run: |
-          mkdir -p results set
-          { sw_vers; uname -m; } > results/report.txt
-          cp signed.xpi set/family-site-blocker-1.1.1.xpi
-          echo "setIcon: $(./seticon icon_1024.png set/family-site-blocker-1.1.1.xpi)" >> results/report.txt
-          (cd set && ditto -c -k --sequesterRsrc --keepParent family-site-blocker-1.1.1.xpi ../family-site-blocker-1.1.1-mac.zip)
-          cp family-site-blocker-1.1.1-mac.zip results/
-          for z in family-site-blocker-1.1.1-mac family-site-blocker-1.1.1; do
-            mkdir "au-$z" && cp "$z.zip" "au-$z/" && open -a "Archive Utility" "au-$z/$z.zip"
-            for i in $(seq 1 40); do [ -f "au-$z/family-site-blocker-1.1.1.xpi" ] && break; sleep 1; done
-            sleep 3
-            echo "--- au-$z after Archive Utility:" >> results/report.txt; ls -la@ "au-$z" >> results/report.txt
-          done
-          mkdir -p ~/Desktop/icons
-          cp -p set/family-site-blocker-1.1.1.xpi ~/Desktop/icons/"A set by macOS.xpi"
-          cp -p au-family-site-blocker-1.1.1-mac/family-site-blocker-1.1.1.xpi ~/Desktop/icons/"B from Mac zip.xpi" || true
-          cp -p au-family-site-blocker-1.1.1/family-site-blocker-1.1.1.xpi ~/Desktop/icons/"C from Linux zip.xpi" || true
-          cp signed.xpi ~/Desktop/icons/"D no icon.xpi"
-      - name: Look at them
-        if: always()
-        run: |
-          cd ~/Desktop/icons
-          for f in *.xpi; do
-            sha=$(shasum -a 256 "$f" | cut -d' ' -f1); same=no; [ "$sha" = "6732c1af58173bafd4e8c96dfb9b9d0acedfee4a541361e8eca6ff8cea93dee2" ] && same=yes
-            info=$(xattr -px com.apple.FinderInfo "$f" 2>/dev/null | tr -d ' \n')
-            fork=$(xattr -px com.apple.ResourceFork "$f" 2>/dev/null | tr -d ' \n' | shasum | cut -c1-12)
-            echo "$f: same bytes as the signed file: $same; Finder info ${info:-none}; resource fork digest $fork" >> "$GITHUB_WORKSPACE/results/report.txt"
-            base="${f%.xpi}"; base="${base// /-}"
-            echo "  effective: $("$GITHUB_WORKSPACE/icon-renderer" "$f" effective "$GITHUB_WORKSPACE/results/$base-effective.png")" >> "$GITHUB_WORKSPACE/results/report.txt"
-            echo "  workspace: $("$GITHUB_WORKSPACE/icon-renderer" "$f" workspace "$GITHUB_WORKSPACE/results/$base-workspace.png")" >> "$GITHUB_WORKSPACE/results/report.txt"
-          done
-          open ~/Desktop/icons
-          sleep 6
-          osascript -e 'tell application "Finder" to set current view of front window to icon view' -e 'tell application "Finder" to set icon size of icon view options of front window to 128' >> "$GITHUB_WORKSPACE/results/report.txt" 2>&1 || true
+          mkdir -p results ~/Downloads/check
+          { sw_vers; uname -m; echo "zip sha256: $(shasum -a 256 family-site-blocker-1.1.1.zip | cut -d' ' -f1) (expected 7b52aba4022ae81d4cfec55ac56e8d926610b1240919feb7c5ec5684b71a68ee)"; } > results/report.txt
+          cp family-site-blocker-1.1.1.zip ~/Downloads/check/
+          cp signed.xpi ~/Downloads/check/"plain copy without the icon.xpi"
+          open -a "Archive Utility" ~/Downloads/check/family-site-blocker-1.1.1.zip
+          for i in $(seq 1 40); do [ -f ~/Downloads/check/family-site-blocker-1.1.1.xpi ] && break; sleep 1; done
           sleep 3
-          screencapture -x "$GITHUB_WORKSPACE/results/screen.png" >> "$GITHUB_WORKSPACE/results/report.txt" 2>&1 || echo "screencapture failed" >> "$GITHUB_WORKSPACE/results/report.txt"
+          cd ~/Downloads/check
+          ls -la@ >> "$GITHUB_WORKSPACE/results/report.txt"
+          sha=$(shasum -a 256 family-site-blocker-1.1.1.xpi | cut -d' ' -f1); same=no; [ "$sha" = "6732c1af58173bafd4e8c96dfb9b9d0acedfee4a541361e8eca6ff8cea93dee2" ] && same=yes
+          echo "extracted .xpi is byte-identical to the signed file: $same" >> "$GITHUB_WORKSPACE/results/report.txt"
+          open ~/Downloads/check
+          sleep 6
+          osascript -e 'tell application "Finder" to set current view of front window to icon view' -e 'tell application "Finder" to set icon size of icon view options of front window to 128' >/dev/null 2>&1 || true
+          sleep 3
+          screencapture -x "$GITHUB_WORKSPACE/results/screen.png"
       - name: Commit the results back to this branch
         if: always()
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add results && git commit -q -m "Results" && git push -q origin HEAD:finder-icon-check
-          echo "::notice title=Done::results committed"
