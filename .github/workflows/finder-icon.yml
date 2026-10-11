@@ -1,37 +1,53 @@
-# One-off check, on a temporary branch: does family-site-blocker-1.1.1.zip, opened on a Mac, give the .xpi
-# inside the gate icon in Finder, with the .xpi unchanged? Results are posted as annotations.
+# One-off check, on a temporary branch. 1) Does family-site-blocker-1.1.1.zip (made on Linux) give the .xpi the
+# gate icon when opened on a Mac? 2) The same with an icon set by macOS itself and zipped like Finder's Compress.
+# Results are posted as annotations; the Mac-made zip is committed back to this branch.
 name: Finder icon check
 on: push
 jobs:
   icon:
     runs-on: macos-latest
     timeout-minutes: 10
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v5
-      - name: Build the icon renderer
-        run: swiftc -O icon.swift -o icon-renderer
-      - name: Open the zip with ditto, and with Archive Utility (what double-clicking it in Finder uses)
+      - name: Build the helpers
         run: |
-          mkdir ditto-out && ditto -x -k family-site-blocker-1.1.1.zip ditto-out
-          mkdir archive-utility && cp family-site-blocker-1.1.1.zip archive-utility/
-          open -a "Archive Utility" archive-utility/family-site-blocker-1.1.1.zip
-          for i in $(seq 1 40); do [ -f archive-utility/family-site-blocker-1.1.1.xpi ] && break; sleep 1; done
-          sleep 3
-          ls -la@ ditto-out archive-utility
+          swiftc -O icon.swift -o icon-renderer
+          swiftc -O seticon.swift -o seticon
+      - name: Set the icon with macOS, and zip it the way Finder's Compress does
+        run: |
+          mkdir mac && cp signed.xpi mac/family-site-blocker-1.1.1.xpi
+          echo "setIcon: $(./seticon icon_1024.png mac/family-site-blocker-1.1.1.xpi)"
+          ditto -c -k --sequesterRsrc --keepParent mac/family-site-blocker-1.1.1.xpi family-site-blocker-1.1.1-mac.zip
+          unzip -l family-site-blocker-1.1.1-mac.zip
+      - name: Open both zips with ditto and with Archive Utility
+        run: |
+          for z in family-site-blocker-1.1.1 family-site-blocker-1.1.1-mac; do
+            mkdir "ditto-$z" && ditto -x -k "$z.zip" "ditto-$z"
+            mkdir "au-$z" && cp "$z.zip" "au-$z/" && open -a "Archive Utility" "au-$z/$z.zip"
+          done
+          sleep 8
+          ls -la@ ditto-* au-*
       - name: Report
         if: always()
         run: |
           echo "::notice title=Machine::$(sw_vers -productName) $(sw_vers -productVersion) on $(uname -m)"
-          for dir in ditto-out archive-utility; do
-            f="$dir/family-site-blocker-1.1.1.xpi"
-            if [ ! -f "$f" ]; then echo "::error title=$dir::no .xpi came out"; ls -la "$dir"; continue; fi
-            sha=$(shasum -a 256 "$f" | cut -d' ' -f1)
-            same=no; [ "$sha" = "6732c1af58173bafd4e8c96dfb9b9d0acedfee4a541361e8eca6ff8cea93dee2" ] && same=yes
-            flags=$(xattr -px com.apple.FinderInfo "$f" 2>/dev/null | tr -d ' \n' | cut -c17-20)
-            fork=$(( $(xattr -px com.apple.ResourceFork "$f" 2>/dev/null | tr -d ' \n' | wc -c) / 2 ))
-            leftovers=$(ls -A "$dir" | grep -v -e '^family-site-blocker-1.1.1' | tr '\n' ' ')
-            echo "::notice title=$dir::same bytes as the signed file: $same; Finder flags: ${flags:-none}; resource fork: $fork bytes; other items: ${leftovers:-none}"
-            echo "::notice title=$dir icon::$(./icon-renderer "$f" 64)"
+          report() { # label file
+            sha=$(shasum -a 256 "$2" | cut -d' ' -f1); same=no; [ "$sha" = "6732c1af58173bafd4e8c96dfb9b9d0acedfee4a541361e8eca6ff8cea93dee2" ] && same=yes
+            echo "::notice title=$1::same bytes as the signed file: $same; $(python3 inspect-fork.py "$2")"
+            echo "::notice title=$1 icon::$(./icon-renderer "$2" 64)"
+          }
+          report "set by macOS" mac/family-site-blocker-1.1.1.xpi
+          for z in family-site-blocker-1.1.1 family-site-blocker-1.1.1-mac; do
+            for how in ditto au; do
+              f="$how-$z/family-site-blocker-1.1.1.xpi"
+              if [ -f "$f" ]; then report "$z via $how" "$f"; else echo "::error title=$z via $how::no .xpi came out"; fi
+            done
           done
-          cp ditto-out/family-site-blocker-1.1.1.xpi plain.xpi && xattr -c plain.xpi
-          echo "::notice title=plain icon::$(./icon-renderer plain.xpi 64)"
+      - name: Commit the Mac-made zip back to this branch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          mkdir -p results && cp family-site-blocker-1.1.1-mac.zip results/
+          git add results && git commit -q -m "Mac-made zip" && git push -q origin HEAD:finder-icon-check
