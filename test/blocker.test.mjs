@@ -299,6 +299,7 @@ test('scripts/check-signed.mjs accepts the uploaded files, unchanged, plus a sig
     mkdirSync(uploaded);
     writeFileSync(join(uploaded, 'manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`);
     writeFileSync(join(uploaded, 'background.js'), '// …');
+    writeFileSync(join(uploaded, '.amo-upload-uuid'), '{}'); // web-ext leaves this behind; it is never uploaded
     const check = (files) => spawnSync(process.execPath, [join(EXT, '..', 'scripts', 'check-signed.mjs'), makeXpi(dir, files), uploaded], { encoding: 'utf8' });
     const signature = { 'META-INF/mozilla.rsa': 'signature', 'META-INF/cose.sig': 'signature' };
     const rewritten = JSON.stringify(manifest); // Mozilla rewrites the manifest's whitespace when it signs.

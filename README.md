@@ -38,7 +38,7 @@ When Firefox quits, it removes the add-on and the sites you added on the setting
 
 Signing is free, and the add-on can stay unlisted, so it isn't published on Mozilla's site. GitHub can do steps 1 to 6 for you, or you can do them by hand.
 
-To let GitHub do it, first save an API key from Mozilla in this repository, once. Signed in at [addons.mozilla.org/developers/addon/api/key](https://addons.mozilla.org/developers/addon/api/key/), generate credentials. Then on GitHub, open **Settings → Secrets and variables → Actions** and add two repository secrets: `AMO_JWT_ISSUER` with the "JWT issuer", and `AMO_JWT_SECRET` with the "JWT secret". For each version, open the **Actions** tab, choose **Sign with Mozilla** and click **Run workflow**. It uploads the add-on, waits for Mozilla to sign it, checks that the signed file holds exactly what was uploaded, and publishes a release named after the version with the signed `.xpi` and the Mac zip from step 6. Download them from the repository's **Releases** page and carry on from step 7.
+To let GitHub do it, first save an API key from Mozilla in this repository, once. Signed in at [addons.mozilla.org/developers/addon/api/key](https://addons.mozilla.org/developers/addon/api/key/), generate credentials. Then on GitHub, open **Settings → Secrets and variables → Actions** and add two repository secrets: `AMO_JWT_ISSUER` with the "JWT issuer", and `AMO_JWT_SECRET` with the "JWT secret". For each version, open the **Actions** tab, choose **Sign with Mozilla** and click **Run workflow**. It uploads the add-on, waits for Mozilla to sign it, checks that the signed file holds exactly what was uploaded, and publishes a release named after the version with the signed `.xpi` and the Mac zip from step 6. If Mozilla already has that version, for example because you uploaded it by hand, it downloads the signed file instead. Download them from the repository's **Releases** page and carry on from step 7.
 
 By hand:
 
@@ -114,3 +114,4 @@ No real website is contacted: every request goes to a small local server instead
 | `.github/workflows/firefox-package.yml` | Builds the Firefox zip and checks it with Mozilla's add-on linter after every push. |
 | `.github/workflows/sign-firefox.yml` | **Sign with Mozilla**: gets the add-on signed and publishes the signed files as a release. Started by hand from the Actions tab. |
 | `scripts/check-signed.mjs` | Checks that a signed `.xpi` holds exactly the files that were uploaded, plus Mozilla's signature. |
+| `scripts/amo-signed.mjs` | Downloads a version Mozilla has already signed, for **Sign with Mozilla**. Tested against a stand-in for Mozilla's API (`test/amo.test.mjs`). |

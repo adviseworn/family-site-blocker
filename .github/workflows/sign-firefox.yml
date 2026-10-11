@@ -1,6 +1,7 @@
 # Signs the Firefox add-on with Mozilla (addons.mozilla.org, unlisted) and publishes the result as a GitHub
 # release named after the version: the signed .xpi, and the zip that gives it the add-on's icon on a Mac
-# (npm run package:signed). Start it from the Actions tab with "Run workflow".
+# (npm run package:signed). Start it from the Actions tab with "Run workflow". If Mozilla already has the
+# version, it downloads that signed file instead of uploading again.
 #
 # It needs two repository secrets (Settings → Secrets and variables → Actions), the two parts of an API key
 # from https://addons.mozilla.org/developers/addon/api/key/ : AMO_JWT_ISSUER (the "JWT issuer") and
@@ -50,11 +51,23 @@ jobs:
             exit 1
           fi
 
-      - name: Upload to Mozilla and wait for the signed file
+      - name: Get the file signed by Mozilla
         env:
+          AMO_JWT_ISSUER: ${{ secrets.AMO_JWT_ISSUER }}
+          AMO_JWT_SECRET: ${{ secrets.AMO_JWT_SECRET }}
           WEB_EXT_API_KEY: ${{ secrets.AMO_JWT_ISSUER }}
           WEB_EXT_API_SECRET: ${{ secrets.AMO_JWT_SECRET }}
-        run: npx --yes web-ext@10.7.0 sign --channel=unlisted --source-dir=dist/firefox --artifacts-dir=web-ext-artifacts --approval-timeout=1500000
+          VERSION: ${{ steps.build.outputs.version }}
+        run: |
+          # Mozilla won't take the same version twice. If it already has this one (uploaded by hand, or by a
+          # run that stopped later on), download its signed file; otherwise upload and wait for the signature.
+          found=0
+          node scripts/amo-signed.mjs "$VERSION" web-ext-artifacts || found=$?
+          if [ "$found" = 3 ]; then
+            npx --yes web-ext@10.7.0 sign --channel=unlisted --source-dir=dist/firefox --artifacts-dir=web-ext-artifacts --approval-timeout=1500000
+          elif [ "$found" != 0 ]; then
+            exit "$found"
+          fi
 
       - name: Check the signed file and make the Mac zip
         env:
