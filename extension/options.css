@@ -176,3 +176,62 @@ textarea {
   clip: rect(0 0 0 0);
   white-space: nowrap;
 }
+
+/* Locked-away password */
+
+#lockbox label:not(.button) {
+  display: block;
+  margin: 1rem 0 0.35rem;
+  font-weight: 600;
+}
+
+#lockbox input[type="text"],
+#lockbox select {
+  display: block;
+  width: 100%;
+  max-width: 28rem;
+  padding: 0.55rem 0.7rem;
+  border: 1px solid var(--edge);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+}
+
+#lockbox input[type="text"] {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.button.secondary,
+button.secondary {
+  border: 1px solid var(--gate);
+  background: transparent;
+  color: var(--gate);
+}
+
+button:disabled {
+  opacity: 0.6;
+  cursor: progress;
+}
+
+#lockbox progress {
+  display: block;
+  width: 100%;
+  height: 0.75rem;
+  margin: 1rem 0 0.4rem;
+  accent-color: var(--gate);
+}
+
+#lockbox .note,
+#lockbox-status {
+  color: var(--muted);
+}
+
+#lockbox .note {
+  margin-top: 1rem;
+  font-size: 0.95rem;
+}
+
+#lockbox .actions {
+  margin-bottom: 1rem;
+}

@@ -93,6 +93,28 @@ async function probeEmbeds(page, host) {
   }, host);
 }
 
+// The settings page offers waits of a minute and up. The tests add a few-second one alongside them.
+async function lockAway(page, secret, seconds) {
+  await page.evaluate((wait) => {
+    const option = new Option(`${wait} seconds`, String(wait), true, true);
+    document.getElementById('lockbox-delay').append(option);
+  }, seconds);
+  await page.fill('#lockbox-secret', secret);
+  await page.click('#lockbox-lock');
+  await page.locator('#lockbox-locked').waitFor({ state: 'visible', timeout: 15_000 });
+}
+
+const storedLockbox = (page) => page.evaluate(() => chrome.storage.local.get(null));
+
+/** Waits until the settings page has saved some unlocking progress. */
+async function progressSaved(page) {
+  const until = Date.now() + 10_000;
+  while (!((await storedLockbox(page)).lockboxProgress?.done > 0)) {
+    if (Date.now() > until) throw new Error('no unlocking progress was saved');
+    await new Promise((done) => setTimeout(done, 100));
+  }
+}
+
 describe('real browser', () => {
   before(async () => {
     stub = await startStubInternet();
@@ -353,6 +375,134 @@ describe('real browser', () => {
         const [details] = await Promise.all([browser.context.waitForEvent('page'), page.click('#private-open')]);
         assert.equal(details.url(), `chrome://extensions/?id=${browser.extensionId}`);
         await details.close();
+      } finally {
+        await page.close();
+      }
+    });
+  });
+
+  describe('locked-away password', () => {
+    const SECRET = 'Admin-Password-4-Tests';
+
+    async function freshSettings() {
+      const page = await openSettings();
+      await page.evaluate(() => chrome.storage.local.clear());
+      await page.reload();
+      await page.locator('#lockbox-empty').waitFor({ state: 'visible' });
+      return page;
+    }
+
+    test('locking a password away keeps only a puzzle: the password is nowhere in storage', async () => {
+      const page = await freshSettings();
+      try {
+        await lockAway(page, SECRET, 3);
+        assert.equal(await page.inputValue('#lockbox-secret'), '', 'the typed password is cleared');
+        assert.match(await page.locator('#lockbox-summary').innerText(), /^A password is locked away \(since .+\)\. Getting it back takes about [1-4] seconds of computing/);
+        const stored = await storedLockbox(page);
+        assert.ok(!JSON.stringify(stored).includes(SECRET));
+        assert.equal(stored.lockbox.delay, 3);
+        assert.ok(stored.lockbox.steps > 1000, `steps: ${stored.lockbox.steps}`);
+        assert.deepEqual(page.errors, []);
+      } finally {
+        await page.close();
+      }
+    });
+
+    test('unlocking takes the wait, shows the password, and locks it away again with a fresh puzzle', async () => {
+      const page = await freshSettings();
+      try {
+        await lockAway(page, SECRET, 3);
+        const before = (await storedLockbox(page)).lockbox;
+
+        const started = Date.now();
+        await page.click('#lockbox-start');
+        await page.locator('#lockbox-progress-area').waitFor({ state: 'visible' });
+        assert.equal(await page.locator('#lockbox-delete').isVisible(), false, 'no deleting while it unlocks');
+        await page.locator('#lockbox-open').waitFor({ state: 'visible', timeout: 20_000 });
+        const took = (Date.now() - started) / 1000;
+        assert.ok(took >= 1.5, `opened after ${took} s, sooner than the 3-second wait allows`);
+        assert.equal(await page.inputValue('#lockbox-revealed'), SECRET);
+
+        await page.waitForFunction(() => document.getElementById('lockbox-status').textContent === '');
+        const after = (await storedLockbox(page)).lockbox;
+        assert.notEqual(after.n, before.n, 'a new puzzle');
+        assert.equal(after.delay, 3, 'with the same wait');
+        assert.equal((await storedLockbox(page)).lockboxProgress, undefined, "no progress left behind");
+        assert.ok(!JSON.stringify(await storedLockbox(page)).includes(SECRET));
+
+        await page.click('#lockbox-hide');
+        await page.locator('#lockbox-locked').waitFor({ state: 'visible' });
+        assert.equal(await page.inputValue('#lockbox-revealed'), '');
+        assert.deepEqual(page.errors, []);
+      } finally {
+        await page.close();
+      }
+    });
+
+    test('closing the page pauses unlocking, and it carries on from there when reopened', async () => {
+      let page = await freshSettings();
+      try {
+        await lockAway(page, SECRET, 6);
+        await page.click('#lockbox-start');
+        await progressSaved(page);
+        await page.close();
+
+        page = await openSettings();
+        await page.waitForFunction(() => document.getElementById('lockbox-start').textContent === 'Carry on unlocking');
+        assert.match(await page.locator('#lockbox-progress-text').innerText(), /^\d+% done, about \d+ seconds? to go\.$/);
+        assert.equal(await page.locator('#lockbox-stop').isVisible(), true);
+        await page.click('#lockbox-start');
+        await page.locator('#lockbox-open').waitFor({ state: 'visible', timeout: 20_000 });
+        assert.equal(await page.inputValue('#lockbox-revealed'), SECRET);
+        assert.deepEqual(page.errors, []);
+      } finally {
+        await page.close();
+      }
+    });
+
+    test('stopping unlocking throws the work away, and the password stays locked', async () => {
+      const page = await freshSettings();
+      try {
+        await lockAway(page, SECRET, 30);
+        await page.click('#lockbox-start');
+        await progressSaved(page);
+        page.once('dialog', (dialog) => dialog.accept());
+        await page.click('#lockbox-stop');
+        await page.waitForFunction(() => /^Unlocking stopped/.test(document.getElementById('lockbox-status').textContent));
+        assert.equal((await storedLockbox(page)).lockboxProgress, undefined);
+        assert.equal(await page.locator('#lockbox-start').innerText(), 'Start unlocking');
+        assert.equal(await page.locator('#lockbox-progress-area').isVisible(), false);
+        assert.ok((await storedLockbox(page)).lockbox, 'still locked away');
+      } finally {
+        await page.close();
+      }
+    });
+
+    test('a backup file stays locked, and restoring it brings the same password back after the wait', async () => {
+      const page = await freshSettings();
+      try {
+        await lockAway(page, SECRET, 3);
+        const [download] = await Promise.all([page.waitForEvent('download'), page.click('#lockbox-backup')]);
+        assert.equal(download.suggestedFilename(), 'locked-away-password.json');
+        const file = await download.path();
+        const { readFileSync } = await import('node:fs');
+        const backup = readFileSync(file, 'utf8');
+        assert.ok(!backup.includes(SECRET), 'the backup file does not hold the password');
+
+        page.once('dialog', (dialog) => dialog.accept());
+        await page.click('#lockbox-delete');
+        await page.locator('#lockbox-empty').waitFor({ state: 'visible' });
+        assert.deepEqual(await storedLockbox(page), {});
+
+        await page.setInputFiles('#lockbox-restore', { name: 'notes.json', mimeType: 'application/json', buffer: Buffer.from('{"a":1}') });
+        await page.waitForFunction(() => /isn’t a backup/.test(document.getElementById('lockbox-status').textContent));
+
+        await page.setInputFiles('#lockbox-restore', file);
+        await page.locator('#lockbox-locked').waitFor({ state: 'visible' });
+        await page.click('#lockbox-start');
+        await page.locator('#lockbox-open').waitFor({ state: 'visible', timeout: 20_000 });
+        assert.equal(await page.inputValue('#lockbox-revealed'), SECRET);
+        assert.deepEqual(page.errors, []);
       } finally {
         await page.close();
       }

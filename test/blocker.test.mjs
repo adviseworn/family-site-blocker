@@ -379,7 +379,7 @@ test('every file the pages reference exists', () => {
 });
 
 test('module imports resolve', () => {
-  for (const file of ['options.js', 'lib/domains.js', 'lib/rules.js']) {
+  for (const file of ['options.js', 'lockbox.js', 'lockbox-worker.js', 'lib/domains.js', 'lib/rules.js', 'lib/timelock.js']) {
     const source = readFileSync(join(EXT, file), 'utf8');
     for (const [, specifier] of source.matchAll(/from\s+'(\.{1,2}\/[^']+)'/g)) {
       assert.ok(existsSync(resolve(EXT, dirname(file), specifier)), `${file} imports missing ${specifier}`);
@@ -388,7 +388,7 @@ test('module imports resolve', () => {
 });
 
 test('extension scripts have no syntax errors', () => {
-  for (const file of ['background.js', 'blocked.js', 'options.js', 'lib/domains.js', 'lib/rules.js']) {
+  for (const file of ['background.js', 'blocked.js', 'options.js', 'lockbox.js', 'lockbox-worker.js', 'lib/domains.js', 'lib/rules.js', 'lib/timelock.js']) {
     const run = spawnSync(process.execPath, ['--check', join(EXT, file)], { encoding: 'utf8' });
     assert.equal(run.status, 0, `${file}: ${run.stderr}`);
   }
