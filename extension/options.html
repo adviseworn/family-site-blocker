@@ -44,7 +44,59 @@
         <span id="status" role="status"></span>
       </div>
     </section>
+    <section id="lockbox" aria-labelledby="lockbox-heading">
+      <h2 id="lockbox-heading">Locked-away password</h2>
+      <p>Keep a password here that you can only get back after a wait you choose, such as this computer’s administrator password. The wait is real computing: the computer has to work through a puzzle that can’t be skipped, so reading the extension’s storage or changing the clock doesn’t get the password out sooner.</p>
+
+      <div id="lockbox-empty" hidden>
+        <label for="lockbox-secret">Password to lock away</label>
+        <input id="lockbox-secret" type="text" spellcheck="false" autocapitalize="off" autocomplete="off">
+        <label for="lockbox-delay">Wait before it can be seen again</label>
+        <select id="lockbox-delay">
+          <option value="60">1 minute (to try it out)</option>
+          <option value="600">10 minutes</option>
+          <option value="3600" selected>1 hour</option>
+          <option value="14400">4 hours</option>
+          <option value="43200">12 hours</option>
+          <option value="86400">1 day</option>
+          <option value="172800">2 days</option>
+        </select>
+        <div class="actions">
+          <button id="lockbox-lock" type="button">Lock it away</button>
+          <label class="button secondary" for="lockbox-restore">Restore from a backup file</label>
+          <input id="lockbox-restore" class="visually-hidden" type="file" accept=".json,application/json">
+        </div>
+      </div>
+
+      <div id="lockbox-locked" hidden>
+        <p id="lockbox-summary"></p>
+        <div id="lockbox-progress-area" hidden>
+          <progress id="lockbox-progress" max="1" value="0"></progress>
+          <p id="lockbox-progress-text" aria-live="polite"></p>
+        </div>
+        <div class="actions">
+          <button id="lockbox-start" type="button">Start unlocking</button>
+          <button id="lockbox-stop" class="secondary" type="button" hidden>Stop unlocking</button>
+          <button id="lockbox-backup" class="secondary" type="button">Save a backup file</button>
+          <button id="lockbox-delete" class="secondary" type="button">Delete it</button>
+        </div>
+        <p class="note">Removing the extension deletes the locked-away password with it, and so does Firefox when it quits if the add-on isn’t signed. Keep a backup file: it stays locked with the same wait.</p>
+      </div>
+
+      <div id="lockbox-open" hidden>
+        <label for="lockbox-revealed">Your password</label>
+        <input id="lockbox-revealed" type="text" readonly spellcheck="false">
+        <div class="actions">
+          <button id="lockbox-copy" type="button">Copy</button>
+          <button id="lockbox-hide" class="secondary" type="button">Hide</button>
+        </div>
+        <p>It’s already locked away again with the same wait. It stays on this page until you click Hide or close the page.</p>
+      </div>
+
+      <p id="lockbox-status" role="status"></p>
+    </section>
   </main>
   <script type="module" src="options.js"></script>
+  <script type="module" src="lockbox.js"></script>
 </body>
 </html>

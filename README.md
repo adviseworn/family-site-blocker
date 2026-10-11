@@ -91,14 +91,30 @@ It blocks by domain. It can't block one page of a site, and it doesn't read page
 - **Your blocked sites** on the settings page: one site per line, saved straight away. Pasted addresses are cleaned up (`https://www.Example.com/a?b` becomes `example.com`) and hosts-file lines (`0.0.0.0 example.com`) work too.
 - **The built-in list** lives in `blocklists/*.txt`. For wider coverage, save a community list (hosts-file format or one domain per line) as another `.txt` file there, run `npm run build`, then reload the extension. Large lists are fine in Chromium: 400,000 domains in the built-in list and 300,000 pasted into the settings page both worked in testing. The settings page can't remove built-in sites.
 
+## Locked-away password
+
+The settings page can keep a password that you only get back after a wait you choose, from 1 minute to 2 days. It's meant for putting something out of your own quick reach, such as this computer's administrator password, in the same way as [Lockbox Local](https://github.com/bleriotnoguia/lockbox-local).
+
+1. Under **Locked-away password**, type the password, choose the wait and click **Lock it away**.
+2. Click **Save a backup file**. Removing the extension deletes the password with it, and so does Firefox when it quits if the add-on isn't signed. The backup file stays locked with the same wait, so it's safe to keep anywhere.
+3. To get the password back, click **Start unlocking** and leave the page open. When the wait is over the password appears, and it's locked away again straight away with the same wait.
+
+The wait is computing time, not a timer. The password is encrypted with a key that can only be worked out by squaring a 2048-bit number over and over, each step needing the one before (a time-lock puzzle), and the number of steps is set by timing this computer. Reading the extension's storage or the backup file, or changing the computer's clock, doesn't skip it. While it runs, one processor core is busy. If the page is closed or the computer sleeps, the work pauses, and it carries on from where it got to when you open the page and click **Carry on unlocking**. **Stop unlocking** throws the work away.
+
+What it can't do:
+
+- Someone who writes a faster program for the same puzzle can shorten the wait, perhaps several times over, though not skip it.
+- It doesn't stop anyone resetting the administrator password another way, such as from macOS Recovery.
+- A faster or slower computer than the one that locked it takes less or more time.
+
 ## Tests
 
 ```
 npm test                  # fast checks, no install needed
 npm install               # once, for the Chromium tests
 npx playwright install chromium    # once, if Playwright has no browser yet
-npm run test:browser      # 39 tests in a real Chromium
-npm run test:firefox      # 22 tests in the Firefox installed on this computer
+npm run test:browser      # 44 tests in a real Chromium
+npm run test:firefox      # 23 tests in the Firefox installed on this computer
 ```
 
 `npm run test:browser` loads the extension the way "Load unpacked" does and drives it like a person would. `npm run test:firefox` does the same in Firefox. It builds the zip that `npm run package:firefox` makes, loads it the way "Load Temporary Add-on…" does, and then checks that the `extension` folder itself loads too. It finds Firefox in its usual place on macOS, Windows or Linux, or uses the one in `FIREFOX`, and is skipped if there is none.
@@ -124,13 +140,14 @@ No real website is contacted: every request goes to a small local server instead
 | --- | --- |
 | `extension/` | The extension. Load this folder. |
 | `extension/rules/adult.json` | The built-in rules, generated from `blocklists/`. Don't edit by hand. |
-| `extension/lib/` | Domain cleanup and rule building, shared with the build script. |
+| `extension/lib/` | Domain cleanup and rule building, shared with the build script, and the time-lock puzzle (`timelock.js`). |
+| `extension/lockbox.js`, `extension/lockbox-worker.js` | The locked-away password on the settings page, and the worker that does the puzzle's squaring. |
 | `blocklists/` | The built-in list, as plain text. |
 | `scripts/build-rules.mjs` | `npm run build`: turns `blocklists/` into `adult.json`. |
 | `scripts/package-firefox.mjs` | `npm run package:firefox`: makes the zip to upload to Mozilla, with Firefox's copy of `manifest.json`. |
 | `scripts/package-signed.mjs` | `npm run package:signed`: puts the signed `.xpi` from Mozilla in a zip that gives it a clear name and the gate icon in Finder. |
 | `assets/finder-icon.icns` | The gate icon for Finder. `npm run icons` makes it along with the extension's icons. |
-| `test/` | Fast checks (`*.test.mjs`) and the real-browser tests (`browser.e2e.mjs` for Chromium, `firefox.e2e.mjs` for Firefox, `firefox-lock.e2e.mjs` for the Firefox lock). |
+| `test/` | Fast checks (`*.test.mjs`, with the time-lock puzzle in `timelock.test.mjs`) and the real-browser tests (`browser.e2e.mjs` for Chromium, `firefox.e2e.mjs` for Firefox, `firefox-lock.e2e.mjs` for the Firefox lock). |
 | `mac/family-site-blocker-firefox.mobileconfig` | The Firefox lock for a Mac, as a configuration profile. `npm run firefox-lock` makes it from `scripts/firefox-lock.mjs`. |
 | `.github/workflows/firefox-lock.yml` | **Firefox lock check**: tests the lock with the latest signed release on a GitHub-hosted Mac, on its own and next to another blocker's settings. It fetches version 1.1.1 from Mozilla with the API key that **Sign with Mozilla** uses. Started by hand from the Actions tab. |
 | `.github/workflows/macos.yml` | Runs all the tests on a Mac at GitHub after every push. |
