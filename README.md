@@ -73,6 +73,26 @@ You need the signed `.xpi` and an administrator account. The lock only stops peo
 
 Firefox installs the add-on from that folder once in each Firefox profile, so it doesn't pick up a newer file there by itself. For a new version, install the new signed `.xpi` in Firefox as in step 7 above, in each account that uses Firefox. The lock lets it update and stays on. Also put the new file in the folder as `family-site-blocker.xpi`, for Firefox profiles made later. To take the lock off, select the profile in **Device Management**, click the minus button (**−**) and enter an administrator's name and password. Family Site Blocker stays installed and keeps blocking, but it's an ordinary add-on again, so anyone can switch it off.
 
+**Make the lock hold against the administrator password, too**
+
+Nothing installed on a Mac can hold against someone who types an administrator's password: macOS lets them remove any profile, this lock included, and change anything else. (A Mac that a company enrolls through Apple Business Manager and manages with an MDM service can get a profile that even an administrator can't remove, but that needs an organisation with a D-U-N-S number, an MDM service and erasing the Mac.) So the way to make the lock hold is to make sure nobody, you included, knows the administrator password at a moment's notice. The settings page's [locked-away password](#locked-away-password) is for that: the password gets a random value that only comes back after a wait of up to 2 days.
+
+1. Use a Standard account every day. In **System Settings → Users & Groups**, only one account should say "Admin" under its name, and it shouldn't be the one you use. If your everyday account is the administrator, first click **Add User…** and make a new **Administrator** account (for example "Mac Admin"). Then click **ⓘ** next to your everyday account, turn off **Allow this user to administer this computer** and restart.
+2. Click **ⓘ** next to the administrator account. If it shows **Allow user to reset password using Apple Account**, turn that off, so the password can't be reset from Apple's website.
+3. Turn on FileVault (**System Settings → Privacy & Security → FileVault**). Without it, someone can reset the administrator password from macOS Recovery. When it asks how to unlock the disk if you forget your password, choose **Create a recovery key and do not use my iCloud account**, and keep the recovery key it shows for step 6 rather than writing it down.
+4. In Firefox, open Family Site Blocker's settings page. Under **Locked-away password**, click **Make one up**. It fills in a random password, such as `k7Qm-x3Fa-PZ9e-wHt2-cR4n`, and selects it. Copy it (**⌘C**).
+5. In **Users & Groups**, click **ⓘ** next to the administrator account, then **Change Password…** (or **Reset…**). Paste the new password into both boxes and leave the hint empty.
+6. Back on the settings page, after the password type a space and the FileVault recovery key, so both come back together. Choose the wait (**2 days** is the longest), click **Lock it away**, then **Save a backup file**. Copy something else, so the password isn't left on the clipboard.
+7. Check: in **Device Management**, select **Family Site Blocker for Firefox** and click the minus button (**−**). Nobody can type the password, so it stays.
+
+When you need the administrator password, click **Start unlocking** and leave the page open for the wait. It stays the same password, so lock it away again the same way afterwards (the page does this by itself).
+
+What can still get round it:
+
+- Erasing the Mac and installing macOS again, which deletes everything on it.
+- Browsers other than Firefox. A Standard account can still copy Chrome or another browser into its own Applications folder. Screen Time (**Content & Privacy**) or another blocker covers those.
+- A VPN or proxy app, unless its sites are blocked too (see **Limits**).
+
 ### Settings page
 
 To open it later, click the puzzle-piece **Extensions** button in the toolbar and choose **Family Site Blocker** (in Chrome you can pin it there to keep its icon in view). In Chrome, Edge and Brave it also checks six addresses against the browser's own rule matcher and shows Passed or Failed for each. Firefox doesn't let extensions run that check, so use the **Open exampleadultsite.com** button there instead.
@@ -104,7 +124,7 @@ The wait is computing time, not a timer. The password is encrypted with a key th
 What it can't do:
 
 - Someone who writes a faster program for the same puzzle can shorten the wait, perhaps several times over, though not skip it.
-- It doesn't stop anyone resetting the administrator password another way, such as from macOS Recovery.
+- It doesn't stop anyone resetting the administrator password another way, such as from macOS Recovery, unless FileVault is on (see **Make the lock hold against the administrator password, too**).
 - A faster or slower computer than the one that locked it takes less or more time.
 
 ## Tests
