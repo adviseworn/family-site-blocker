@@ -392,12 +392,17 @@ describe('real browser', () => {
       return page;
     }
 
-    test('"Make one up" fills in a long random password, different each time', async () => {
+    test('"Make one up" fills in a long random password, and asks before replacing one', async () => {
       const page = await freshSettings();
       try {
         await page.click('#lockbox-make');
         const first = await page.inputValue('#lockbox-secret');
-        assert.match(first, /^[a-km-zA-HJ-NP-Z2-9]{4}(-[a-km-zA-HJ-NP-Z2-9]{4}){4}$/);
+        assert.match(first, /^[a-hjkmnp-zA-HJ-NP-Z2-9]{4}(-[a-hjkmnp-zA-HJ-NP-Z2-9]{4}){4}$/);
+        // With something already in the box it asks first, and Cancel keeps it.
+        page.once('dialog', (dialog) => dialog.dismiss());
+        await page.click('#lockbox-make');
+        assert.equal(await page.inputValue('#lockbox-secret'), first);
+        page.once('dialog', (dialog) => dialog.accept());
         await page.click('#lockbox-make');
         assert.notEqual(await page.inputValue('#lockbox-secret'), first);
         assert.match(await page.locator('#lockbox-status').innerText(), /administrator password first/);

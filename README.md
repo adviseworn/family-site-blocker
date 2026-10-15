@@ -59,7 +59,7 @@ For a later version, raise `version` in `extension/manifest.json`, then run **Si
 
 **Lock it, so nobody can switch it off (Firefox on a Mac)**
 
-On its own, the add-on can be switched off or removed in the Add-ons Manager by anyone using Firefox. The Firefox lock stops that. Firefox installs the add-on itself and gives no way to switch it off, remove it or take away its access to websites. The lock also turns off private windows (add-ons don't run there unless someone allows it), Troubleshoot Mode, `about:config` and Refresh Firefox, which could otherwise get round it. It applies to every account on the Mac, yours included.
+On its own, the add-on can be switched off or removed in the Add-ons Manager by anyone using Firefox. The Firefox lock stops that. Firefox installs the add-on itself and gives no way to switch it off, remove it or take away its access to websites. The lock also turns off private windows (add-ons don't run there unless someone allows it), Firefox's own menu items for Troubleshoot Mode, `about:config` and Refresh Firefox, which could otherwise get round it. On a Mac, Troubleshoot Mode can still be started from outside Firefox (see **What can still get round it** below). It applies to every account on the Mac, yours included.
 
 The lock works alongside another blocker that sets Firefox's settings too, such as Plucky. Both blockers' settings stay in force (**Limits** below has the one exception).
 
@@ -77,20 +77,26 @@ Firefox installs the add-on from that folder once in each Firefox profile, so it
 
 Nothing installed on a Mac can hold against someone who types an administrator's password: macOS lets them remove any profile, this lock included, and change anything else. (A Mac that a company enrolls through Apple Business Manager and manages with an MDM service can get a profile that even an administrator can't remove, but that needs an organisation with a D-U-N-S number, an MDM service and erasing the Mac.) So the way to make the lock hold is to make sure nobody, you included, knows the administrator password at a moment's notice. The settings page's [locked-away password](#locked-away-password) is for that: the password gets a random value that only comes back after a wait of up to 2 days.
 
-1. Use a Standard account every day. In **System Settings → Users & Groups**, only one account should say "Admin" under its name, and it shouldn't be the one you use. If your everyday account is the administrator, first click **Add User…** and make a new **Administrator** account (for example "Mac Admin"). Then click **ⓘ** next to your everyday account, turn off **Allow this user to administer this computer** and restart.
-2. Click **ⓘ** next to the administrator account. If it shows **Allow user to reset password using Apple Account**, turn that off, so the password can't be reset from Apple's website.
-3. Turn on FileVault (**System Settings → Privacy & Security → FileVault**). Without it, someone can reset the administrator password from macOS Recovery. When it asks how to unlock the disk if you forget your password, choose **Create a recovery key and do not use my iCloud account**, and keep the recovery key it shows for step 6 rather than writing it down.
-4. In Firefox, open Family Site Blocker's settings page. Under **Locked-away password**, click **Make one up**. It fills in a random password, such as `k7Qm-x3Fa-PZ9e-wHt2-cR4n`, and selects it. Copy it (**⌘C**).
-5. In **Users & Groups**, click **ⓘ** next to the administrator account, then **Change Password…** (or **Reset…**). Paste the new password into both boxes and leave the hint empty.
-6. Back on the settings page, after the password type a space and the FileVault recovery key, so both come back together. Choose the wait (**2 days** is the longest), click **Lock it away**, then **Save a backup file**. Copy something else, so the password isn't left on the clipboard.
-7. Check: in **Device Management**, select **Family Site Blocker for Firefox** and click the minus button (**−**). Nobody can type the password, so it stays.
+Work through the steps in this order. Until step 6 is checked, the new password has a copy you can still get at, so a slip can't lock you out.
+
+1. Turn on FileVault while your everyday account is still an administrator: **System Settings → Privacy & Security → FileVault**. Without it, someone can reset the administrator password from macOS Recovery. Anyone who has its recovery key can do that too, so the key gets locked away with the password in step 5.
+   - On macOS 15 Sequoia or earlier, if FileVault is off, turn it on and choose **Create a recovery key and do not use my iCloud account**. The key is shown only once, so write it on paper for now.
+   - On macOS 26 Tahoe or later, FileVault may already be on. The Mac keeps the recovery key in the **Passwords** app, which also shows it on your other devices signed in to the same Apple Account, and **Show** next to FileVault shows it again. Click **Show** and write the key on paper for now. Step 7 removes the other copies.
+2. Use a Standard account every day, with one separate administrator account. In **System Settings → Users & Groups**, click **Add User…** and make a new **Administrator** account (for example "Mac Admin"). Log out and log in to Mac Admin, which also checks its password works. Don't open Firefox there. In **Users & Groups**, click **ⓘ** next to your everyday account and turn off **Allow this user to administer this computer**. Then click **ⓘ** next to Mac Admin: if it shows **Allow user to reset password using Apple Account** (**Apple ID** on macOS 14 Sonoma), turn that off. A new account usually doesn't show it. Restart, log in to your everyday account and do every step from here on there. When macOS asks for an administrator, type Mac Admin's name and current password. If your everyday account is already Standard and only one other account says "Admin", just check that toggle and carry on.
+3. In Firefox, open Family Site Blocker's settings page. Under **Locked-away password**, click **Make one up**. It fills in a random password, such as `k7Qm-x3Fa-PZ9e-wHt2-cR4n`, and selects it. Copy it (**⌘C**).
+4. In **Users & Groups**, click **ⓘ** next to Mac Admin, then **Reset…**, and give Mac Admin's current name and password when asked. Paste the new password (**⌘V**) into both boxes and leave the hint empty.
+5. Back on the settings page, click in the box, press **⌘A** then **⌘V**, so it holds exactly the password you just set, and press **→** to go to the end. Type a space and the FileVault recovery key, so both come back together. Check that the box shows the whole password, one space, then the key.
+6. Try it with a short wait before the long one. Choose **1 minute**, click **Lock it away**, then **Start unlocking**, and check that what appears is the password and the key. Click **Copy**, **Hide** and **Delete it**, then click in the empty box and press **⌘V**. Now choose the real wait (**2 days** is the longest), click **Lock it away**, then **Save a backup file**. Copy that file somewhere off this Mac too, such as a USB stick or an email to yourself: Family Site Blocker on any computer can restore and unlock it.
+7. Remove the other copies. Copy something else, so the password isn't left on the clipboard (and clear Spotlight's clipboard history if you've turned it on). Destroy the paper with the recovery key. On macOS 26 or later, open **Passwords**, search for "recovery key", delete the entry for this Mac and delete it from **Recently Deleted** too, then check that **Show** next to FileVault no longer shows the key without Mac Admin's password.
+8. Check: in **Device Management**, select **Family Site Blocker for Firefox** and click the minus button (**−**). Nobody can type the password, so it stays.
 
 When you need the administrator password, click **Start unlocking** and leave the page open for the wait. It stays the same password, so lock it away again the same way afterwards (the page does this by itself).
 
 What can still get round it:
 
+- Troubleshoot Mode started from outside Firefox. On a Mac, holding the Option key (**⌥**) while Firefox opens, or opening it with `--safe-mode`, still offers Troubleshoot Mode, where no add-ons run, this one included. Firefox can block that only on Windows. Another blocker that works outside the browser covers it.
+- Browsers other than Firefox, and other editions of Firefox such as Firefox Developer Edition and Firefox Nightly, which the lock doesn't reach. A Standard account can still copy any of them into its own Applications folder. Screen Time (**Content & Privacy**) or another blocker covers those.
 - Erasing the Mac and installing macOS again, which deletes everything on it.
-- Browsers other than Firefox. A Standard account can still copy Chrome or another browser into its own Applications folder. Screen Time (**Content & Privacy**) or another blocker covers those.
 - A VPN or proxy app, unless its sites are blocked too (see **Limits**).
 
 ### Settings page
@@ -124,7 +130,7 @@ The wait is computing time, not a timer. The password is encrypted with a key th
 What it can't do:
 
 - Someone who writes a faster program for the same puzzle can shorten the wait, perhaps several times over, though not skip it.
-- It doesn't stop anyone resetting the administrator password another way, such as from macOS Recovery, unless FileVault is on (see **Make the lock hold against the administrator password, too**).
+- It doesn't stop anyone resetting the administrator password another way, such as from macOS Recovery, unless FileVault is on and its recovery key is locked away too (see **Make the lock hold against the administrator password, too**).
 - A faster or slower computer than the one that locked it takes less or more time.
 
 ## Tests
@@ -133,7 +139,7 @@ What it can't do:
 npm test                  # fast checks, no install needed
 npm install               # once, for the Chromium tests
 npx playwright install chromium    # once, if Playwright has no browser yet
-npm run test:browser      # 44 tests in a real Chromium
+npm run test:browser      # 45 tests in a real Chromium
 npm run test:firefox      # 23 tests in the Firefox installed on this computer
 ```
 

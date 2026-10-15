@@ -241,6 +241,7 @@ function makePassword(groups = 5) {
 
 function makeOne() {
   const field = $('lockbox-secret');
+  if (field.value && !confirm('Replace the password in the box with a new one? If you have already made it the administrator password, click Cancel.')) return;
   field.value = makePassword();
   field.focus();
   field.select();
