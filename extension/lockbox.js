@@ -226,6 +226,28 @@ async function restore(event) {
   say('Restored from the backup file. It is still locked away.');
 }
 
+// Letters and digits that can't be mistaken for each other (no 0/O, 1/l/I), in groups of four.
+const ALPHABET = 'abcdefghjkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+
+/** A random password, such as k7Qm-x3Fa-PZ9e-wHt2-cR4n: about 115 bits, too long to guess or remember at a glance. */
+function makePassword(groups = 5) {
+  const chars = [];
+  while (chars.length < groups * 4) {
+    const [byte] = crypto.getRandomValues(new Uint8Array(1));
+    if (byte < 256 - (256 % ALPHABET.length)) chars.push(ALPHABET[byte % ALPHABET.length]);
+  }
+  return Array.from({ length: groups }, (_, i) => chars.slice(i * 4, i * 4 + 4).join('')).join('-');
+}
+
+function makeOne() {
+  const field = $('lockbox-secret');
+  if (field.value && !confirm('Replace the password in the box with a new one? If you have already made it the administrator password, click Cancel.')) return;
+  field.value = makePassword();
+  field.focus();
+  field.select();
+  say('Copy it (⌘C or Ctrl+C) and make it the administrator password first, then come back and lock it away.');
+}
+
 function hide() {
   $('lockbox-revealed').value = '';
   render();
@@ -237,6 +259,7 @@ async function copy() {
 }
 
 $('lockbox-lock').addEventListener('click', lock);
+$('lockbox-make').addEventListener('click', makeOne);
 $('lockbox-start').addEventListener('click', startUnlocking);
 $('lockbox-stop').addEventListener('click', stopUnlocking);
 $('lockbox-delete').addEventListener('click', remove);

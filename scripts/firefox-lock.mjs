@@ -2,8 +2,9 @@
 // The Firefox lock: enterprise policies that make Firefox install Family Site Blocker itself and keep it
 // switched on. With them in force, the Add-ons Manager can't turn the add-on off, remove it or take away
 // its website access, and the other ways round it are closed: private windows (where add-ons don't run
-// unless someone allows it in the Add-ons Manager), Troubleshoot Mode (starts Firefox with add-ons off),
-// about:config (extensions.dnr.enabled switches off every add-on's blocking rules) and Refresh Firefox
+// unless someone allows it in the Add-ons Manager), Troubleshoot Mode from Firefox's menus (starts Firefox
+// with add-ons off; on a Mac, holding Option at start or --safe-mode still gets there, and Firefox only
+// blocks that on Windows), about:config (extensions.dnr.enabled switches off every add-on's blocking rules) and Refresh Firefox
 // (would wipe the sites added on the settings page).
 //
 // It has to work next to other programs that set Firefox policies, such as other blockers. Firefox takes
@@ -85,7 +86,7 @@ export function mobileconfig(settings = macSettings()) {
     PayloadDescription:
       'Keeps the Family Site Blocker add-on installed and switched on in Firefox, for every account on this Mac. ' +
       `Firefox installs it from ${XPI_PATH}, and nobody can turn it off or remove it there. ` +
-      'Private windows, Troubleshoot Mode, about:config and Refresh Firefox, which could get round it, are turned off. ' +
+      'Private windows, Troubleshoot Mode from Firefox\u2019s menus, about:config and Refresh Firefox, which could get round it, are turned off. ' +
       'Settings that other programs, such as another blocker, give Firefox for their own add-ons stay in force. ' +
       'Only an administrator can remove this profile.',
     PayloadDisplayName: 'Family Site Blocker for Firefox',
