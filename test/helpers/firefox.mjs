@@ -98,8 +98,10 @@ const sleep = (ms) => new Promise((done) => setTimeout(done, ms));
  * the zip that npm run package:firefox makes (the file Mozilla signs), or with { packaged: false } the
  * extension folder itself, as the README's "Try it" steps load it. A throwaway profile is used, unless
  * { profile } names a folder to use (and keep) instead, so a later start can pick up where this one left off.
+ * With { troubleshootMode: true } Firefox starts in Troubleshoot Mode (--safe-mode), as holding Option (⌥)
+ * while it opens does on a Mac; the automation accepts the "Open Firefox in Troubleshoot Mode?" question.
  */
-export async function launchFirefox(stub, { extension = true, extensionDir = EXTENSION_DIR, packaged = true, profile: keep } = {}) {
+export async function launchFirefox(stub, { extension = true, extensionDir = EXTENSION_DIR, packaged = true, profile: keep, troubleshootMode = false } = {}) {
   const binary = findFirefox();
   const profile = keep ?? mkdtempSync(join(tmpdir(), 'family-site-blocker-firefox-'));
   const marionettePort = 20000 + Math.floor(Math.random() * 20000);
@@ -133,7 +135,7 @@ export async function launchFirefox(stub, { extension = true, extensionDir = EXT
     Object.entries(prefs).map(([name, value]) => `user_pref(${JSON.stringify(name)}, ${JSON.stringify(value)});`).join('\n'),
   );
   const headless = process.env.HEADFUL !== '1';
-  const args = ['-no-remote', '-profile', profile, '-marionette', ...(headless ? ['-headless'] : [])];
+  const args = ['-no-remote', '-profile', profile, '-marionette', ...(headless ? ['-headless'] : []), ...(troubleshootMode ? ['--safe-mode'] : [])];
   const env = {
     ...process.env,
     LD_LIBRARY_PATH: dirname(binary),
@@ -224,7 +226,10 @@ export async function launchFirefox(stub, { extension = true, extensionDir = EXT
       }
       return url;
     },
-    /** Opens an address in the current tab and reports where the person ended up. */
+    /**
+     * Opens an address in the current tab and reports where the person ended up: the add-on's "blocked page",
+     * Firefox's own "blocked by Firefox" page (from the WebsiteFilter policy), "site loaded" or "other".
+     */
     async visit(url) {
       let error = null;
       try {
@@ -234,10 +239,13 @@ export async function launchFirefox(stub, { extension = true, extensionDir = EXT
       }
       const finalUrl = await currentUrl();
       const text = await run('return document.body ? document.body.innerText : ""').catch(() => '');
+      // Firefox's error pages keep the address the person asked for; the page itself says what happened.
+      const documentUri = await run('return document.documentURI').catch(() => '');
       let outcome = 'other';
       if (/^moz-extension:\/\/[0-9a-f-]+\/blocked\.html$/.test(finalUrl)) outcome = 'blocked page';
+      else if (String(documentUri).startsWith('about:neterror?e=blockedByPolicy')) outcome = 'blocked by Firefox';
       else if (text.includes('SITE LOADED')) outcome = 'site loaded';
-      return { url, finalUrl, text, error, outcome };
+      return { url, finalUrl, documentUri, text, error, outcome };
     },
     async close() {
       const running = process_.exitCode === null && process_.signalCode === null;
