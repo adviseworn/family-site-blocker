@@ -58,7 +58,7 @@ export function filterSites(dir = BLOCKLIST_DIR) {
   return { sites: all.slice(0, FILTER_LIMIT), leftOut: all.slice(FILTER_LIMIT) };
 }
 
-/** A site and all its subdomains, on any scheme and port, as Firefox's filter writes it (a match pattern). */
+/** A site and all its subdomains, over http and https on any port, as Firefox's filter writes it (a match pattern). */
 export const filterPattern = (domain) => `*://*.${domain}/*`;
 
 /** The policies, in the form Firefox reads them (policies.json, or the org.mozilla.firefox settings on a Mac). */
