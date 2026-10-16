@@ -504,6 +504,10 @@ async function switchedOffThenLocked(stub, scratch, { handXpi, lockXpi = SIGNED 
   mkdirSync(profile);
   const first = await startFirefox(stub, { profile });
   try {
+    // Installing opens the settings page, which takes over a blank tab. If that happens while an automation
+    // command runs, Firefox's automation loses the tab ("Document was unloaded"). With a page open, as a
+    // person would have, the settings page gets a tab of its own.
+    await first.fx.send('WebDriver:Navigate', { url: 'http://allowed.test/' });
     await first.fx.send('Addon:Install', { path: resolve(handXpi), temporary: false });
     assert.equal((await first.waitForAddon(ADDON_ID))?.active, true, 'installed by hand');
     await first.chrome(`await (await AddonManager.getAddonByID(arguments[0])).disable();`, ADDON_ID);
