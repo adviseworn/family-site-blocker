@@ -9,9 +9,9 @@ import { fileURLToPath } from 'node:url';
 
 import { normalizeDomain, parseDomainList } from '../extension/lib/domains.js';
 import { BLOCK_PAGE, CHUNK_SIZE, buildRules } from '../extension/lib/rules.js';
-import { RULES_PATH, loadBlocklists, renderRules } from '../scripts/build-rules.mjs';
+import { BLOCKLIST_DIR, RULES_PATH, loadBlocklists, renderRules } from '../scripts/build-rules.mjs';
 import { firefoxManifest, packageFirefox } from '../scripts/package-firefox.mjs';
-import { PROFILE_PATH, XPI_PATH, firefoxPolicies, mobileconfig } from '../scripts/firefox-lock.mjs';
+import { FILTER_LIMIT, PROFILE_PATH, XPI_PATH, filterPattern, filterSites, firefoxPolicies, mobileconfig } from '../scripts/firefox-lock.mjs';
 import { ICNS_PATH, packageSigned } from '../scripts/package-signed.mjs';
 import { readZip } from '../scripts/read-zip.mjs';
 
@@ -356,15 +356,44 @@ test("the Firefox lock leaves alone the policy other blockers lock their own add
   // Firefox takes each policy from one place: if the profile set ExtensionSettings, another blocker's
   // ExtensionSettings (Plucky's, for one) would be dropped, and its add-ons with it.
   assert.deepEqual(Object.keys(firefoxPolicies()).sort(), [
-    'BlockAboutConfig', 'DisablePrivateBrowsing', 'DisableProfileRefresh', 'DisableSafeMode', 'Extensions', 'Preferences',
+    'BlockAboutConfig', 'DisablePrivateBrowsing', 'DisableProfileRefresh', 'DisableSafeMode', 'Extensions', 'Preferences', 'WebsiteFilter',
   ]);
 });
 
-test('mac/family-site-blocker-firefox.mobileconfig is up to date (run npm run firefox-lock)', () => {
+test("the Firefox lock gives Firefox its own copy of the built-in list, which blocks with add-ons off (Troubleshoot Mode)", () => {
+  const { WebsiteFilter } = firefoxPolicies();
+  const { domains } = loadBlocklists();
+  const starter = parseDomainList(readFileSync(join(BLOCKLIST_DIR, 'starter.txt'), 'utf8')).domains;
+  assert.deepEqual(Object.keys(WebsiteFilter), ['Block'], 'no exceptions');
+  assert.equal(WebsiteFilter.Block[0], '*://*.exampleadultsite.com/*', 'the test case comes first');
+  assert.deepEqual(WebsiteFilter.Block.slice(0, starter.length), starter.map(filterPattern), 'then the rest of starter.txt');
+  assert.equal(WebsiteFilter.Block.length, Math.min(domains.length, FILTER_LIMIT));
+  const builtIn = new Set(domains.map(filterPattern));
+  for (const pattern of WebsiteFilter.Block) assert.ok(builtIn.has(pattern), `${pattern} is a built-in site`);
+});
+
+test("Firefox's own copy takes starter.txt first, then the other lists, and stops at Firefox's limit of 1,000", () => {
+  const dir = mkdtempSync(join(tmpdir(), 'family-site-blocker-lists-'));
+  try {
+    writeFileSync(join(dir, 'a-community.txt'), Array.from({ length: 1200 }, (_, i) => `0.0.0.0 site${i}.com`).join('\n'));
+    writeFileSync(join(dir, 'starter.txt'), '# mine\nexampleadultsite.com\nwww.second.com\nsite5.com\n');
+    const { sites, leftOut } = filterSites(dir);
+    assert.deepEqual(sites.slice(0, 4), ['exampleadultsite.com', 'second.com', 'site5.com', 'site0.com']);
+    assert.equal(sites.length, FILTER_LIMIT);
+    assert.equal(new Set(sites).size, FILTER_LIMIT, 'each site once');
+    assert.equal(sites.length + leftOut.length, 1202, 'site5.com counted once');
+    assert.equal(leftOut.length, 202);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('mac/family-site-blocker-firefox.mobileconfig is up to date with blocklists/ (run npm run build)', () => {
   const profile = readFileSync(PROFILE_PATH, 'utf8');
   assert.equal(profile, mobileconfig());
   assert.match(profile, /<key>PayloadScope<\/key>\s*<string>System<\/string>/, 'applies to every account');
   assert.match(profile, /<key>EnterprisePoliciesEnabled<\/key>\s*<true\/>/, 'Firefox only reads its Mac settings with this');
+  assert.match(profile, /<key>WebsiteFilter<\/key>\s*<dict>\s*<key>Block<\/key>\s*<array>\s*<string>\*:\/\/\*\.exampleadultsite\.com\/\*<\/string>/);
 });
 
 test('every file the pages reference exists', () => {
