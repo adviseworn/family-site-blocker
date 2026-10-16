@@ -5,7 +5,7 @@
   "type": "module",
   "description": "Chrome, Edge, Brave and Firefox extension that blocks adult websites",
   "scripts": {
-    "build": "node scripts/build-rules.mjs",
+    "build": "node scripts/build-rules.mjs && node scripts/firefox-lock.mjs",
     "icons": "node scripts/make-icons.mjs",
     "package:firefox": "node scripts/package-firefox.mjs",
     "package:signed": "node scripts/package-signed.mjs",

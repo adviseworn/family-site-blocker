@@ -1,7 +1,9 @@
 // Firefox lock tests: with the policies from scripts/firefox-lock.mjs in force, Firefox installs the signed
-// add-on itself, and nobody can switch it off. The situations: the lock on its own; the lock next to another
-// blocker's policies (like Plucky's), where both must stay in force; the lock arriving after the add-on was
-// installed by hand and switched off (the same version, or an older one); and updating it by hand. Run with:
+// add-on itself, and nobody can switch it off. The situations: the lock on its own; Troubleshoot Mode, which
+// a Mac can still start from outside Firefox and where no add-on runs, so Firefox's own copy of the built-in
+// list has to do the blocking; the lock next to another blocker's policies (like Plucky's), where both must
+// stay in force; the lock arriving after the add-on was installed by hand and switched off (the same version,
+// or an older one); and updating it by hand. Run with:
 //   SIGNED_XPI=signed.xpi OLDER_XPI=older-signed-version.xpi OTHER_XPI=another-signed-add-on.xpi \
 //     npm run test:firefox-lock
 //
@@ -20,12 +22,14 @@ import { accessSync, constants, copyFileSync, existsSync, mkdirSync, mkdtempSync
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { ADDON_ID, XPI_PATH, firefoxPolicies, macSettings, plist } from '../scripts/firefox-lock.mjs';
+import { ADDON_ID, XPI_PATH, filterSites, firefoxPolicies, macSettings, plist } from '../scripts/firefox-lock.mjs';
 import { readZip } from '../scripts/read-zip.mjs';
 import { startStubInternet } from './helpers/browser.mjs';
 import { findFirefox, launchFirefox } from './helpers/firefox.mjs';
 
 const SITE = 'exampleadultsite.com';
+// Not on the built-in list, so only the add-on blocks it once the settings page adds it.
+const ADDED_SITE = 'added-on-the-settings-page.test';
 const FIREFOX = findFirefox();
 const SIGNED = process.env.SIGNED_XPI;
 const OLDER = process.env.OLDER_XPI;
@@ -82,16 +86,17 @@ const sudo = (...args) => assert.equal(spawnSync('sudo', ['-n', ...args], { stdi
 
 /**
  * Puts the lock in force for the next Firefox start, with `xpi` as the file it installs from, and with { other }
- * another program's policies as well. Returns the lock's policies, and a function that takes everything away.
+ * another program's policies as well. { change } edits the lock's policies first, to stand in for an earlier
+ * version of the lock. Returns the lock's policies, and a function that takes everything away.
  */
-function applyPolicies(scratch, { xpi = SIGNED, other = null } = {}) {
+function applyPolicies(scratch, { xpi = SIGNED, other = null, change = (lock) => lock } = {}) {
   const undo = [];
   let lock;
   if (MAC) {
     mkdirSync(dirname(XPI_PATH), { recursive: true });
     copyFileSync(xpi, XPI_PATH);
     undo.push(() => rmSync(dirname(XPI_PATH), { recursive: true, force: true }));
-    lock = firefoxPolicies();
+    lock = change(firefoxPolicies());
     const settings = join(scratch, 'org.mozilla.firefox.plist');
     writeFileSync(settings, plist(macSettings(lock)));
     sudo('defaults', 'import', '/Library/Preferences/org.mozilla.firefox', settings);
@@ -108,7 +113,7 @@ function applyPolicies(scratch, { xpi = SIGNED, other = null } = {}) {
   } else {
     const folderCopy = join(scratch, 'family-site-blocker.xpi');
     copyFileSync(xpi, folderCopy);
-    lock = firefoxPolicies(folderCopy);
+    lock = change(firefoxPolicies(folderCopy));
     const previous = existsSync(APP_POLICIES) ? readFileSync(APP_POLICIES) : null;
     mkdirSync(dirname(APP_POLICIES), { recursive: true });
     // A single file here: combined as Firefox combines them on a Mac, where the profile's win, policy by policy.
@@ -186,14 +191,39 @@ async function startFirefox(stub, options = {}) {
     const toggle = document.querySelector('addon-card[addon-id="' + arguments[0] + '"] [action="toggle-disabled"]');
     (toggle.buttonEl ?? toggle).click();`, id);
 
-  async function assertBlocked(url = `http://${SITE}/`) {
+  /**
+   * Opens a built-in site and checks it was blocked with nothing reaching it. Under the lock that is Firefox's
+   * own copy of the list, which acts before any add-on, so the person sees Firefox's "Blocked Page".
+   */
+  async function assertBlocked(url = `http://${SITE}/`, site = SITE) {
     stub.clear();
     const result = await browser.visit(url);
-    assert.equal(result.outcome, 'blocked page', `${url} ended at ${result.finalUrl}`);
-    assert.equal(stub.reached(SITE), false, 'a request reached the site');
+    assert.equal(result.outcome, 'blocked by Firefox', `${url} ended at ${result.documentUri || result.finalUrl}`);
+    assert.equal(stub.reached(site), false, `${url}: a request reached ${site}`);
   }
 
-  return Object.assign(browser, { chrome, addon, waitForAddon, card, clickSwitch, assertBlocked });
+  /**
+   * Checks that Family Site Blocker itself runs and blocks: adds a site on its settings page, as a parent would,
+   * and opens it. Only the add-on blocks that site, so it shows the add-on's "This site is blocked" page.
+   */
+  async function assertAddonBlocks() {
+    const host = await chrome('return WebExtensionPolicy.getByID(arguments[0])?.mozExtensionHostname ?? null;', ADDON_ID);
+    assert.ok(host, 'Family Site Blocker is running');
+    await browser.fx.send('WebDriver:Navigate', { url: `moz-extension://${host}/options.html` });
+    await browser.run(`document.getElementById('custom').value = arguments[0]; document.getElementById('save').click();`, ADDED_SITE);
+    let status = '';
+    for (let i = 0; i < 40 && !status.startsWith('Saved'); i++) {
+      await sleep(150);
+      status = await browser.run(`return document.getElementById('status').textContent`);
+    }
+    assert.match(status, /^Saved/, 'the settings page saved the site');
+    stub.clear();
+    const result = await browser.visit(`http://${ADDED_SITE}/`);
+    assert.equal(result.outcome, 'blocked page', `${ADDED_SITE} ended at ${result.documentUri || result.finalUrl}`);
+    assert.equal(stub.reached(ADDED_SITE), false, `a request reached ${ADDED_SITE}`);
+  }
+
+  return Object.assign(browser, { chrome, addon, waitForAddon, card, clickSwitch, assertBlocked, assertAddonBlocks });
 }
 
 describe('Firefox lock', { skip: SKIP }, () => {
@@ -225,11 +255,13 @@ describe('Firefox lock', { skip: SKIP }, () => {
     });
   });
 
-  test('test case: with the lock, exampleadultsite.com is blocked', () => firefox.assertBlocked());
+  test("test case: with the lock, exampleadultsite.com is blocked, by Firefox's own copy of the list", () => firefox.assertBlocked());
+
+  test("a site added on the settings page gets the add-on's own block page", () => firefox.assertAddonBlocks());
 
   test('in the Add-ons Manager, Family Site Blocker has no on/off switch, and its menu says "Can’t Be Removed"', async () => {
     assert.deepEqual(await firefox.card(ADDON_ID), { name: 'Family Site Blocker', onOffSwitch: 'none', removeItem: CANT_BE_REMOVED });
-    await firefox.assertBlocked();
+    await firefox.assertAddonBlocks();
   });
 
   test('its access to websites is locked on, so the block page keeps working', async () => {
@@ -266,6 +298,7 @@ describe('Firefox lock', { skip: SKIP }, () => {
     // window's start page can't replace the test address.
     await firefox.newTab();
     await firefox.assertBlocked();
+    await firefox.assertAddonBlocks();
   });
 
   test('Troubleshoot Mode, Refresh Firefox and about:config are turned off', async () => {
@@ -279,6 +312,120 @@ describe('Firefox lock', { skip: SKIP }, () => {
   test("the setting that switches off every add-on's blocking is locked on", async () => {
     const pref = await firefox.chrome(`return { value: Services.prefs.getBoolPref('extensions.dnr.enabled'), locked: Services.prefs.prefIsLocked('extensions.dnr.enabled') };`);
     assert.deepEqual(pref, { value: true, locked: true });
+  });
+});
+
+/** Waits (up to 8 seconds) for the current tab to show a page whose address passes `test`. */
+async function waitForDocument(firefox, test) {
+  let uri = '';
+  for (let i = 0; i < 40 && !test(uri); i++) {
+    if (i) await sleep(200);
+    uri = await firefox.run('return document.documentURI').catch(() => '');
+  }
+  return uri;
+}
+
+// On a Mac, holding Option (⌥) while Firefox opens, or opening it with --safe-mode, still offers Troubleshoot
+// Mode: Firefox checks DisableSafeMode at that point only on Windows. No add-on runs there. --safe-mode puts
+// Firefox in the same mode as the Option key, and Firefox's automation answers its "Open" question.
+describe('Troubleshoot Mode, with the lock as it was before it gave Firefox its own copy of the list', { skip: SKIP }, () => {
+  const scratch = mkdtempSync(join(tmpdir(), 'family-site-blocker-lock-'));
+  let policies;
+  let stub;
+  let firefox;
+
+  before(async () => {
+    policies = applyPolicies(scratch, { change: ({ WebsiteFilter, ...earlier }) => earlier });
+    stub = await startStubInternet();
+    firefox = await startFirefox(stub, { troubleshootMode: true });
+    await firefox.newTab();
+  }, HOOK);
+
+  after(async () => {
+    await firefox?.close();
+    await stub?.close();
+    policies?.remove();
+    rmSync(scratch, { recursive: true, force: true });
+  }, HOOK);
+
+  test('Actual, as reported: exampleadultsite.com is allowed (so the next tests can see a failure)', async () => {
+    stub.clear();
+    const result = await firefox.visit(`http://${SITE}/`);
+    assert.equal(result.outcome, 'site loaded', `ended at ${result.documentUri || result.finalUrl}`);
+    assert.equal(stub.reached(SITE), true);
+  });
+});
+
+describe('Firefox lock in Troubleshoot Mode', { skip: SKIP }, () => {
+  const scratch = mkdtempSync(join(tmpdir(), 'family-site-blocker-lock-'));
+  let policies;
+  let stub;
+  let firefox;
+
+  before(async () => {
+    policies = applyPolicies(scratch);
+    stub = await startStubInternet();
+    stub.page('allowed.test/links', `<a id="go" href="http://${SITE}/">go</a>`);
+    stub.page('allowed.test/frame', `<iframe id="frame" src="http://${SITE}/frame"></iframe>`);
+    stub.page('allowed.test/redirect', '', { status: 302, headers: { location: `http://${SITE}/` } });
+    firefox = await startFirefox(stub, { troubleshootMode: true });
+    await firefox.newTab();
+  }, HOOK);
+
+  after(async () => {
+    await firefox?.close();
+    await stub?.close();
+    policies?.remove();
+    rmSync(scratch, { recursive: true, force: true });
+  }, HOOK);
+
+  test('Firefox is in Troubleshoot Mode, and Family Site Blocker is not running', async () => {
+    const state = await firefox.chrome(
+      'return { troubleshootMode: Services.appinfo.inSafeMode, addonRunning: Boolean(WebExtensionPolicy.getByID(arguments[0])) };',
+      ADDON_ID,
+    );
+    assert.deepEqual(state, { troubleshootMode: true, addonRunning: false });
+  });
+
+  test('test case: exampleadultsite.com is blocked, by Firefox itself', () => firefox.assertBlocked());
+
+  describe('the same site, written in other ways, is blocked', () => {
+    const variants = [
+      ['https', `https://${SITE}/`],
+      ['www subdomain', 'http://www.exampleadultsite.com/'],
+      ['deep subdomain with path, query and fragment', 'http://a.b.exampleadultsite.com/page?x=1#y'],
+      ['upper case', 'http://EXAMPLEADULTSITE.COM/'],
+      ['explicit port', 'http://exampleadultsite.com:8080/'],
+      ['trailing dot', 'http://exampleadultsite.com./'],
+      ['trailing dot on a subdomain', 'http://www.exampleadultsite.com./'],
+      ['user name and password', 'http://user:pw@exampleadultsite.com/'],
+      ['full-width letters', 'http://ｅｘａｍｐｌｅａｄｕｌｔｓｉｔｅ.com/'],
+    ];
+    for (const [name, url] of variants) test(name, () => firefox.assertBlocked(url));
+  });
+
+  test('every site in the built-in list is blocked', async () => {
+    for (const site of filterSites().sites) await firefox.assertBlocked(`http://${site}/`, site);
+  });
+
+  test('a link, a redirect and a frame on another site lead nowhere', async () => {
+    await firefox.visit('http://allowed.test/links');
+    stub.clear();
+    await firefox.run('document.getElementById("go").click()');
+    assert.match(await waitForDocument(firefox, (uri) => uri.startsWith('about:neterror')), /^about:neterror\?e=blockedByPolicy/, 'link');
+    assert.equal(stub.reached(SITE), false, 'the link reached the site');
+    await firefox.assertBlocked('http://allowed.test/redirect');
+    stub.clear();
+    await firefox.visit('http://allowed.test/frame');
+    await sleep(1000);
+    assert.equal(stub.reached(SITE), false, 'the frame reached the site');
+  });
+
+  test('other sites still load', async () => {
+    for (const url of ['http://allowed.test/', 'http://notexampleadultsite.com/', 'http://exampleadultsite.com.allowed.test/', 'http://exampleadultsite.co/']) {
+      const result = await firefox.visit(url);
+      assert.equal(result.outcome, 'site loaded', `${url} ended at ${result.documentUri || result.finalUrl}`);
+    }
   });
 });
 
@@ -317,12 +464,14 @@ describe('Firefox lock next to another blocker', { skip: SKIP || (!OTHER && "set
         dnrLocked: policies.Preferences && Object.fromEntries(Object.entries(policies.Preferences['extensions.dnr.enabled'] || {})
           .map(([key, value]) => [key, key === 'Value' ? Boolean(value) : value])),
         switchedOn: arguments[0].filter((name) => policies[name] === true),
+        WebsiteFilter: policies.WebsiteFilter,
       };`, SWITCHES);
     assert.deepEqual(active, {
       ExtensionSettings: [other.id],
       Extensions: policies.lock.Extensions,
       dnrLocked: DNR_LOCKED['extensions.dnr.enabled'],
       switchedOn: SWITCHES,
+      WebsiteFilter: policies.lock.WebsiteFilter,
     });
   });
 
@@ -341,6 +490,8 @@ describe('Firefox lock next to another blocker', { skip: SKIP || (!OTHER && "set
   });
 
   test('test case: with both, exampleadultsite.com is blocked', () => firefox.assertBlocked());
+
+  test("Family Site Blocker's own blocking still works next to the other blocker", () => firefox.assertAddonBlocks());
 });
 
 /**
@@ -393,7 +544,10 @@ describe('Firefox lock, after the same version was installed by hand and switche
     assert.deepEqual(await started.firefox.card(ADDON_ID), { name: 'Family Site Blocker', onOffSwitch: 'none', removeItem: CANT_BE_REMOVED });
   });
 
-  test('test case: exampleadultsite.com is blocked', () => started.firefox.assertBlocked());
+  test('test case: exampleadultsite.com is blocked, and the add-on blocks the sites added on its settings page', async () => {
+    await started.firefox.assertBlocked();
+    await started.firefox.assertAddonBlocks();
+  });
 });
 
 describe('Firefox lock, after an older version was installed by hand and switched off', { skip: SKIP || (!OLDER && 'set OLDER_XPI to an earlier signed version of this add-on') }, () => {
@@ -422,13 +576,16 @@ describe('Firefox lock, after an older version was installed by hand and switche
     assert.deepEqual(await started.firefox.card(ADDON_ID), { name: 'Family Site Blocker', onOffSwitch: 'off', removeItem: CANT_BE_REMOVED });
   });
 
-  test('once it is switched on, the switch is gone and exampleadultsite.com is blocked', async () => {
+  test("while it is still off, Firefox's own copy of the list keeps exampleadultsite.com blocked", () => started.firefox.assertBlocked());
+
+  test('once it is switched on, the switch is gone and the add-on blocks again', async () => {
     const { firefox } = started;
     await firefox.card(ADDON_ID);
     await firefox.clickSwitch(ADDON_ID);
     assert.equal((await firefox.waitForAddon(ADDON_ID))?.active, true, 'switched on');
     assert.deepEqual(await firefox.card(ADDON_ID), { name: 'Family Site Blocker', onOffSwitch: 'none', removeItem: CANT_BE_REMOVED });
     await firefox.assertBlocked();
+    await firefox.assertAddonBlocks();
   });
 });
 
@@ -462,5 +619,6 @@ describe('Firefox lock, when a newer version is installed by hand', { skip: SKIP
     assert.deepEqual({ version, active, canDisable, canRemove }, { version: wanted, active: true, canDisable: false, canRemove: false });
     assert.deepEqual(await firefox.card(ADDON_ID), { name: 'Family Site Blocker', onOffSwitch: 'none', removeItem: CANT_BE_REMOVED });
     await firefox.assertBlocked();
+    await firefox.assertAddonBlocks();
   });
 });
