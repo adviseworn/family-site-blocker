@@ -1,13 +1,18 @@
 # Finds where Plucky puts its Firefox settings on a Mac. On a GitHub-hosted Mac with Firefox installed, it
 # runs .github/plucky/firefox-policy-places.sh (which prints every place Firefox reads its policies from, and
-# what each holds), installs .github/plucky/Plucky-1.17.59.pkg with the installer command (its postinstall
-# fetches the current Plucky from pluckeye.net, quietly, because installer sets COMMAND_LINE_INSTALL), turns on
+# what each holds), installs the Plucky package named in PKG below with the installer command, turns on
 # Plucky's Firefox support the way docs.pluckeye.net/firefox says (pluck + okfirefox, then pluck repair), and
 # runs the script again. Both outputs are kept as the run's "firefox-policy-places" artifact, with the diff
-# between them and what the installer and pluck printed; the diff is in the log too. Nothing is approved in
-# the Mac's GUI, so Plucky's system extension stays off, but that isn't what this looks at.
-# Start it from the Actions tab with "Run workflow", picking the Mac to run it on (Apple silicon or Intel,
-# macOS 26 or 15); it never runs on its own.
+# between them, what the installer and pluck printed, and pictures of the screen if the install needed
+# looking into; the diff is in the log too. Nothing is approved in the Mac's GUI, so Plucky's system
+# extension stays off, but that isn't what this looks at.
+#
+# Plucky-1.17.59.pkg doesn't install on GitHub's Macs (October 2026; macOS 26 and 15, Apple silicon and
+# Intel): its bootstrap asks https://up.pluckeye.net/plucky/macosx/<arch>/latest/about.json, which answers
+# 404 "not found" (from anywhere, for Windows and Linux too), so it says "Failed to download" and leaves
+# nothing behind. A newer package from getplucky.net, dropped into .github/plucky with PKG changed to match,
+# is what to try next. Start the run from the Actions tab with "Run workflow", picking the Mac to run it on;
+# it never runs on its own.
 name: Plucky's Firefox policy places
 
 on:
@@ -26,6 +31,8 @@ jobs:
   places:
     runs-on: ${{ inputs.runner || 'macos-latest' }}
     timeout-minutes: 20
+    env:
+      PKG: .github/plucky/Plucky-1.17.59.pkg
     steps:
       - uses: actions/checkout@v5
 
@@ -41,11 +48,11 @@ jobs:
       # 0 whatever happened, so the proof of the install is the pluck command being there. What the scripts
       # printed is in /var/log/install.log. If the package leaves no pluck behind, the bootstrap is run again
       # by hand from the expanded package, in the runner's login session, as sudo: first as the postinstall
-      # ran it, which exits 1 at once with "1.17.59 BAD_CALL" on Apple silicon and Intel alike, then with
-      # --no-gui (the only option named inside it), which puts up a "Failed to download" box with Cancel and
-      # Retry and waits. To see why, that run is made under tcpdump, as shipped and then with the
-      # PLUCKEYE_NO_HTTPS setting the bootstrap also knows, so the names it looks up, the connections it makes
-      # and (without TLS) its requests and the replies are in the log; the box is in the artifact's pictures.
+      # ran it (1.17.59's exits 1 at once with "1.17.59 BAD_CALL"), then with --no-gui (the only option named
+      # inside it; 1.17.59's puts up a "Failed to download" box with Cancel and Retry and waits) for 30 s
+      # under tcpdump, as shipped and then with the PLUCKEYE_NO_HTTPS setting the bootstrap also knows, so
+      # that the names it looks up, the connections it makes and (without TLS) its requests and the replies
+      # are in the log, and the box is in the artifact's pictures.
       - name: Install Plucky
         timeout-minutes: 10
         shell: bash
@@ -80,15 +87,15 @@ jobs:
             left_behind
           }
           {
-            sudo installer -pkg .github/plucky/Plucky-1.17.59.pkg -target / -verbose
+            sudo installer -pkg "$PKG" -target / -verbose
             echo "== what the package's scripts logged (/var/log/install.log)"
             sudo grep -i -E 'plucky|preinstall|postinstall|package_script' /var/log/install.log | tail -40 || true
             left_behind
             if [ -z "$(find_pluck)" ]; then
               echo "== no pluck command: running the package's bootstrap by hand, as the postinstall did"
-              pkgutil --expand-full .github/plucky/Plucky-1.17.59.pkg expanded
+              pkgutil --expand-full "$PKG" expanded
               bootstrap=$PWD/expanded/inner.pkg/Payload/tmp/plucky.install
-              sudo env COMMAND_LINE_INSTALL=1 PACKAGE_PATH="$PWD/.github/plucky/Plucky-1.17.59.pkg" "$bootstrap" -q || echo "(exit status $?)"
+              sudo env COMMAND_LINE_INSTALL=1 PACKAGE_PATH="$PWD/$PKG" "$bootstrap" -q || echo "(exit status $?)"
               left_behind
             fi
             if [ -z "$(find_pluck)" ]; then
