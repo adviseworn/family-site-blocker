@@ -70,16 +70,19 @@ jobs:
         shell: bash
         run: .github/plucky/firefox-policy-places.sh 2>&1 | tee after.txt
 
+      # The script's "###" header and footer carry the date, so they're left out of the diff.
       - name: Compare the two
         if: always()
         shell: bash
+        env:
+          PLUCKY: ${{ steps.pluck.outputs.version || 'not installed' }}
         run: |
-          if diff -u before.txt after.txt > diff.txt; then
+          if diff -u <(grep -v '^### ' before.txt) <(grep -v '^### ' after.txt) > diff.txt; then
             echo "::warning title=Policy places::nothing changed between the two runs"
           else
             cat diff.txt
           fi
-          echo "::notice title=Machine::$(sw_vers -productName) $(sw_vers -productVersion) on $(uname -m); $(/Applications/Firefox.app/Contents/MacOS/firefox --version); Plucky ${{ steps.pluck.outputs.version || 'not installed' }}"
+          echo "::notice title=Machine::$(sw_vers -productName) $(sw_vers -productVersion) on $(uname -m); $(/Applications/Firefox.app/Contents/MacOS/firefox --version); Plucky $PLUCKY"
 
       - name: Keep both outputs
         if: always()
