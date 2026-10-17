@@ -1,0 +1,95 @@
+# Finds where Plucky puts its Firefox settings on a Mac. On a GitHub-hosted Mac with Firefox installed, it
+# runs .github/plucky/firefox-policy-places.sh (which prints every place Firefox reads its policies from, and
+# what each holds), installs .github/plucky/Plucky-1.17.59.pkg with the installer command (its postinstall
+# fetches the current Plucky from pluckeye.net, quietly, because installer sets COMMAND_LINE_INSTALL), turns on
+# Plucky's Firefox support the way docs.pluckeye.net/firefox says (pluck + okfirefox, then pluck repair), and
+# runs the script again. Both outputs are kept as the run's "firefox-policy-places" artifact, with the diff
+# between them and what the installer and pluck printed; the diff is in the log too. Nothing is approved in
+# the Mac's GUI, so Plucky's system extension stays off, but that isn't what this looks at.
+# Start it from the Actions tab with "Run workflow"; it never runs on its own.
+name: Plucky's Firefox policy places
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  places:
+    runs-on: macos-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Make sure Firefox is installed
+        run: test -d /Applications/Firefox.app || brew install --cask firefox
+
+      - name: Policy places before Plucky
+        shell: bash
+        run: .github/plucky/firefox-policy-places.sh 2>&1 | tee before.txt
+
+      - name: Install Plucky
+        timeout-minutes: 8
+        shell: bash
+        run: sudo installer -pkg .github/plucky/Plucky-1.17.59.pkg -target / -verbose -dumplog 2>&1 | tee install.log
+
+      # The package's postinstall exits 0 whatever /tmp/plucky.install did, so the proof of the install is the
+      # pluck command being there. Each pluck command's output and exit status goes to the log; the step fails
+      # only if pluck is missing or won't take okfirefox.
+      - name: Turn on Firefox support
+        id: pluck
+        shell: bash
+        run: |
+          pluck=$(command -v pluck || sudo find /usr/local /opt /Library /Applications -maxdepth 5 -type f -name pluck -perm -100 2>/dev/null | head -1)
+          if [ -z "$pluck" ]; then
+            echo "::error title=Plucky::no pluck command after the install; see install.log in the artifact"
+            exit 1
+          fi
+          status=0
+          try() { echo "== $*"; "$@" || echo "(exit status $?)"; }
+          {
+            echo "pluck is $pluck"
+            try "$pluck" version
+            try "$pluck" delay
+            try "$pluck" features
+            echo "== $pluck + okfirefox"
+            "$pluck" + okfirefox || { echo "(exit status $?)"; status=1; }
+            try "$pluck" repair
+            try "$pluck" features
+            try "$pluck" future
+            echo "== waiting 15 s for Plucky to act on the change"; sleep 15
+          } > pluck.log 2>&1
+          cat pluck.log
+          echo "version=$("$pluck" version 2>&1 | head -1)" >> "$GITHUB_OUTPUT"
+          if [ "$status" != 0 ]; then echo "::error title=Plucky::pluck + okfirefox failed; see pluck.log in the artifact"; fi
+          exit $status
+
+      - name: Policy places after Plucky
+        if: always()
+        shell: bash
+        run: .github/plucky/firefox-policy-places.sh 2>&1 | tee after.txt
+
+      - name: Compare the two
+        if: always()
+        shell: bash
+        run: |
+          if diff -u before.txt after.txt > diff.txt; then
+            echo "::warning title=Policy places::nothing changed between the two runs"
+          else
+            cat diff.txt
+          fi
+          echo "::notice title=Machine::$(sw_vers -productName) $(sw_vers -productVersion) on $(uname -m); $(/Applications/Firefox.app/Contents/MacOS/firefox --version); Plucky ${{ steps.pluck.outputs.version || 'not installed' }}"
+
+      - name: Keep both outputs
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: firefox-policy-places
+          path: |
+            before.txt
+            after.txt
+            diff.txt
+            install.log
+            pluck.log
+          if-no-files-found: error
