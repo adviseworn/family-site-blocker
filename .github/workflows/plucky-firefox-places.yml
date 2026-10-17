@@ -8,11 +8,13 @@
 # extension stays off, but that isn't what this looks at.
 #
 # Plucky-1.17.59.pkg doesn't install on GitHub's Macs (October 2026; macOS 26 and 15, Apple silicon and
-# Intel): its bootstrap asks https://up.pluckeye.net/plucky/macosx/<arch>/latest/about.json, which answers
-# 404 "not found" (from anywhere, for Windows and Linux too), so it says "Failed to download" and leaves
-# nothing behind. A newer package from getplucky.net, dropped into .github/plucky with PKG changed to match,
-# is what to try next. Start the run from the Actions tab with "Run workflow", picking the Mac to run it on;
-# it never runs on its own.
+# Intel): on a Mac without Plucky, its bootstrap asks
+# https://up.pluckeye.net/plucky/macosx/<arch>/latest/about.json, which answers 404 "not found" from
+# anywhere, so it says "Failed to download" and leaves nothing behind. The same package upgrades a Mac that
+# already has Plucky (1.16.13 to 1.17.59 took two minutes and worked), so the bootstrap takes another route
+# then; a fresh Mac, which is what GitHub gives, can't. A package whose fresh install works, dropped into
+# .github/plucky with PKG changed to match, is what to try next. Start the run from the Actions tab with
+# "Run workflow", picking the Mac to run it on; it never runs on its own.
 name: Plucky's Firefox policy places
 
 on:
