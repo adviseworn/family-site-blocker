@@ -85,8 +85,8 @@ jobs:
             echo "-- what the bootstrap printed"; cat "$name.log" || true
             echo "-- names looked up and connections made"
             sudo tcpdump -nn -r "$name.pcap" 2>/dev/null | grep -E 'A\? |AAAA\? |Flags \[S\]|Flags \[R|Flags \[F' | head -40 || true
-            echo "-- plain-HTTP requests and replies"
-            sudo tcpdump -nn -A -r "$name.pcap" 'tcp port 80' 2>/dev/null | grep -a -E '^(GET|POST|HEAD|Host:|HTTP/|Location:|User-Agent:)' | head -20 || true
+            echo "-- plain-HTTP requests and replies, every header line"
+            sudo tcpdump -nn -A -r "$name.pcap" 'tcp port 80' 2>/dev/null | grep -a -E 'GET |POST |HTTP/1|^[A-Za-z0-9-]+: |^\{|^\[|not found' | grep -a -v -E 'ocsp|trustd' | head -60 || true
             left_behind
           }
           {
