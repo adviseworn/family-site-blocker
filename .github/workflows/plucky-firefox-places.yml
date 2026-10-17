@@ -12,9 +12,10 @@
 # https://up.pluckeye.net/plucky/macosx/<arch>/latest/about.json, which answers 404 "not found" from
 # anywhere, so it says "Failed to download" and leaves nothing behind. The same package upgrades a Mac that
 # already has Plucky (1.16.13 to 1.17.59 took two minutes and worked), so the bootstrap takes another route
-# then; a fresh Mac, which is what GitHub gives, can't. A package whose fresh install works, dropped into
-# .github/plucky with PKG changed to match, is what to try next. Start the run from the Actions tab with
-# "Run workflow", picking the Mac to run it on; it never runs on its own.
+# then; a fresh Mac, which is what GitHub gives, can't, and the older Plucky-1.16.13.pkg fails there the
+# same way. A package whose fresh install works, dropped into .github/plucky with PKG changed to match, is
+# what to try next. Start the run from the Actions tab with "Run workflow", picking the Mac to run it on; it
+# never runs on its own.
 name: Plucky's Firefox policy places
 
 on:
@@ -34,7 +35,7 @@ jobs:
     runs-on: ${{ inputs.runner || 'macos-latest' }}
     timeout-minutes: 20
     env:
-      PKG: .github/plucky/Plucky-1.16.13.pkg # Plucky-1.17.59.pkg is the one that fails on a fresh Mac
+      PKG: .github/plucky/Plucky-1.17.59.pkg # Plucky-1.16.13.pkg (May 2025) fails the same way on a fresh Mac
     steps:
       - uses: actions/checkout@v5
 
