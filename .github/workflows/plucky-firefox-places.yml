@@ -6,18 +6,25 @@
 # runs the script again. Both outputs are kept as the run's "firefox-policy-places" artifact, with the diff
 # between them and what the installer and pluck printed; the diff is in the log too. Nothing is approved in
 # the Mac's GUI, so Plucky's system extension stays off, but that isn't what this looks at.
-# Start it from the Actions tab with "Run workflow"; it never runs on its own.
+# Start it from the Actions tab with "Run workflow", picking the Mac to run it on (Apple silicon or Intel,
+# macOS 26 or 15); it never runs on its own.
 name: Plucky's Firefox policy places
 
 on:
   workflow_dispatch:
+    inputs:
+      runner:
+        description: Which GitHub-hosted Mac
+        type: choice
+        default: macos-latest
+        options: [macos-latest, macos-26-intel, macos-15, macos-15-intel]
 
 permissions:
   contents: read
 
 jobs:
   places:
-    runs-on: macos-latest
+    runs-on: ${{ inputs.runner || 'macos-latest' }}
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v5
@@ -30,10 +37,12 @@ jobs:
         run: .github/plucky/firefox-policy-places.sh 2>&1 | tee before.txt
 
       # The package's only payload is /tmp/plucky.install, a bootstrap that fetches the current Plucky from
-      # pluckeye.net; its postinstall runs that and exits 0 whatever happened, so the proof of the install is
-      # the pluck command being there. What the scripts printed is in /var/log/install.log. If the package
-      # leaves no pluck behind (the first run did: the scripts ran for 0.00 s, outside the runner's login
-      # session), the bootstrap is run again by hand from the expanded package, in the session, as sudo.
+      # pluckeye.net; its postinstall runs that (with -q, since installer sets COMMAND_LINE_INSTALL) and exits
+      # 0 whatever happened, so the proof of the install is the pluck command being there. What the scripts
+      # printed is in /var/log/install.log. If the package leaves no pluck behind, the bootstrap is run again
+      # by hand from the expanded package, in the runner's login session, as sudo: first as the postinstall
+      # ran it, then with --no-gui (the only option named inside it), and any log it wrote is printed. On the
+      # macOS 26 Apple-silicon runner the bootstrap exited 1 at once with "1.17.59 BAD_CALL" both ways.
       - name: Install Plucky
         timeout-minutes: 8
         shell: bash
@@ -54,11 +63,19 @@ jobs:
             sudo grep -i -E 'plucky|preinstall|postinstall|package_script' /var/log/install.log | tail -40 || true
             left_behind
             if [ -z "$(find_pluck)" ]; then
-              echo "== no pluck command: running the package's bootstrap by hand"
+              echo "== no pluck command: running the package's bootstrap by hand, as the postinstall did"
               pkgutil --expand-full .github/plucky/Plucky-1.17.59.pkg expanded
-              ls -la expanded/inner.pkg/Payload/tmp/
-              sudo expanded/inner.pkg/Payload/tmp/plucky.install -q || echo "(exit status $?)"
+              bootstrap=expanded/inner.pkg/Payload/tmp/plucky.install
+              ls -la "$bootstrap"; file "$bootstrap"
+              sudo env COMMAND_LINE_INSTALL=1 PACKAGE_PATH="$PWD/.github/plucky/Plucky-1.17.59.pkg" "$bootstrap" -q || echo "(exit status $?)"
               left_behind
+            fi
+            if [ -z "$(find_pluck)" ]; then
+              echo "== still none: running the bootstrap with --no-gui"
+              sudo "$bootstrap" --no-gui || echo "(exit status $?)"
+              left_behind
+              echo "== logs the bootstrap may have written"
+              sudo find /tmp /private/var/tmp /var/log /Library/Logs "$HOME/Library/Logs" /private/var/folders -maxdepth 5 -iname 'pluck*' 2>/dev/null | while read -r f; do echo "-- $f"; sudo cat "$f" 2>&1 | tail -40; done
             fi
           } 2>&1 | tee install.log
 
