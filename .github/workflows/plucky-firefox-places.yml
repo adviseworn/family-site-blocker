@@ -42,9 +42,10 @@ jobs:
       # printed is in /var/log/install.log. If the package leaves no pluck behind, the bootstrap is run again
       # by hand from the expanded package, in the runner's login session, as sudo: first as the postinstall
       # ran it, which exits 1 at once with "1.17.59 BAD_CALL" on Apple silicon and Intel alike, then with
-      # --no-gui (the only option named inside it), which puts up a window and waits; the run takes a picture
-      # of the screen (screen.png in the artifact), reads the window with System Events, clicks its first
-      # button, and waits for a pluck command. The bootstrap's own log is /private/tmp/pluck.log.tmp.
+      # --no-gui (the only option named inside it), which puts up a "Failed to download" box with Cancel and
+      # Retry and waits. To see why, that run is made under tcpdump, as shipped and then with the
+      # PLUCKEYE_NO_HTTPS setting the bootstrap also knows, so the names it looks up, the connections it makes
+      # and (without TLS) its requests and the replies are in the log; the box is in the artifact's pictures.
       - name: Install Plucky
         timeout-minutes: 10
         shell: bash
@@ -59,20 +60,24 @@ jobs:
               pkgutil --pkgs | grep -i -E 'pluck|^inner$' | sed 's/^/package receipt: /'
               echo "pluck command: $(find_pluck)"; } || true
           }
-          wait_for_pluck() { local i; for i in $(seq 1 "$1"); do sleep 15; if [ -n "$(find_pluck)" ]; then break; fi; done; echo "== after $((i * 15)) s"; }
-          bootstrap_state() {
-            echo "== Plucky's processes"
-            ps -axo pid,ppid,etime,command | grep -i pluck | grep -v grep || true
-            for pid in $(pgrep -f plucky.install || true); do echo "-- what $pid has open"; sudo lsof -p "$pid" 2>/dev/null | grep -E 'TCP|UDP|REG' | awk '{print $5, $NF}' | grep -v -E '/System/|/usr/lib|/usr/share|\.car$' | head -20 || true; done
-            echo "== what the bootstrap printed"; cat bootstrap.log || true
-            echo "== the bootstrap's own log"
-            { sudo find /private/tmp /private/var/tmp /var/log /Library/Logs /private/var/folders -maxdepth 5 -iname 'pluck*' 2>/dev/null || true; } | while read -r f; do echo "-- $f"; sudo ls -la "$f" 2>&1 || true; if [ -f "$f" ]; then sudo cat "$f" 2>&1 | tail -60; fi; done
-            for f in /private/tmp/pluck.log.tmp/*; do if [ -f "$f" ]; then echo "-- $f"; sudo cat "$f" 2>&1 | tail -60; fi; done
-          }
-          windows() {
-            echo "== the bootstrap's windows ($1)"
-            screencapture -x "$1" && echo "(picture saved as $1)"
-            osascript -e 'tell application "System Events" to tell (first process whose name contains "plucky") to return {name, title of every window, value of every static text of every window, name of every button of every window}' 2>&1 || true
+          # Runs the bootstrap with --no-gui for 30 s under tcpdump, then kills it. $1 names the try; the rest
+          # are environment settings for it.
+          try_bootstrap() {
+            local name=$1; shift
+            echo "== $name: running the bootstrap with --no-gui${1:+ and $*}"
+            sudo tcpdump -i "$iface" -s 0 -w "$name.pcap" 'udp port 53 or tcp port 80 or tcp port 443' > /dev/null 2>&1 &
+            sleep 2
+            sudo env "$@" "$bootstrap" --no-gui > "$name.log" 2>&1 &
+            sleep 30
+            screencapture -x "$name.png" && echo "(picture saved as $name.png)"
+            sudo pkill -f plucky.install || true; sleep 1
+            sudo pkill -f "tcpdump -i $iface" || true; sleep 1
+            echo "-- what the bootstrap printed"; cat "$name.log" || true
+            echo "-- names looked up and connections made"
+            sudo tcpdump -nn -r "$name.pcap" 2>/dev/null | grep -E 'A\? |AAAA\? |Flags \[S\]|Flags \[R|Flags \[F' | head -40 || true
+            echo "-- plain-HTTP requests and replies"
+            sudo tcpdump -nn -A -r "$name.pcap" 'tcp port 80' 2>/dev/null | grep -a -E '^(GET|POST|HEAD|Host:|HTTP/|Location:|User-Agent:)' | head -20 || true
+            left_behind
           }
           {
             sudo installer -pkg .github/plucky/Plucky-1.17.59.pkg -target / -verbose
@@ -82,23 +87,15 @@ jobs:
             if [ -z "$(find_pluck)" ]; then
               echo "== no pluck command: running the package's bootstrap by hand, as the postinstall did"
               pkgutil --expand-full .github/plucky/Plucky-1.17.59.pkg expanded
-              bootstrap=expanded/inner.pkg/Payload/tmp/plucky.install
+              bootstrap=$PWD/expanded/inner.pkg/Payload/tmp/plucky.install
               sudo env COMMAND_LINE_INSTALL=1 PACKAGE_PATH="$PWD/.github/plucky/Plucky-1.17.59.pkg" "$bootstrap" -q || echo "(exit status $?)"
               left_behind
             fi
             if [ -z "$(find_pluck)" ]; then
-              echo "== still none: running the bootstrap with --no-gui in the background"
-              sudo "$bootstrap" --no-gui > bootstrap.log 2>&1 &
-              wait_for_pluck 4
-              left_behind
-              bootstrap_state
-              windows screen.png
-              echo "== clicking the window's first button"
-              osascript -e 'tell application "System Events" to tell (first process whose name contains "plucky") to click button 1 of window 1' 2>&1 || true
-              wait_for_pluck 8
-              left_behind
-              bootstrap_state
-              windows screen-after-click.png
+              iface=$(route -n get default | awk '/interface/ {print $2}')
+              echo "== still none; the Mac's network interface is $iface"
+              try_bootstrap https-as-shipped
+              if [ -z "$(find_pluck)" ]; then try_bootstrap plain-http PLUCKEYE_NO_HTTPS=1; fi
             fi
           } 2>&1 | tee install.log
 
@@ -162,6 +159,5 @@ jobs:
             diff.txt
             install.log
             pluck.log
-            screen.png
-            screen-after-click.png
+            *.png
           if-no-files-found: error
