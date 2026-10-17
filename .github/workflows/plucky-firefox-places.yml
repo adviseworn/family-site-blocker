@@ -41,10 +41,12 @@ jobs:
       # 0 whatever happened, so the proof of the install is the pluck command being there. What the scripts
       # printed is in /var/log/install.log. If the package leaves no pluck behind, the bootstrap is run again
       # by hand from the expanded package, in the runner's login session, as sudo: first as the postinstall
-      # ran it, then with --no-gui (the only option named inside it), and any log it wrote is printed. With -q
-      # the bootstrap exits 1 at once with "1.17.59 BAD_CALL", on Apple silicon and Intel alike.
+      # ran it, which exits 1 at once with "1.17.59 BAD_CALL" on Apple silicon and Intel alike, then with
+      # --no-gui (the only option named inside it), which puts up a window and waits; the run takes a picture
+      # of the screen (screen.png in the artifact), reads the window with System Events, clicks its first
+      # button, and waits for a pluck command. The bootstrap's own log is /private/tmp/pluck.log.tmp.
       - name: Install Plucky
-        timeout-minutes: 8
+        timeout-minutes: 10
         shell: bash
         run: |
           find_pluck() { command -v pluck || sudo find /usr/local /opt /Library /Applications /Users/Shared -maxdepth 5 -type f -name pluck -perm -100 2>/dev/null | head -1; }
@@ -57,6 +59,21 @@ jobs:
               pkgutil --pkgs | grep -i -E 'pluck|^inner$' | sed 's/^/package receipt: /'
               echo "pluck command: $(find_pluck)"; } || true
           }
+          wait_for_pluck() { local i; for i in $(seq 1 "$1"); do sleep 15; if [ -n "$(find_pluck)" ]; then break; fi; done; echo "== after $((i * 15)) s"; }
+          bootstrap_state() {
+            echo "== Plucky's processes"
+            ps -axo pid,ppid,etime,command | grep -i pluck | grep -v grep || true
+            for pid in $(pgrep -f plucky.install || true); do echo "-- what $pid has open"; sudo lsof -p "$pid" 2>/dev/null | grep -E 'TCP|UDP|REG' | awk '{print $5, $NF}' | grep -v -E '/System/|/usr/lib|/usr/share|\.car$' | head -20 || true; done
+            echo "== what the bootstrap printed"; cat bootstrap.log || true
+            echo "== the bootstrap's own log"
+            { sudo find /private/tmp /private/var/tmp /var/log /Library/Logs /private/var/folders -maxdepth 5 -iname 'pluck*' 2>/dev/null || true; } | while read -r f; do echo "-- $f"; sudo ls -la "$f" 2>&1 || true; if [ -f "$f" ]; then sudo cat "$f" 2>&1 | tail -60; fi; done
+            for f in /private/tmp/pluck.log.tmp/*; do if [ -f "$f" ]; then echo "-- $f"; sudo cat "$f" 2>&1 | tail -60; fi; done
+          }
+          windows() {
+            echo "== the bootstrap's windows ($1)"
+            screencapture -x "$1" && echo "(picture saved as $1)"
+            osascript -e 'tell application "System Events" to tell (first process whose name contains "plucky") to return {name, title of every window, value of every static text of every window, name of every button of every window}' 2>&1 || true
+          }
           {
             sudo installer -pkg .github/plucky/Plucky-1.17.59.pkg -target / -verbose
             echo "== what the package's scripts logged (/var/log/install.log)"
@@ -66,24 +83,22 @@ jobs:
               echo "== no pluck command: running the package's bootstrap by hand, as the postinstall did"
               pkgutil --expand-full .github/plucky/Plucky-1.17.59.pkg expanded
               bootstrap=expanded/inner.pkg/Payload/tmp/plucky.install
-              ls -la "$bootstrap"; file "$bootstrap"
               sudo env COMMAND_LINE_INSTALL=1 PACKAGE_PATH="$PWD/.github/plucky/Plucky-1.17.59.pkg" "$bootstrap" -q || echo "(exit status $?)"
               left_behind
             fi
             if [ -z "$(find_pluck)" ]; then
-              # In the foreground, --no-gui ran for 8 minutes without finishing or printing anything, so it goes
-              # to the background, and the run waits up to 3 minutes for a pluck command to appear.
               echo "== still none: running the bootstrap with --no-gui in the background"
               sudo "$bootstrap" --no-gui > bootstrap.log 2>&1 &
-              for i in $(seq 1 12); do sleep 15; [ -n "$(find_pluck)" ] && break; done
-              echo "== after $((i * 15)) s"
+              wait_for_pluck 4
               left_behind
-              echo "== Plucky's processes"
-              ps -axo pid,ppid,etime,command | grep -i pluck | grep -v grep || true
-              for pid in $(pgrep -f plucky.install || true); do echo "-- what $pid has open"; sudo lsof -p "$pid" 2>/dev/null | grep -E 'TCP|UDP|REG' | awk '{print $5, $NF}' | head -30; done
-              echo "== what the bootstrap printed"; cat bootstrap.log
-              echo "== logs the bootstrap may have written"
-              { sudo find /tmp /private/var/tmp /var/log /Library/Logs "$HOME/Library/Logs" /private/var/folders -maxdepth 5 -iname 'pluck*' 2>/dev/null || true; } | while read -r f; do echo "-- $f"; sudo cat "$f" 2>&1 | tail -40; done
+              bootstrap_state
+              windows screen.png
+              echo "== clicking the window's first button"
+              osascript -e 'tell application "System Events" to tell (first process whose name contains "plucky") to click button 1 of window 1' 2>&1 || true
+              wait_for_pluck 8
+              left_behind
+              bootstrap_state
+              windows screen-after-click.png
             fi
           } 2>&1 | tee install.log
 
@@ -147,4 +162,6 @@ jobs:
             diff.txt
             install.log
             pluck.log
+            screen.png
+            screen-after-click.png
           if-no-files-found: error
