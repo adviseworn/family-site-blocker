@@ -34,7 +34,7 @@ jobs:
     runs-on: ${{ inputs.runner || 'macos-latest' }}
     timeout-minutes: 20
     env:
-      PKG: .github/plucky/Plucky-1.17.59.pkg
+      PKG: .github/plucky/Plucky-1.16.13.pkg # Plucky-1.17.59.pkg is the one that fails on a fresh Mac
     steps:
       - uses: actions/checkout@v5
 
@@ -126,6 +126,15 @@ jobs:
             try "$pluck" version
             try "$pluck" delay
             try "$pluck" features
+            # Firefox support needs 1.17.54 or newer; an older Plucky is asked to update itself first.
+            v=$("$pluck" version 2>/dev/null | head -1); IFS=. read -r a b c <<< "$v"
+            if [ "${a:-0}" -lt 1 ] || { [ "${a:-0}" -eq 1 ] && { [ "${b:-0}" -lt 17 ] || { [ "${b:-0}" -eq 17 ] && [ "${c:-0}" -lt 54 ]; }; }; }; then
+              echo "== $v is older than 1.17.54, which Firefox support needs: asking Plucky to update"
+              try "$pluck" pupdate
+              for i in $(seq 1 16); do sleep 15; if [ "$("$pluck" version 2>/dev/null | head -1)" != "$v" ]; then break; fi; done
+              echo "== after $((i * 15)) s"
+              try "$pluck" version
+            fi
             echo "== $pluck + okfirefox"
             "$pluck" + okfirefox || { echo "(exit status $?)"; status=1; }
             try "$pluck" repair
