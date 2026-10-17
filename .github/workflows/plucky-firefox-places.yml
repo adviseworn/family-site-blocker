@@ -29,19 +29,46 @@ jobs:
         shell: bash
         run: .github/plucky/firefox-policy-places.sh 2>&1 | tee before.txt
 
+      # The package's only payload is /tmp/plucky.install, a bootstrap that fetches the current Plucky from
+      # pluckeye.net; its postinstall runs that and exits 0 whatever happened, so the proof of the install is
+      # the pluck command being there. What the scripts printed is in /var/log/install.log. If the package
+      # leaves no pluck behind (the first run did: the scripts ran for 0.00 s, outside the runner's login
+      # session), the bootstrap is run again by hand from the expanded package, in the session, as sudo.
       - name: Install Plucky
         timeout-minutes: 8
         shell: bash
-        run: sudo installer -pkg .github/plucky/Plucky-1.17.59.pkg -target / -verbose -dumplog 2>&1 | tee install.log
+        run: |
+          find_pluck() { command -v pluck || sudo find /usr/local /opt /Library /Applications /Users/Shared -maxdepth 5 -type f -name pluck -perm -100 2>/dev/null | head -1; }
+          left_behind() {
+            echo "== what Plucky left on the Mac"
+            { for d in /Applications /Library/LaunchDaemons /Library/LaunchAgents /Library/PrivilegedHelperTools "/Library/Application Support" /usr/local /usr/local/bin /opt; do
+                ls -la "$d" 2>/dev/null | grep -i pluck | sed "s|^|$d: |"
+              done
+              sudo launchctl list | grep -i pluck | sed 's/^/launchd: /'
+              pkgutil --pkgs | grep -i -E 'pluck|^inner$' | sed 's/^/package receipt: /'
+              echo "pluck command: $(find_pluck)"; } || true
+          }
+          {
+            sudo installer -pkg .github/plucky/Plucky-1.17.59.pkg -target / -verbose
+            echo "== what the package's scripts logged (/var/log/install.log)"
+            sudo grep -i -E 'plucky|preinstall|postinstall|package_script' /var/log/install.log | tail -40 || true
+            left_behind
+            if [ -z "$(find_pluck)" ]; then
+              echo "== no pluck command: running the package's bootstrap by hand"
+              pkgutil --expand-full .github/plucky/Plucky-1.17.59.pkg expanded
+              ls -la expanded/inner.pkg/Payload/tmp/
+              sudo expanded/inner.pkg/Payload/tmp/plucky.install -q || echo "(exit status $?)"
+              left_behind
+            fi
+          } 2>&1 | tee install.log
 
-      # The package's postinstall exits 0 whatever /tmp/plucky.install did, so the proof of the install is the
-      # pluck command being there. Each pluck command's output and exit status goes to the log; the step fails
-      # only if pluck is missing or won't take okfirefox.
+      # Each pluck command's output and exit status goes to the log; the step fails only if pluck is missing or
+      # won't take okfirefox.
       - name: Turn on Firefox support
         id: pluck
         shell: bash
         run: |
-          pluck=$(command -v pluck || sudo find /usr/local /opt /Library /Applications -maxdepth 5 -type f -name pluck -perm -100 2>/dev/null | head -1)
+          pluck=$(command -v pluck || sudo find /usr/local /opt /Library /Applications /Users/Shared -maxdepth 5 -type f -name pluck -perm -100 2>/dev/null | head -1)
           if [ -z "$pluck" ]; then
             echo "::error title=Plucky::no pluck command after the install; see install.log in the artifact"
             exit 1
