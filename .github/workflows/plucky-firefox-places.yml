@@ -41,8 +41,8 @@ jobs:
       # 0 whatever happened, so the proof of the install is the pluck command being there. What the scripts
       # printed is in /var/log/install.log. If the package leaves no pluck behind, the bootstrap is run again
       # by hand from the expanded package, in the runner's login session, as sudo: first as the postinstall
-      # ran it, then with --no-gui (the only option named inside it), and any log it wrote is printed. On the
-      # macOS 26 Apple-silicon runner the bootstrap exited 1 at once with "1.17.59 BAD_CALL" both ways.
+      # ran it, then with --no-gui (the only option named inside it), and any log it wrote is printed. With -q
+      # the bootstrap exits 1 at once with "1.17.59 BAD_CALL", on Apple silicon and Intel alike.
       - name: Install Plucky
         timeout-minutes: 8
         shell: bash
@@ -71,11 +71,19 @@ jobs:
               left_behind
             fi
             if [ -z "$(find_pluck)" ]; then
-              echo "== still none: running the bootstrap with --no-gui"
-              sudo "$bootstrap" --no-gui || echo "(exit status $?)"
+              # In the foreground, --no-gui ran for 8 minutes without finishing or printing anything, so it goes
+              # to the background, and the run waits up to 3 minutes for a pluck command to appear.
+              echo "== still none: running the bootstrap with --no-gui in the background"
+              sudo "$bootstrap" --no-gui > bootstrap.log 2>&1 &
+              for i in $(seq 1 12); do sleep 15; [ -n "$(find_pluck)" ] && break; done
+              echo "== after $((i * 15)) s"
               left_behind
+              echo "== Plucky's processes"
+              ps -axo pid,ppid,etime,command | grep -i pluck | grep -v grep || true
+              for pid in $(pgrep -f plucky.install || true); do echo "-- what $pid has open"; sudo lsof -p "$pid" 2>/dev/null | grep -E 'TCP|UDP|REG' | awk '{print $5, $NF}' | head -30; done
+              echo "== what the bootstrap printed"; cat bootstrap.log
               echo "== logs the bootstrap may have written"
-              sudo find /tmp /private/var/tmp /var/log /Library/Logs "$HOME/Library/Logs" /private/var/folders -maxdepth 5 -iname 'pluck*' 2>/dev/null | while read -r f; do echo "-- $f"; sudo cat "$f" 2>&1 | tail -40; done
+              { sudo find /tmp /private/var/tmp /var/log /Library/Logs "$HOME/Library/Logs" /private/var/folders -maxdepth 5 -iname 'pluck*' 2>/dev/null || true; } | while read -r f; do echo "-- $f"; sudo cat "$f" 2>&1 | tail -40; done
             fi
           } 2>&1 | tee install.log
 
