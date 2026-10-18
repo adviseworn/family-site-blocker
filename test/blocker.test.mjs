@@ -13,10 +13,10 @@ import { normalizeDomain, parseDomainList } from '../extension/lib/domains.js';
 import { BLOCK_PAGE, CHUNK_SIZE, buildRules, domainsOf } from '../extension/lib/rules.js';
 import { BLOCKLIST_DIR, RULES_PATH, loadBlocklists, renderRules } from '../scripts/build-rules.mjs';
 import { firefoxManifest, packageFirefox } from '../scripts/package-firefox.mjs';
-import { FILTER_LIMIT, PROFILE_PATH, XPI_PATH, filterPattern, filterSites, firefoxPolicies, mobileconfig } from '../scripts/firefox-lock.mjs';
+import { FILTER_LIMIT, PROFILE_PATH, XPI_URL, filterPattern, filterSites, firefoxPolicies, mobileconfig } from '../scripts/firefox-lock.mjs';
 import { ICNS_PATH, packageSigned } from '../scripts/package-signed.mjs';
 import { readZip } from '../scripts/read-zip.mjs';
-import { SITE_URL, UPDATES_URL, buildSite, compareVersions, describeXpi, updatesManifest } from '../scripts/updates-manifest.mjs';
+import { LATEST_NAME, LATEST_URL, SITE_URL, UPDATES_URL, buildSite, compareVersions, describeXpi, updatesManifest } from '../scripts/updates-manifest.mjs';
 
 const EXT = resolve(dirname(fileURLToPath(import.meta.url)), '..', 'extension');
 const manifest = JSON.parse(readFileSync(join(EXT, 'manifest.json'), 'utf8'));
@@ -433,10 +433,13 @@ test('the update manifest lists every signed version, oldest first, with its add
     writeFileSync(join(xpiDir, 'notes.txt'), 'ignored');
     const site = join(dir, 'site');
     assert.deepEqual(buildSite(xpiDir, site), ['1.3.2', '1.9.1', '1.10.0']);
-    assert.deepEqual(readdirSync(site).sort(), ['.nojekyll', 'README.md', 'family-site-blocker-1.10.0.xpi', 'family-site-blocker-1.3.2.xpi', 'family-site-blocker-1.9.1.xpi', 'index.html', 'updates.json']);
+    assert.deepEqual(readdirSync(site).sort(), ['.nojekyll', 'README.md', 'family-site-blocker-1.10.0.xpi', 'family-site-blocker-1.3.2.xpi', 'family-site-blocker-1.9.1.xpi', 'family-site-blocker.xpi', 'index.html', 'updates.json']);
     const published = JSON.parse(readFileSync(join(site, 'updates.json'), 'utf8'));
-    assert.equal(published.addons[manifest.browser_specific_settings.gecko.id].updates[2].update_link, `${SITE_URL}family-site-blocker-1.10.0.xpi`);
+    const listed = published.addons[manifest.browser_specific_settings.gecko.id].updates;
+    assert.equal(listed[2].update_link, `${SITE_URL}family-site-blocker-1.10.0.xpi`);
+    assert.equal(listed.length, 3, 'the newest under its fixed name is not listed a second time');
     assert.ok(readFileSync(join(site, 'family-site-blocker-1.9.1.xpi')).equals(xpis[2].data), 'copied unchanged');
+    assert.ok(readFileSync(join(site, LATEST_NAME)).equals(xpis[1].data), 'the newest version (1.10.0) under the fixed name, for the lock');
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -480,8 +483,12 @@ test('on a Mac, opening the zip puts the icon on the .xpi', { skip: process.plat
 
 test('the Firefox lock installs and locks this add-on and closes the ways round it', () => {
   const policies = firefoxPolicies();
-  assert.equal(XPI_PATH, '/Users/Shared/Family Site Blocker/family-site-blocker.xpi');
-  assert.deepEqual(policies.Extensions, { Install: [XPI_PATH], Locked: [manifest.browser_specific_settings.gecko.id] });
+  // The newest signed version on the update site, under a name that never changes, over https.
+  assert.equal(XPI_URL, `${SITE_URL}${LATEST_NAME}`);
+  assert.equal(XPI_URL, LATEST_URL);
+  assert.ok(XPI_URL.startsWith('https://'));
+  assert.deepEqual(policies.Extensions, { Install: [XPI_URL], Locked: [manifest.browser_specific_settings.gecko.id] });
+  assert.deepEqual(firefoxPolicies('http://updates.test/x.xpi').Extensions.Install, ['http://updates.test/x.xpi'], 'the tests install from their stand-in site');
   for (const key of ['DisablePrivateBrowsing', 'DisableSafeMode', 'BlockAboutConfig', 'DisableProfileRefresh', 'ExtensionUpdate']) {
     assert.equal(policies[key], true, key);
   }
