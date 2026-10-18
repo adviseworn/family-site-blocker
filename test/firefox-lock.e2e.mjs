@@ -70,6 +70,12 @@ function manifestOf(file) {
   return { id: (manifest.browser_specific_settings ?? manifest.applications)?.gecko?.id, version: manifest.version };
 }
 
+/** Whether a version of the add-on notes blocked attempts on its settings page (from 1.3.0). */
+function notesAttempts(version) {
+  const [major, minor] = String(version).split('.').map(Number);
+  return major > 1 || (major === 1 && minor >= 3);
+}
+
 /**
  * Another blocker's policies, as Plucky sets them: its own add-on force-installed (and so locked) with
  * ExtensionSettings, and the same switches and locked preference as the lock.
@@ -258,6 +264,25 @@ describe('Firefox lock', { skip: SKIP }, () => {
   test("test case: with the lock, exampleadultsite.com is blocked, by Firefox's own copy of the list", () => firefox.assertBlocked());
 
   test("a site added on the settings page gets the add-on's own block page", () => firefox.assertAddonBlocks());
+
+  // Only with a signed version that notes attempts; an older release has no record to look at.
+  if (version && notesAttempts(version)) {
+    test("both tries are noted on the settings page, the one Firefox's own copy of the list stopped too, and neither got through", async () => {
+      await sleep(2100); // tries less than two seconds apart count as one
+      await firefox.assertBlocked();
+      await firefox.assertAddonBlocks();
+      const host = await firefox.chrome('return WebExtensionPolicy.getByID(arguments[0])?.mozExtensionHostname ?? null;', ADDON_ID);
+      await firefox.fx.send('WebDriver:Navigate', { url: `moz-extension://${host}/options.html` });
+      const wanted = (rows) => rows.some((row) => row[1] === SITE) && rows.some((row) => row[1] === ADDED_SITE);
+      let rows = [];
+      for (let i = 0; i < 40 && !wanted(rows); i++) {
+        if (i) await sleep(250);
+        rows = await firefox.run(`return [...document.querySelectorAll('#attempts-table tbody tr')].map((row) => [...row.cells].map((cell) => cell.textContent))`);
+      }
+      assert.ok(wanted(rows), JSON.stringify(rows));
+      assert.ok(rows.every((row) => row[2] === 'Blocked'), `nothing got through: ${JSON.stringify(rows)}`);
+    });
+  }
 
   test('in the Add-ons Manager, Family Site Blocker has no on/off switch, and its menu says "Can’t Be Removed"', async () => {
     assert.deepEqual(await firefox.card(ADDON_ID), { name: 'Family Site Blocker', onOffSwitch: 'none', removeItem: CANT_BE_REMOVED });

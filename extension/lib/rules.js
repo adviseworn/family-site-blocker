@@ -33,3 +33,14 @@ export function buildRules(domains, firstId = 1) {
   }
   return rules;
 }
+
+/**
+ * The domains a set of rules blocks, each once. Every domain lives on the redirect rules (the block rules
+ * repeat the same list), and each is listed twice, with and without a trailing dot.
+ */
+export function domainsOf(rules) {
+  return rules
+    .filter((rule) => rule.action.type === 'redirect')
+    .flatMap((rule) => rule.condition.requestDomains)
+    .filter((domain) => !domain.endsWith('.'));
+}

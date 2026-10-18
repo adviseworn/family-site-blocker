@@ -44,6 +44,20 @@
         <span id="status" role="status"></span>
       </div>
     </section>
+
+    <section id="attempts" aria-labelledby="attempts-heading">
+      <h2 id="attempts-heading">Blocked attempts</h2>
+      <p>Each time a site on either list is opened in a tab, it’s noted here with the time. If the site got through instead of being blocked, the note says so: then something above still needs switching on. Nothing on this page can clear the record.</p>
+      <p id="attempts-summary" aria-live="polite">Loading…</p>
+      <table id="attempts-table" hidden>
+        <thead>
+          <tr><th scope="col">When</th><th scope="col">Site</th><th scope="col">Result</th></tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+      <p><button id="attempts-more" class="secondary" type="button" hidden>Show all</button></p>
+    </section>
+
     <section id="lockbox" aria-labelledby="lockbox-heading">
       <h2 id="lockbox-heading">Locked-away password</h2>
       <p>Keep a password here that you can only get back after a wait you choose, such as this computer’s administrator password. The wait is real computing: the computer has to work through a puzzle that can’t be skipped, so reading the extension’s storage or changing the clock doesn’t get the password out sooner.</p>
