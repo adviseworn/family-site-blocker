@@ -12,7 +12,11 @@
 
 export const ATTEMPTS = 'attempts';
 export const HISTORY_SCAN = 'historyScan';
-export const MAX_ATTEMPTS = 1000;
+export const MAX_ATTEMPTS = 10_000; // a few hundred kilobytes at most; the browser's history can add hundreds at a time
+
+/** What an entry says happened, and the words the pages use for it. */
+export const outcome = (attempt) => (attempt.from === 'history' ? 'history' : attempt.opened ? 'opened' : 'blocked');
+export const LABELS = { blocked: 'Blocked', opened: 'Opened, not blocked', history: 'Visited (browser history)' };
 
 // Two notes of the same site this close together are one attempt: the browser reports each navigation
 // more than once (see background.js), in no fixed order, and a reload is not a new try.
@@ -91,4 +95,63 @@ export function mergeVisits(attempts, visits) {
 
 function trim(list) {
   return list.length > MAX_ATTEMPTS ? list.slice(list.length - MAX_ATTEMPTS) : list;
+}
+
+/**
+ * The record summed up by site, most tries first: { site, tries, first, last, opened, history }, with
+ * `first` and `last` the times of the earliest and latest try, `opened` how many got through, and
+ * `history` how many came from the browser's history.
+ */
+export function bySite(attempts) {
+  const sites = new Map();
+  for (const attempt of Array.isArray(attempts) ? attempts : []) {
+    const row = sites.get(attempt.site) ?? { site: attempt.site, tries: 0, first: attempt.at, last: attempt.at, opened: 0, history: 0 };
+    row.tries += 1;
+    row.first = Math.min(row.first, attempt.at);
+    row.last = Math.max(row.last, attempt.at);
+    const what = outcome(attempt);
+    if (what === 'opened') row.opened += 1;
+    if (what === 'history') row.history += 1;
+    sites.set(attempt.site, row);
+  }
+  return [...sites.values()].sort((a, b) => b.tries - a.tries || b.last - a.last || a.site.localeCompare(b.site));
+}
+
+/**
+ * The record by calendar day (in this computer's time zone), newest day first, each day's tries newest
+ * first: [{ day: <midnight, ms>, attempts }].
+ */
+export function byDay(attempts) {
+  const days = new Map();
+  for (const attempt of Array.isArray(attempts) ? attempts : []) {
+    const date = new Date(attempt.at);
+    const day = new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
+    if (!days.has(day)) days.set(day, []);
+    days.get(day).push(attempt);
+  }
+  return [...days.entries()]
+    .sort(([a], [b]) => b - a)
+    .map(([day, list]) => ({ day, attempts: list.sort((a, b) => b.at - a.at) }));
+}
+
+/** The record as a CSV file, oldest first: when (ISO 8601, local time zone offset included), site, what happened. */
+export function toCsv(attempts) {
+  const cell = (text) => (/[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text);
+  const lines = ['when,site,result'];
+  for (const attempt of Array.isArray(attempts) ? attempts : []) {
+    lines.push([localIso(attempt.at), attempt.site, LABELS[outcome(attempt)]].map(cell).join(','));
+  }
+  return `${lines.join('\n')}\n`;
+}
+
+/** 2026-10-18T15:12:03-07:00 rather than UTC, so the file reads like the page. */
+function localIso(ms) {
+  const date = new Date(ms);
+  const pad = (n, width = 2) => String(Math.abs(n)).padStart(width, '0');
+  const offset = -date.getTimezoneOffset();
+  const sign = offset >= 0 ? '+' : '-';
+  return (
+    `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}` +
+    `${sign}${pad(Math.floor(Math.abs(offset) / 60))}:${pad(Math.abs(offset) % 60)}`
+  );
 }

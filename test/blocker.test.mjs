@@ -8,7 +8,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { MAX_ATTEMPTS, hostOf, listedDomain, mergeVisits, record } from '../extension/lib/attempts.js';
+import { LABELS, MAX_ATTEMPTS, byDay, bySite, hostOf, listedDomain, mergeVisits, outcome as whatHappened, record, toCsv } from '../extension/lib/attempts.js';
 import { normalizeDomain, parseDomainList } from '../extension/lib/domains.js';
 import { BLOCK_PAGE, CHUNK_SIZE, buildRules, domainsOf } from '../extension/lib/rules.js';
 import { BLOCKLIST_DIR, DOMAINS_PATH, MANIFEST_PATH, MAX_RULESET_BYTES, RULES_DIR, formatManifest, loadBlocklists, loadRules, renderDomains, renderRulesets, ruleResources } from '../scripts/build-rules.mjs';
@@ -265,6 +265,57 @@ test(`blocked attempts: only the newest ${MAX_ATTEMPTS} are kept`, () => {
   assert.equal(list.length, MAX_ATTEMPTS);
   assert.equal(list[0].site, 'site5.test', 'the oldest went');
   assert.equal(list.at(-1).site, `site${MAX_ATTEMPTS + 4}.test`);
+});
+
+test('blocked attempts: the record page sums the record up by site, most tries first, and by day, newest first', () => {
+  const noon = new Date(2026, 9, 18, 12, 0, 0).getTime(); // local time, as the pages group by this computer's days
+  const day = 86_400_000;
+  const attempts = [
+    { at: noon - 3 * day, site: 'b.test', from: 'history' },
+    { at: noon - day + 60_000, site: 'a.test' },
+    { at: noon - day, site: 'b.test', opened: true },
+    { at: noon, site: 'a.test' },
+    { at: noon + 1000, site: 'c.test' },
+    { at: noon + 2000, site: 'a.test', opened: true },
+  ];
+  assert.deepEqual(bySite(attempts), [
+    { site: 'a.test', tries: 3, first: noon - day + 60_000, last: noon + 2000, opened: 1, history: 0 },
+    { site: 'b.test', tries: 2, first: noon - 3 * day, last: noon - day, opened: 1, history: 1 },
+    { site: 'c.test', tries: 1, first: noon + 1000, last: noon + 1000, opened: 0, history: 0 },
+  ]);
+  const days = byDay(attempts);
+  assert.deepEqual(
+    days.map(({ day: start, attempts: list }) => [new Date(start).toDateString(), list.map((a) => a.site)]),
+    [
+      ['Sun Oct 18 2026', ['a.test', 'c.test', 'a.test']],
+      ['Sat Oct 17 2026', ['a.test', 'b.test']],
+      ['Thu Oct 15 2026', ['b.test']],
+    ],
+  );
+  assert.equal(new Date(days[0].day).getHours(), 0, 'each day starts at midnight');
+  assert.deepEqual(bySite([]), []);
+  assert.deepEqual(byDay(undefined), []);
+  assert.deepEqual(attempts.map(whatHappened), ['history', 'blocked', 'opened', 'blocked', 'blocked', 'opened']);
+  assert.deepEqual(Object.keys(LABELS).sort(), ['blocked', 'history', 'opened']);
+});
+
+test('blocked attempts: the saved file is CSV, oldest first, with local times that say their time zone', () => {
+  const at = new Date(2026, 9, 18, 15, 12, 3).getTime();
+  const csv = toCsv([
+    { at, site: 'a.test' },
+    { at: at + 1000, site: 'b.test', opened: true },
+    { at: at + 2000, site: 'odd"name,.test', from: 'history' },
+  ]);
+  const lines = csv.split('\n');
+  assert.equal(lines[0], 'when,site,result');
+  assert.match(lines[1], /^2026-10-18T15:12:03[+-]\d\d:\d\d,a\.test,Blocked$/);
+  assert.match(lines[2], /^2026-10-18T15:12:04[+-]\d\d:\d\d,b\.test,"Opened, not blocked"$/);
+  assert.match(lines[3], /^2026-10-18T15:12:05[+-]\d\d:\d\d,"odd""name,\.test",Visited \(browser history\)$/);
+  assert.deepEqual(lines.slice(4), [''], 'ends with a newline');
+  assert.equal(toCsv([]), 'when,site,result\n');
+  const offset = lines[1].match(/([+-])(\d\d):(\d\d),/);
+  const minutes = (Number(offset[2]) * 60 + Number(offset[3])) * (offset[1] === '-' ? -1 : 1);
+  assert.equal(minutes, 0 - new Date(at).getTimezoneOffset() || 0, "the offset is this computer's");
 });
 
 test('normalizeDomain accepts what people paste and rejects what is not a domain', () => {
@@ -630,7 +681,7 @@ test('mac/family-site-blocker-firefox.mobileconfig is up to date with blocklists
 
 test('every file the pages reference exists', () => {
   const pages = readdirSync(EXT).filter((name) => name.endsWith('.html'));
-  assert.ok(pages.length >= 2);
+  assert.deepEqual(pages.sort(), ['attempts.html', 'blocked.html', 'options.html']);
   for (const page of pages) {
     const html = readFileSync(join(EXT, page), 'utf8');
     for (const [, ref] of html.matchAll(/(?:src|href)="([^"#:]+)"/g)) {
@@ -640,7 +691,7 @@ test('every file the pages reference exists', () => {
 });
 
 test('module imports resolve', () => {
-  for (const file of ['background.js', 'options.js', 'lockbox.js', 'lockbox-worker.js', 'lib/attempts.js', 'lib/domains.js', 'lib/rules.js', 'lib/timelock.js']) {
+  for (const file of ['background.js', 'options.js', 'attempts.js', 'lockbox.js', 'lockbox-worker.js', 'lib/attempts.js', 'lib/domains.js', 'lib/rules.js', 'lib/timelock.js']) {
     const source = readFileSync(join(EXT, file), 'utf8');
     for (const [, specifier] of source.matchAll(/from\s+'(\.{1,2}\/[^']+)'/g)) {
       assert.ok(existsSync(resolve(EXT, dirname(file), specifier)), `${file} imports missing ${specifier}`);
@@ -649,7 +700,7 @@ test('module imports resolve', () => {
 });
 
 test('extension scripts have no syntax errors', () => {
-  for (const file of ['background.js', 'blocked.js', 'options.js', 'lockbox.js', 'lockbox-worker.js', 'lib/attempts.js', 'lib/domains.js', 'lib/rules.js', 'lib/timelock.js']) {
+  for (const file of ['background.js', 'blocked.js', 'options.js', 'attempts.js', 'lockbox.js', 'lockbox-worker.js', 'lib/attempts.js', 'lib/domains.js', 'lib/rules.js', 'lib/timelock.js']) {
     const run = spawnSync(process.execPath, ['--check', join(EXT, file)], { encoding: 'utf8' });
     assert.equal(run.status, 0, `${file}: ${run.stderr}`);
   }
