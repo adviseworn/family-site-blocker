@@ -1,6 +1,6 @@
 # Family Site Blocker
 
-A browser extension for Chrome, Edge, Brave and Firefox that blocks websites on a list. It starts with `exampleadultsite.com` (the test case) and 19 large adult sites, and you can add your own.
+A browser extension for Chrome, Edge, Brave and Firefox that blocks websites on a list. It starts with `exampleadultsite.com` (the test case) and 19 large adult sites, and you can add your own. Each attempt to open a listed site is noted on its settings page, with the time (see **Blocked attempts**).
 
 **Test case:** navigate to `exampleadultsite.com`. **Expected:** the website is blocked. With the extension loaded, you land on a "This site is blocked" page and nothing is fetched from the site. Under the Firefox lock, Firefox blocks it itself before the extension does, so you land on Firefox's own **Blocked Page** instead.
 
@@ -57,6 +57,8 @@ By hand:
 
 For a later version, raise `version` in `extension/manifest.json`, then run **Sign with Mozilla** again, or run `npm run package:firefox`, upload the new zip on the same add-on's page and carry on from step 5.
 
+Version 1.3.0 asks for two permissions earlier versions didn't have, to note blocked attempts (see **Blocked attempts**). Installing it by hand over an older version, Firefox asks you to accept them; under the lock, Firefox grants them itself. In Chrome, Edge and Brave, click the reload button under Family Site Blocker on the extensions page after replacing the folder's files, and if the extension shows as switched off with a note about new permissions, accept them there.
+
 **Lock it, so nobody can switch it off (Firefox on a Mac)**
 
 On its own, the add-on can be switched off or removed in the Add-ons Manager by anyone using Firefox. The Firefox lock stops that. Firefox installs the add-on itself and gives no way to switch it off, remove it or take away its access to websites. The lock also turns off private windows (add-ons don't run there unless someone allows it), Firefox's own menu items for Troubleshoot Mode, `about:config` and Refresh Firefox, which could otherwise get round it. It applies to every account on the Mac, yours included.
@@ -103,7 +105,7 @@ What can still get round it:
 
 ### Settings page
 
-To open it later, click the puzzle-piece **Extensions** button in the toolbar and choose **Family Site Blocker** (in Chrome you can pin it there to keep its icon in view). In Chrome, Edge and Brave it also checks six addresses against the browser's own rule matcher and shows Passed or Failed for each. Firefox doesn't let extensions run that check, so use the **Open exampleadultsite.com** button there instead.
+To open it later, click the puzzle-piece **Extensions** button in the toolbar and choose **Family Site Blocker** (in Chrome you can pin it there to keep its icon in view). In Chrome, Edge and Brave it also checks six addresses against the browser's own rule matcher and shows Passed or Failed for each. Firefox doesn't let extensions run that check, so use the **Open exampleadultsite.com** button there instead. Its **Blocked attempts** section lists every try at a listed site (see below).
 
 ## What it blocks
 
@@ -119,6 +121,23 @@ It blocks by domain. It can't block one page of a site, and it doesn't read page
 - **Your blocked sites** on the settings page: one site per line, saved straight away. Pasted addresses are cleaned up (`https://www.Example.com/a?b` becomes `example.com`) and hosts-file lines (`0.0.0.0 example.com`) work too.
 - **The built-in list** lives in `blocklists/*.txt`. For wider coverage, save a community list (hosts-file format or one domain per line) as another `.txt` file there, run `npm run build`, then reload the extension. Large lists are fine in Chromium: 400,000 domains in the built-in list and 300,000 pasted into the settings page both worked in testing. The settings page can't remove built-in sites.
 - `npm run build` also writes the Firefox lock's profile, `mac/family-site-blocker-firefox.mobileconfig`, with the same list for Firefox to enforce itself. Firefox takes at most 1,000 sites there: those in `starter.txt` first, then the other files by name. The build says how many were left out, and the add-on still blocks those while it runs. On a Mac with the lock, install the new profile (steps 2 and 3 of the lock) to bring Firefox's copy up to date.
+
+## Blocked attempts
+
+Each time a page on a listed site is opened in a tab, by typing the address, following a link, a redirect or a form post, the settings page notes the time and the site, newest first, under **Blocked attempts**. A site is noted under its listed name (`exampleadultsite.com` for `www.exampleadultsite.com/page`), whether the block page stopped it or, on a Mac with the Firefox lock, Firefox's own **Blocked Page** did. Tries at the same site less than two seconds apart count as one, so a reload isn't a new try.
+
+If a listed site's page loaded anyway, because the extension had no access to websites yet, say, or its rules were off, the note says **Opened, not blocked** and the summary line counts those pages. That means something above still needs switching on.
+
+Nothing on the settings page clears the record, and the page has no PIN, so anyone who opens it can read it. The record stays until the extension is removed (which the Firefox lock prevents) or the browser profile is deleted, and only the oldest notes go once there are more than 1,000. Like the sites you add, it is kept in the browser's own storage for the extension, so Firefox drops it when it quits if the add-on isn't signed, and it never leaves the computer: the add-on still collects no data in Mozilla's sense.
+
+What it doesn't see:
+
+- Images, scripts and frames that another page loads from a listed site. Those are blocked silently, and they aren't the person's doing.
+- Anything in another browser, or in Firefox's Troubleshoot Mode, where the add-on doesn't run. Firefox's own copy of the list still blocks the built-in sites there, but nothing is noted.
+- Private windows, unless the extension is allowed there (the settings page says whether it is). Under the Firefox lock there are none.
+- Tries while the extension was off, or sites that aren't on either list.
+
+To note attempts, the extension asks the browser to tell it about page loads (the `webNavigation` and `webRequest` permissions). Firefox's add-on permission prompt calls that "Access browser activity during navigation".
 
 ## Locked-away password
 
@@ -142,15 +161,15 @@ What it can't do:
 npm test                  # fast checks, no install needed
 npm install               # once, for the Chromium tests
 npx playwright install chromium    # once, if Playwright has no browser yet
-npm run test:browser      # 45 tests in a real Chromium
-npm run test:firefox      # 23 tests in the Firefox installed on this computer
+npm run test:browser      # 51 tests in a real Chromium
+npm run test:firefox      # 24 tests in the Firefox installed on this computer
 ```
 
 `npm run test:browser` loads the extension the way "Load unpacked" does and drives it like a person would. `npm run test:firefox` does the same in Firefox. It builds the zip that `npm run package:firefox` makes, loads it the way "Load Temporary Add-on…" does, and then checks that the `extension` folder itself loads too. It finds Firefox in its usual place on macOS, Windows or Linux, or uses the one in `FIREFOX`, and is skipped if there is none.
 
 On GitHub, every push runs all three suites on a GitHub-hosted Mac (`.github/workflows/macos.yml`). The run lists the macOS, Chromium and Firefox versions and each suite's totals, and fails if any test was skipped.
 
-The Firefox lock has its own tests, which need a signed `.xpi`: `SIGNED_XPI=path/to/signed.xpi npm run test:firefox-lock`. They put the lock in force, check that Firefox installs the add-on and won't let it be switched off, check that Troubleshoot Mode (started with `--safe-mode`, as the Option key does) still blocks the built-in sites, and take the lock away again. A control in that group starts Troubleshoot Mode with the lock as it was before it carried the list, where `exampleadultsite.com` loads. With `OTHER_XPI` set to another program's signed add-on (GitHub uses LeechBlock NG, a site blocker), they also put the lock next to another blocker's settings, made like Plucky's, and check that both blockers stay installed and locked. With `OLDER_XPI` set to an earlier signed version of this add-on, they check what happens when that version was installed by hand and switched off before the lock, and that a newer version still installs over a locked one. On a Mac they only run on GitHub (**Firefox lock check** in the Actions tab), because the lock covers every account on the computer.
+The Firefox lock has its own tests, which need a signed `.xpi`: `SIGNED_XPI=path/to/signed.xpi npm run test:firefox-lock`. They put the lock in force, check that Firefox installs the add-on and won't let it be switched off, check that Troubleshoot Mode (started with `--safe-mode`, as the Option key does) still blocks the built-in sites, and take the lock away again. With a signed version 1.3.0 or later, they also check that a try Firefox's own copy of the list stopped is noted under **Blocked attempts**, not marked as opened. A control in that group starts Troubleshoot Mode with the lock as it was before it carried the list, where `exampleadultsite.com` loads. With `OTHER_XPI` set to another program's signed add-on (GitHub uses LeechBlock NG, a site blocker), they also put the lock next to another blocker's settings, made like Plucky's, and check that both blockers stay installed and locked. With `OLDER_XPI` set to an earlier signed version of this add-on, they check what happens when that version was installed by hand and switched off before the lock, and that a newer version still installs over a locked one. On a Mac they only run on GitHub (**Firefox lock check** in the Actions tab), because the lock covers every account on the computer.
 
 No real website is contacted: every request goes to a small local server instead, so a request that never reaches that server was stopped by the browser. In both suites the first group is the test case itself, with a control that shows the site loading when the extension isn't installed. Set `HEADFUL=1` to watch the browser, or `EXTENSION_DIR=/path/to/build` to test a different build.
 
@@ -158,7 +177,7 @@ No real website is contacted: every request goes to a small local server instead
 
 - It is a browser extension. Safari, other browser profiles and apps are not covered. In Firefox it stays installed only until Firefox quits, unless Mozilla signs it.
 - Without a lock, anyone who can open the extensions page can turn it off or remove it, and the settings page has no PIN. Firefox on a Mac has the lock above, which anyone who knows an administrator's password can take off. In Chrome and Edge, an administrator can force-install the extension with the `ExtensionInstallForcelist` policy and turn off Incognito with `IncognitoModeAvailability`, which needs the extension packaged and published. The lock only covers Firefox, so on a child's account, keep other browsers out with account or system controls.
-- Sites added on the settings page are kept in the Firefox profile, so deleting the profile folder loses them (the add-on comes back by itself under the lock). For sites that must stay blocked whatever happens, add them to the built-in list.
+- Sites added on the settings page are kept in the Firefox profile, so deleting the profile folder loses them (the add-on comes back by itself under the lock). For sites that must stay blocked whatever happens, add them to the built-in list. The record of blocked attempts is kept there too, and goes with it.
 - The lock installs the add-on once in each Firefox profile. If someone deletes the add-on's file from inside their Firefox profile folder while Firefox is closed, Firefox doesn't put it back: it's missing from the Add-ons Manager until you install it again from the folder.
 - Firefox takes each of its settings from one place. The lock leaves out the one other blockers use for their own add-ons (`ExtensionSettings`), so theirs keep working, and its other settings are the same as Plucky's, apart from `WebsiteFilter` (Firefox's own copy of the built-in list). If another program sets `Preferences` differently, Firefox uses the lock's (which keeps add-ons' blocking switched on) instead of that program's. If another program also sets `WebsiteFilter`, Firefox uses the lock's list and drops that program's. To check before installing the lock on a Mac with another blocker, look for `WebsiteFilter` on `about:policies`.
 - Firefox's own copy of the built-in list takes at most 1,000 sites, stops pages and frames but not images, scripts or other things an allowed page loads, and shows Firefox's **Blocked Page** rather than the add-on's. While the add-on runs, it covers the rest.
@@ -170,7 +189,8 @@ No real website is contacted: every request goes to a small local server instead
 | --- | --- |
 | `extension/` | The extension. Load this folder. |
 | `extension/rules/adult.json` | The built-in rules, generated from `blocklists/`. Don't edit by hand. |
-| `extension/lib/` | Domain cleanup and rule building, shared with the build script, and the time-lock puzzle (`timelock.js`). |
+| `extension/lib/` | Domain cleanup and rule building, shared with the build script; the record of blocked attempts (`attempts.js`), shared by `background.js` and the settings page; and the time-lock puzzle (`timelock.js`). |
+| `extension/background.js` | Opens the settings page after install and from the toolbar button, and notes blocked attempts from what the browser reports about page loads. |
 | `extension/lockbox.js`, `extension/lockbox-worker.js` | The locked-away password on the settings page, and the worker that does the puzzle's squaring. |
 | `blocklists/` | The built-in list, as plain text. |
 | `scripts/build-rules.mjs` | Turns `blocklists/` into `adult.json`. `npm run build` runs it, then `scripts/firefox-lock.mjs`, so the lock's profile carries the same list. |

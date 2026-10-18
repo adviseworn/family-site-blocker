@@ -159,6 +159,58 @@ describe('Firefox', { skip: findFirefox() ? false : 'no Firefox found (set FIREF
       assert.equal(state.privateButtonShown, false, 'no "Open Details page" button: Firefox does not let extensions open about:addons');
     });
 
+    test('the tries at the test site so far are noted on the settings page, and a new one appears while the page is open', async () => {
+      const settings = tabsAfterInstall.find(({ url }) => url.endsWith('/options.html'));
+      const rows = () =>
+        browser.run(`return [...document.querySelectorAll('#attempts-table tbody tr')].map((row) => [...row.cells].map((cell) => cell.textContent))`);
+      const waitForRows = async (test) => {
+        let found = [];
+        for (let i = 0; i < 40 && !test(found); i++) {
+          if (i) await sleep(250);
+          found = await rows();
+        }
+        return found;
+      };
+
+      await browser.fx.send('WebDriver:SwitchToWindow', { handle: settings.handle });
+      // The tests above open the site many times, but tries less than two seconds apart count as one.
+      const before = await waitForRows((found) => found.length > 0);
+      assert.ok(before.length >= 1 && before.every((row) => row[1] === SITE && row[2] === 'Blocked'), JSON.stringify(before));
+      assert.match(await browser.run(`return document.getElementById('attempts-summary').textContent`), /^\d+ attempts?, the latest at .+\.$/);
+
+      await sleep(2100); // more than the two seconds that make two notes one try
+      await browser.newTab();
+      await assertBlocked(BLOCKED_URL);
+      await browser.fx.send('WebDriver:SwitchToWindow', { handle: settings.handle });
+      const after = await waitForRows((found) => found.length === before.length + 1);
+      assert.equal(after.length, before.length + 1, `a new note while the page was open: ${JSON.stringify(after.slice(0, 3))}`);
+      assert.deepEqual(after[0].slice(1), [SITE, 'Blocked'], 'newest first');
+
+      // Stand in for a Firefox where the blocking is off: switch the built-in rules off for a moment.
+      const builtInRules = (on) =>
+        browser.fx.send('WebDriver:ExecuteAsyncScript', {
+          script: `const done = arguments[arguments.length - 1];
+            const change = arguments[0] ? { enableRulesetIds: ['adult'] } : { disableRulesetIds: ['adult'] };
+            browser.declarativeNetRequest.updateEnabledRulesets(change).then(() => done('ok'), (error) => done('error: ' + error));`,
+          args: [on],
+        });
+      try {
+        assert.equal(await builtInRules(false), 'ok');
+        await sleep(2100);
+        await browser.newTab();
+        assert.equal((await browser.visit(BLOCKED_URL)).outcome, 'site loaded');
+        await browser.fx.send('WebDriver:SwitchToWindow', { handle: settings.handle });
+        const got = await waitForRows((found) => found.length === after.length + 1 && found[0][2] !== 'Blocked');
+        assert.deepEqual(got[0].slice(1), [SITE, 'Opened, not blocked'], JSON.stringify(got.slice(0, 2)));
+        assert.match(await browser.run(`return document.getElementById('attempts-summary').textContent`), / 1 page opened instead of being blocked\.$/);
+      } finally {
+        assert.equal(await builtInRules(true), 'ok');
+      }
+      await sleep(2100);
+      await browser.newTab();
+      await assertBlocked(BLOCKED_URL);
+    });
+
     test('a password locked away with a short wait comes back after it, and is locked away again', async () => {
       const settings = tabsAfterInstall.find(({ url }) => url.endsWith('/options.html'));
       await browser.fx.send('WebDriver:SwitchToWindow', { handle: settings.handle });
