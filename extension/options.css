@@ -177,6 +177,49 @@ textarea {
   white-space: nowrap;
 }
 
+/* Blocked attempts */
+
+#attempts-table {
+  width: 100%;
+  margin: 0 0 1rem;
+  border-collapse: collapse;
+  font-size: 0.95rem;
+}
+
+#attempts-table th,
+#attempts-table td {
+  padding: 0.5rem 0.75rem 0.5rem 0;
+  border-top: 1px solid var(--line);
+  text-align: left;
+  vertical-align: top;
+}
+
+#attempts-table th {
+  border-top: 0;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+#attempts-table td:first-child {
+  white-space: nowrap;
+}
+
+#attempts-table td:nth-child(2) {
+  overflow-wrap: anywhere;
+}
+
+#attempts-table td:last-child {
+  font-weight: 600;
+}
+
+.blocked td:last-child {
+  color: var(--ok);
+}
+
+.opened td:last-child {
+  color: var(--bad);
+}
+
 /* Locked-away password */
 
 #lockbox label:not(.button) {

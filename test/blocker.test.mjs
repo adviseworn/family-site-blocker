@@ -7,8 +7,9 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { MAX_ATTEMPTS, hostOf, listedDomain, record } from '../extension/lib/attempts.js';
 import { normalizeDomain, parseDomainList } from '../extension/lib/domains.js';
-import { BLOCK_PAGE, CHUNK_SIZE, buildRules } from '../extension/lib/rules.js';
+import { BLOCK_PAGE, CHUNK_SIZE, buildRules, domainsOf } from '../extension/lib/rules.js';
 import { BLOCKLIST_DIR, RULES_PATH, loadBlocklists, renderRules } from '../scripts/build-rules.mjs';
 import { firefoxManifest, packageFirefox } from '../scripts/package-firefox.mjs';
 import { FILTER_LIMIT, PROFILE_PATH, XPI_PATH, filterPattern, filterSites, firefoxPolicies, mobileconfig } from '../scripts/firefox-lock.mjs';
@@ -116,6 +117,68 @@ test('buildRules splits long lists into chunks with unique ids', () => {
   assert.equal(buildRules([]).length, 0);
 });
 
+test('domainsOf reads back the domains a set of rules was built from, each once', () => {
+  const many = Array.from({ length: CHUNK_SIZE + 2 }, (_, i) => `site${i}.com`);
+  assert.deepEqual(domainsOf(buildRules(many)), many);
+  assert.deepEqual(domainsOf([]), []);
+  assert.ok(domainsOf(rules).includes('exampleadultsite.com'));
+});
+
+test('blocked attempts: the host of an address, and the listed domain that covers it', () => {
+  const listed = new Set(['exampleadultsite.com', 'm.other.test']);
+  for (const [url, host, site] of [
+    ['http://exampleadultsite.com/', 'exampleadultsite.com', 'exampleadultsite.com'],
+    ['https://www.EXAMPLEADULTSITE.com./page?x=1#y', 'www.exampleadultsite.com', 'exampleadultsite.com'],
+    ['http://user:pw@a.b.exampleadultsite.com:8080/', 'a.b.exampleadultsite.com', 'exampleadultsite.com'],
+    ['http://m.other.test/', 'm.other.test', 'm.other.test'],
+    ['http://www.m.other.test/', 'www.m.other.test', 'm.other.test'],
+    ['http://other.test/', 'other.test', null],
+    ['http://notexampleadultsite.com/', 'notexampleadultsite.com', null],
+    ['http://exampleadultsite.com.example.org/', 'exampleadultsite.com.example.org', null],
+    ['http://example.org/?next=exampleadultsite.com', 'example.org', null],
+  ]) {
+    assert.equal(hostOf(url), host, url);
+    assert.equal(listedDomain(hostOf(url), listed), site, url);
+  }
+  // Only web addresses count: a block page, a settings page or a browser page never does.
+  for (const url of ['chrome-extension://abcdefghijklmnop/blocked.html', 'moz-extension://1234-5678/blocked.html', 'about:neterror?e=blockedByPolicy', 'chrome://extensions/', 'file:///tmp/x.html', 'not a url', '']) {
+    assert.equal(hostOf(url), null, url);
+  }
+  assert.equal(listedDomain(null, listed), null);
+  assert.equal(listedDomain('com', new Set(['com'])), null, 'a single label is never looked up');
+});
+
+test('blocked attempts: notes are added oldest first, repeats within two seconds are one attempt, and a page that opens marks its attempt', () => {
+  const t = 1_700_000_000_000;
+  let list = record(undefined, { at: t, site: 'a.test' });
+  assert.deepEqual(list, [{ at: t, site: 'a.test' }]);
+  assert.equal(record(list, { at: t + 1500, site: 'a.test' }), null, 'the same site straight away is the same attempt');
+  list = record(list, { at: t + 1500, site: 'b.test' });
+  list = record(list, { at: t + 3000, site: 'a.test' });
+  assert.deepEqual(list.map((entry) => entry.site), ['a.test', 'b.test', 'a.test']);
+
+  // The page of b.test loaded 10 seconds after its attempt: that attempt is marked, nothing is added.
+  const marked = record(list, { at: t + 11_500, site: 'b.test', opened: true });
+  assert.deepEqual(marked, [{ at: t, site: 'a.test' }, { at: t + 1500, site: 'b.test', opened: true }, { at: t + 3000, site: 'a.test' }]);
+  assert.equal(record(marked, { at: t + 12_000, site: 'b.test', opened: true }), null, 'marking it again changes nothing');
+  // A page that loads with no attempt noted in the last minute gets a note of its own.
+  const late = record(marked, { at: t + 100_000, site: 'a.test', opened: true });
+  assert.deepEqual(late.at(-1), { at: t + 100_000, site: 'a.test', opened: true });
+  assert.equal(late.length, 4);
+  // The browser may report the start of that page load after its end: still the same try.
+  assert.equal(record(late, { at: t + 100_500, site: 'a.test' }), null);
+  assert.equal(record(late, { at: t + 102_500, site: 'a.test' }).length, 5, 'a later try is new');
+  assert.equal(record('not a list', { at: t, site: 'a.test' }).length, 1, 'a damaged record starts over');
+});
+
+test(`blocked attempts: only the newest ${MAX_ATTEMPTS} are kept`, () => {
+  let list = [];
+  for (let i = 0; i < MAX_ATTEMPTS + 5; i += 1) list = record(list, { at: i * 10_000, site: `site${i}.test` });
+  assert.equal(list.length, MAX_ATTEMPTS);
+  assert.equal(list[0].site, 'site5.test', 'the oldest went');
+  assert.equal(list.at(-1).site, `site${MAX_ATTEMPTS + 4}.test`);
+});
+
 test('normalizeDomain accepts what people paste and rejects what is not a domain', () => {
   const accepted = [
     ['exampleadultsite.com', 'exampleadultsite.com'],
@@ -151,6 +214,8 @@ test('parseDomainList reads plain lists, hosts files and comments', () => {
 test('manifest points at files that exist', () => {
   assert.equal(manifest.manifest_version, 3);
   assert.ok(manifest.permissions.includes('declarativeNetRequest'));
+  assert.ok(manifest.permissions.includes('storage'), 'the lists and the record of attempts are stored');
+  assert.ok(manifest.permissions.includes('webNavigation') && manifest.permissions.includes('webRequest'), 'noting blocked attempts needs to see page loads');
   assert.ok(manifest.host_permissions.includes('<all_urls>'), 'redirect rules need host access');
   for (const { path } of manifest.declarative_net_request.rule_resources) {
     assert.ok(existsSync(join(EXT, path)), path);
@@ -168,6 +233,8 @@ test('one manifest works in Chrome, Edge, Brave and Firefox', () => {
   // Chrome, Edge and Brave run the service worker; Firefox runs the same file as an event page.
   // The extension folder keeps both, so it loads anywhere; the zip for Mozilla leaves out service_worker.
   assert.deepEqual(background.scripts, [background.service_worker]);
+  // background.js imports lib/attempts.js and lib/rules.js, which both browsers allow for a module.
+  assert.equal(background.type, 'module');
   // Both browsers accept the two keys side by side from version 121 (MDN: manifest.json/background).
   assert.ok(Number(manifest.minimum_chrome_version) >= 121);
   assert.ok(parseFloat(settings.gecko.strict_min_version) >= 121);
@@ -182,7 +249,7 @@ test('one manifest works in Chrome, Edge, Brave and Firefox', () => {
 
 test("Firefox's manifest leaves out only background.service_worker, which Mozilla's linter warns about", () => {
   const firefox = firefoxManifest(manifest);
-  assert.deepEqual(firefox.background, { scripts: ['background.js'] });
+  assert.deepEqual(firefox.background, { scripts: ['background.js'], type: 'module' });
   assert.deepEqual({ ...firefox, background: null }, { ...manifest, background: null }, 'nothing else changes');
   assert.equal(manifest.background.service_worker, 'background.js', 'the extension folder keeps it for Chrome, Edge and Brave');
 });
@@ -408,7 +475,7 @@ test('every file the pages reference exists', () => {
 });
 
 test('module imports resolve', () => {
-  for (const file of ['options.js', 'lockbox.js', 'lockbox-worker.js', 'lib/domains.js', 'lib/rules.js', 'lib/timelock.js']) {
+  for (const file of ['background.js', 'options.js', 'lockbox.js', 'lockbox-worker.js', 'lib/attempts.js', 'lib/domains.js', 'lib/rules.js', 'lib/timelock.js']) {
     const source = readFileSync(join(EXT, file), 'utf8');
     for (const [, specifier] of source.matchAll(/from\s+'(\.{1,2}\/[^']+)'/g)) {
       assert.ok(existsSync(resolve(EXT, dirname(file), specifier)), `${file} imports missing ${specifier}`);
@@ -417,7 +484,7 @@ test('module imports resolve', () => {
 });
 
 test('extension scripts have no syntax errors', () => {
-  for (const file of ['background.js', 'blocked.js', 'options.js', 'lockbox.js', 'lockbox-worker.js', 'lib/domains.js', 'lib/rules.js', 'lib/timelock.js']) {
+  for (const file of ['background.js', 'blocked.js', 'options.js', 'lockbox.js', 'lockbox-worker.js', 'lib/attempts.js', 'lib/domains.js', 'lib/rules.js', 'lib/timelock.js']) {
     const run = spawnSync(process.execPath, ['--check', join(EXT, file)], { encoding: 'utf8' });
     assert.equal(run.status, 0, `${file}: ${run.stderr}`);
   }

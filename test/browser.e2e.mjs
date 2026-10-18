@@ -381,6 +381,167 @@ describe('real browser', () => {
     });
   });
 
+  describe('blocked attempts', () => {
+    const stored = (page) => page.evaluate(() => chrome.storage.local.get('attempts').then((got) => got.attempts ?? []));
+    const shown = (page) =>
+      page.evaluate(() => [...document.querySelectorAll('#attempts-table tbody tr')].map((row) => [...row.cells].map((cell) => cell.textContent)));
+
+    /** Waits until the record holds `count` notes; the background script writes them a moment after a visit. */
+    async function recorded(page, count) {
+      const until = Date.now() + 10_000;
+      let list = await stored(page);
+      while (list.length !== count && Date.now() < until) {
+        await new Promise((done) => setTimeout(done, 100));
+        list = await stored(page);
+      }
+      assert.equal(list.length, count, `recorded: ${JSON.stringify(list)}`);
+      return list;
+    }
+
+    async function freshRecord() {
+      const page = await openSettings();
+      await page.evaluate(() => chrome.storage.local.remove('attempts'));
+      await page.reload();
+      await page.waitForFunction(() => document.getElementById('attempts-summary').textContent === 'No attempts so far.');
+      return page;
+    }
+
+    const pause = (ms) => new Promise((done) => setTimeout(done, ms));
+
+    test('each try at a listed site is noted with the time and the site, however the address is written', async () => {
+      const page = await freshRecord();
+      try {
+        const before = Date.now();
+        await assertBlocked(BLOCKED_URL);
+        await assertBlocked('http://www.exampleadultsite.com/some/page?x=1'); // straight after: the same try
+        let list = await recorded(page, 1);
+        assert.equal(list[0].site, SITE);
+        assert.ok(list[0].at >= before - 1000 && list[0].at <= Date.now() + 1000, `at: ${list[0].at}`);
+        assert.equal(list[0].opened, undefined);
+
+        await pause(2100); // more than the two seconds that make two notes one try
+        await assertBlocked('https://A.B.EXAMPLEADULTSITE.COM./');
+        list = await recorded(page, 2);
+        assert.equal(list[1].site, SITE, 'the listed domain, not the subdomain');
+
+        await page.waitForFunction(() => document.querySelectorAll('#attempts-table tbody tr').length === 2);
+        assert.match(await page.locator('#attempts-summary').innerText(), /^2 attempts, the latest at .+\.$/);
+        const rows = await shown(page);
+        assert.deepEqual(rows.map((row) => row.slice(1)), [[SITE, 'Blocked'], [SITE, 'Blocked']], 'newest first');
+        assert.match(rows[0][0], /\d/, 'a date and time');
+        assert.equal(await page.locator('#attempts-more').isVisible(), false);
+        assert.deepEqual(page.errors, []);
+      } finally {
+        await page.close();
+      }
+    });
+
+    test('other sites, and pages that merely embed or lead to a listed site, are not noted', async () => {
+      const page = await freshRecord();
+      try {
+        for (const url of ['http://allowed.test/', 'http://notexampleadultsite.com/', 'http://exampleadultsite.com.allowed.test/', 'http://allowed.test/?next=exampleadultsite.com']) {
+          assert.equal((await visit(browser.context, url)).outcome, 'site loaded', url);
+        }
+        const embeds = await browser.context.newPage();
+        await embeds.goto('http://allowed.test/embeds-blocked', { waitUntil: 'load' });
+        await embeds.close();
+        await pause(500);
+        assert.deepEqual(await stored(page), [], 'nothing noted: no page of a listed site was opened in a tab');
+
+        // Following a link to the site is a try, noted once.
+        await assertBlockedFromAllowedPage('/links', async (allowed) => (await allowed.click('#go'), allowed));
+        const list = await recorded(page, 1);
+        assert.equal(list[0].site, SITE);
+      } finally {
+        await page.close();
+      }
+    });
+
+    test('a site from "Your blocked sites" is noted under its listed name, and no longer once it is removed', async () => {
+      const page = await freshRecord();
+      try {
+        await saveList(page, 'custom-blocked.test');
+        await assertBlocked('http://deeper.sub.custom-blocked.test/page', 'custom-blocked.test');
+        const list = await recorded(page, 1);
+        assert.equal(list[0].site, 'custom-blocked.test');
+
+        await saveList(page, '');
+        assert.equal((await visit(browser.context, 'http://custom-blocked.test/')).outcome, 'site loaded');
+        await pause(500);
+        assert.equal((await stored(page)).length, 1, 'a site that is no longer listed is not noted');
+        assert.deepEqual(page.errors, []);
+      } finally {
+        await saveList(page, '').catch(() => {});
+        await page.close();
+      }
+    });
+
+    test('the settings page shows a new note while it is open', async () => {
+      const page = await freshRecord();
+      try {
+        await assertBlocked(BLOCKED_URL);
+        await page.waitForFunction(() => document.querySelectorAll('#attempts-table tbody tr').length === 1);
+        assert.match(await page.locator('#attempts-summary').innerText(), /^1 attempt, the latest at /);
+      } finally {
+        await page.close();
+      }
+    });
+
+    test('a listed site that gets through is marked as opened, not blocked', async () => {
+      const page = await freshRecord();
+      // Stand in for a browser where the blocking is off: switch the built-in rules off for a moment.
+      const builtInRules = (enabled) =>
+        page.evaluate((on) => chrome.declarativeNetRequest.updateEnabledRulesets(on ? { enableRulesetIds: ['adult'] } : { disableRulesetIds: ['adult'] }), enabled);
+      try {
+        await builtInRules(false);
+        assert.equal((await visit(browser.context, BLOCKED_URL)).outcome, 'site loaded');
+        let list = await recorded(page, 1);
+        const until = Date.now() + 10_000;
+        while (!list[0].opened && Date.now() < until) {
+          await pause(100);
+          list = await stored(page);
+        }
+        assert.deepEqual(list.map(({ site, opened }) => ({ site, opened })), [{ site: SITE, opened: true }]);
+        await page.waitForFunction(() => /opened/.test(document.getElementById('attempts-summary').textContent));
+        assert.match(await page.locator('#attempts-summary').innerText(), /^1 attempt, the latest at .+\. 1 page opened instead of being blocked\.$/);
+        assert.deepEqual((await shown(page)).map((row) => row.slice(1)), [[SITE, 'Opened, not blocked']]);
+
+        await builtInRules(true);
+        await pause(2100);
+        await assertBlocked(BLOCKED_URL);
+        list = await recorded(page, 2);
+        assert.equal(list[1].opened, undefined, 'blocked again');
+        assert.deepEqual(page.errors, []);
+      } finally {
+        await builtInRules(true).catch(() => {});
+        await page.close();
+      }
+    });
+
+    test('the latest 50 are shown, and "Show all" shows the rest', async () => {
+      const page = await freshRecord();
+      try {
+        await page.evaluate(() => {
+          const now = Date.now();
+          const attempts = Array.from({ length: 60 }, (_, i) => ({ at: now - (60 - i) * 60_000, site: `site${i}.test` }));
+          return chrome.storage.local.set({ attempts });
+        });
+        await page.waitForFunction(() => document.querySelectorAll('#attempts-table tbody tr').length === 50);
+        assert.equal((await shown(page))[0][1], 'site59.test', 'newest first');
+        await page.locator('#attempts-more').waitFor({ state: 'visible' });
+        assert.equal(await page.locator('#attempts-more').innerText(), 'Show all 60');
+        await page.click('#attempts-more');
+        await page.waitForFunction(() => document.querySelectorAll('#attempts-table tbody tr').length === 60);
+        assert.equal((await shown(page))[59][1], 'site0.test');
+        assert.equal(await page.locator('#attempts-more').isVisible(), false);
+        assert.deepEqual(page.errors, []);
+      } finally {
+        await page.evaluate(() => chrome.storage.local.remove('attempts')).catch(() => {});
+        await page.close();
+      }
+    });
+  });
+
   describe('locked-away password', () => {
     const SECRET = 'Admin-Password-4-Tests';
 

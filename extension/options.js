@@ -1,5 +1,6 @@
+import { ATTEMPTS } from './lib/attempts.js';
 import { parseDomainList } from './lib/domains.js';
-import { buildRules } from './lib/rules.js';
+import { buildRules, domainsOf } from './lib/rules.js';
 
 // Firefox provides `browser`; Chrome, Edge and Brave provide `chrome`. Both return promises here.
 const api = globalThis.browser ?? globalThis.chrome;
@@ -19,14 +20,6 @@ const CHECKS = [
 ];
 
 const sites = (n) => (n === 1 ? '1 site' : `${n} sites`);
-
-// Every domain in a set of rules lives on its redirect rules; the block rules repeat the same list.
-// Each domain is also listed with a trailing dot (see lib/rules.js); count and show it once.
-const domainsOf = (rules) =>
-  rules
-    .filter((rule) => rule.action.type === 'redirect')
-    .flatMap((rule) => rule.condition.requestDomains)
-    .filter((domain) => !domain.endsWith('.'));
 
 async function builtInDomains() {
   const response = await fetch(api.runtime.getURL('rules/adult.json'));
@@ -100,6 +93,8 @@ async function save() {
       removeRuleIds: existing.map((rule) => rule.id),
       addRules: buildRules(domains),
     });
+    // The background script keeps its own copy of the lists for noting blocked attempts.
+    api.runtime.sendMessage({ type: 'list-changed' }).catch(() => {});
     await refresh();
     const shown = invalid.slice(0, 3).join(', ') + (invalid.length > 3 ? ', …' : '');
     status.textContent =
@@ -143,6 +138,58 @@ async function checkPrivateWindows() {
   }
 }
 
+// --- Blocked attempts ---------------------------------------------------------------------------------
+// The background script notes every attempt to open a listed site (see lib/attempts.js). Shown newest
+// first: the latest few straight away, the rest behind "Show all". Nothing here can clear the record.
+const SHOWN = 50;
+const when = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
+let showAll = false;
+
+async function renderAttempts() {
+  const stored = (await api.storage.local.get(ATTEMPTS))[ATTEMPTS];
+  const attempts = Array.isArray(stored) ? [...stored].reverse() : [];
+  const table = $('attempts-table');
+  const more = $('attempts-more');
+  const rows = table.querySelector('tbody');
+  rows.replaceChildren();
+
+  if (attempts.length === 0) {
+    $('attempts-summary').textContent = 'No attempts so far.';
+    table.hidden = true;
+    more.hidden = true;
+    return;
+  }
+
+  const opened = attempts.filter((attempt) => attempt.opened).length;
+  $('attempts-summary').textContent =
+    `${plural(attempts.length, 'attempt')}, the latest at ${when.format(attempts[0].at)}.` +
+    (opened ? ` ${plural(opened, 'page')} opened instead of being blocked.` : '');
+
+  for (const attempt of attempts.slice(0, showAll ? attempts.length : SHOWN)) {
+    const row = document.createElement('tr');
+    row.className = attempt.opened ? 'opened' : 'blocked';
+    for (const text of [when.format(attempt.at), attempt.site, attempt.opened ? 'Opened, not blocked' : 'Blocked']) {
+      const cell = document.createElement('td');
+      cell.textContent = text;
+      row.append(cell);
+    }
+    rows.append(row);
+  }
+  table.hidden = false;
+  more.hidden = showAll || attempts.length <= SHOWN;
+  more.textContent = `Show all ${attempts.length}`;
+}
+
+$('attempts-more').addEventListener('click', () => {
+  showAll = true;
+  renderAttempts();
+});
+// Keep the record current while the page is open.
+api.storage.onChanged.addListener((changes, area) => {
+  if (area === 'local' && changes[ATTEMPTS]) renderAttempts();
+});
+
 $('access-allow').addEventListener('click', () => {
   // The permission prompt only appears when it is requested straight from the click.
   api.permissions.request(ALL_SITES).then(checkAccess, checkAccess);
@@ -156,6 +203,9 @@ $('save').addEventListener('click', save);
 
 checkAccess();
 checkPrivateWindows();
+renderAttempts().catch((error) => {
+  $('attempts-summary').textContent = `Couldn't read the record: ${error.message}`;
+});
 refresh()
   .then(runChecks)
   .catch((error) => {
