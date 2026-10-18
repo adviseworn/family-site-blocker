@@ -1,6 +1,6 @@
 # Family Site Blocker
 
-A browser extension for Chrome, Edge, Brave and Firefox that blocks websites on a list. Its built-in list is `exampleadultsite.com` (the test case), 20 large adult sites, and a community list of some 64,000 more (StevenBlack/hosts's adult list, MIT), and you can add your own. Each attempt to open a listed site is noted on its settings page, with the time (see **Blocked attempts**).
+A browser extension for Chrome, Edge, Brave and Firefox that blocks websites on a list. Its built-in list is `exampleadultsite.com` (the test case), 20 large adult sites, and a community list of some 64,000 more (StevenBlack/hosts's adult list, MIT), and you can add your own. Each attempt to open a listed site is noted, with the time: the latest on its settings page, the whole record on a page of its own (see **Blocked attempts**).
 
 **Test case:** navigate to `exampleadultsite.com`. **Expected:** the website is blocked. With the extension loaded, you land on a "This site is blocked" page and nothing is fetched from the site. Under the Firefox lock, Firefox blocks it itself before the extension does, so you land on Firefox's own **Blocked Page** instead.
 
@@ -117,7 +117,7 @@ What can still get round it:
 
 ### Settings page
 
-To open it later, click the puzzle-piece **Extensions** button in the toolbar and choose **Family Site Blocker** (in Chrome you can pin it there to keep its icon in view). The version installed is shown next to the title: when a new version is going in account by account, that shows which accounts still have the old one. In Chrome, Edge and Brave it also checks six addresses against the browser's own rule matcher and shows Passed or Failed for each. Firefox doesn't let extensions run that check, so use the **Open exampleadultsite.com** button there instead. Its **Blocked attempts** section lists every try at a listed site (see below).
+To open it later, click the puzzle-piece **Extensions** button in the toolbar and choose **Family Site Blocker** (in Chrome you can pin it there to keep its icon in view). The version installed is shown next to the title: when a new version is going in account by account, that shows which accounts still have the old one. In Chrome, Edge and Brave it also checks six addresses against the browser's own rule matcher and shows Passed or Failed for each. Firefox doesn't let extensions run that check, so use the **Open exampleadultsite.com** button there instead. Its **Blocked attempts** section shows the latest tries at listed sites, with a link to the whole record (see below).
 
 ## What it blocks
 
@@ -136,13 +136,15 @@ It blocks by domain. It can't block one page of a site, and it doesn't read page
 
 ## Blocked attempts
 
-Each time a page on a listed site is opened in a tab, by typing the address, following a link, a redirect or a form post, the settings page notes the time and the site, newest first, under **Blocked attempts**. A site is noted under its listed name (`exampleadultsite.com` for `www.exampleadultsite.com/page`), whether the block page stopped it or, on a Mac with the Firefox lock, Firefox's own **Blocked Page** did. Tries at the same site less than two seconds apart count as one, so a reload isn't a new try.
+Each time a page on a listed site is opened in a tab, by typing the address, following a link, a redirect or a form post, the extension notes the time and the site. A site is noted under its listed name (`exampleadultsite.com` for `www.exampleadultsite.com/page`), whether the block page stopped it or, on a Mac with the Firefox lock, Firefox's own **Blocked Page** did. Tries at the same site less than two seconds apart count as one, so a reload isn't a new try.
 
-If a listed site's page loaded anyway, because the extension had no access to websites yet, say, or its rules were off, the note says **Opened, not blocked** and the summary line counts those pages. That means something above still needs switching on.
+The settings page shows the summary and the latest ten under **Blocked attempts**, newest first. **See the whole record** opens the record in a tab of its own: first summed up by site (how many tries, the first and the latest, how many got through), most tried first, where choosing a site shows only its tries; then every try, grouped by day, newest first. **Save as a file** saves the whole record as a CSV file (`family-site-blocker-record-<date>.csv` in the browser's downloads folder), oldest first, with each time in this computer's time zone, for a spreadsheet or for keeping.
+
+If a listed site's page loaded anyway, because the extension had no access to websites yet, say, or its rules were off, the note says **Opened, not blocked** and the summary line counts those pages. That means something on the settings page still needs switching on.
 
 The record starts when the extension starts watching, but the browser's own history goes back further: every page loaded in that browser profile, for months in Firefox and 90 days in Chrome, except in private windows and whatever someone deleted. From version 1.3.4, when the extension is installed or updated it looks through that history for visits to listed sites and adds them, with their original times, marked **Visited (browser history)**; the line under the summary says when it last looked and what it found, and a button looks again (after adding a site to your list, say). Those entries say the site was visited; whether something else blocked it at the time isn't known. The same visit is never added twice, and a try the extension saw as it happened isn't added again from the history. This is what makes the record an answer to "has this browser been used for such sites", not only from the day the extension arrived.
 
-Nothing on the settings page clears the record, and the page has no PIN, so anyone who opens it can read it. The record stays until the extension is removed (which the Firefox lock prevents) or the browser profile is deleted, and only the oldest notes go once there are more than 1,000. Like the sites you add, it is kept in the browser's own storage for the extension, so Firefox drops it when it quits if the add-on isn't signed, and it never leaves the computer: the add-on still collects no data in Mozilla's sense.
+Nothing on either page clears the record, and the pages have no PIN, so anyone who opens them can read it. The record stays until the extension is removed (which the Firefox lock prevents) or the browser profile is deleted, and only the oldest notes go once there are more than 10,000 (1,000 before version 1.3.5). Like the sites you add, it is kept in the browser's own storage for the extension, so Firefox drops it when it quits if the add-on isn't signed, and it never leaves the computer: the add-on still collects no data in Mozilla's sense.
 
 What it doesn't see:
 
@@ -175,8 +177,8 @@ What it can't do:
 npm test                  # fast checks, no install needed
 npm install               # once, for the Chromium tests
 npx playwright install chromium    # once, if Playwright has no browser yet
-npm run test:browser      # 53 tests in a real Chromium
-npm run test:firefox      # 25 tests in the Firefox installed on this computer
+npm run test:browser      # 54 tests in a real Chromium
+npm run test:firefox      # 26 tests in the Firefox installed on this computer
 ```
 
 `npm run test:browser` loads the extension the way "Load unpacked" does and drives it like a person would. `npm run test:firefox` does the same in Firefox. It builds the zip that `npm run package:firefox` makes, loads it the way "Load Temporary Add-on…" does, and then checks that the `extension` folder itself loads too. It finds Firefox in its usual place on macOS, Windows or Linux, or uses the one in `FIREFOX`, and is skipped if there is none.
@@ -204,8 +206,9 @@ No real website is contacted: every request goes to a small local server instead
 | --- | --- |
 | `extension/` | The extension. Load this folder. |
 | `extension/rules/` | The built-in rules (`adult-1.json`, `adult-2.json`, …, each a ruleset the manifest lists) and the same domains as a plain list (`domains.json`), generated from `blocklists/`. Don't edit by hand. |
-| `extension/lib/` | Domain cleanup and rule building, shared with the build script; the record of blocked attempts (`attempts.js`), shared by `background.js` and the settings page; and the time-lock puzzle (`timelock.js`). |
+| `extension/lib/` | Domain cleanup and rule building, shared with the build script; the record of blocked attempts (`attempts.js`), shared by `background.js` and both pages; and the time-lock puzzle (`timelock.js`). |
 | `extension/background.js` | Opens the settings page after install and from the toolbar button, and notes blocked attempts from what the browser reports about page loads. |
+| `extension/attempts.html`, `extension/attempts.js` | The record page: the whole record by site and by day, and the file to save. Shares `options.css` with the settings page. |
 | `extension/lockbox.js`, `extension/lockbox-worker.js` | The locked-away password on the settings page, and the worker that does the puzzle's squaring. |
 | `blocklists/` | The built-in list, as plain text: `starter.txt` (the test case and the large sites) and `community.txt` (the community list). |
 | `scripts/build-rules.mjs` | Turns `blocklists/` into the files in `extension/rules/` and lists the rule files in `manifest.json`. `npm run build` runs it, then `scripts/firefox-lock.mjs`, so the lock's profile carries the same list. |

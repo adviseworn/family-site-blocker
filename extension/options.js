@@ -1,4 +1,4 @@
-import { ATTEMPTS, HISTORY_SCAN } from './lib/attempts.js';
+import { ATTEMPTS, HISTORY_SCAN, LABELS, outcome } from './lib/attempts.js';
 import { parseDomainList } from './lib/domains.js';
 import { buildRules, domainsOf } from './lib/rules.js';
 
@@ -139,14 +139,12 @@ async function checkPrivateWindows() {
 }
 
 // --- Blocked attempts ---------------------------------------------------------------------------------
-// The background script notes every attempt to open a listed site (see lib/attempts.js). Shown newest
-// first: the latest few straight away, the rest behind "Show all". Nothing here can clear the record.
-const SHOWN = 50;
+// The background script notes every attempt to open a listed site (see lib/attempts.js). The latest
+// few are shown here, newest first; the whole record is on attempts.html, in its own tab. Nothing here
+// can clear the record.
+const SHOWN = 10;
 const when = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' });
 const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
-let showAll = false;
-
-const RESULT = (attempt) => (attempt.from === 'history' ? 'Visited (browser history)' : attempt.opened ? 'Opened, not blocked' : 'Blocked');
 
 function renderHistoryScan(scan) {
   const line = $('history-scan');
@@ -169,28 +167,29 @@ async function renderAttempts() {
   const attempts = Array.isArray(stored[ATTEMPTS]) ? [...stored[ATTEMPTS]].reverse() : [];
   renderHistoryScan(stored[HISTORY_SCAN]);
   const table = $('attempts-table');
-  const more = $('attempts-more');
+  const all = $('attempts-all');
   const rows = table.querySelector('tbody');
   rows.replaceChildren();
 
   if (attempts.length === 0) {
     $('attempts-summary').textContent = 'No attempts so far.';
     table.hidden = true;
-    more.hidden = true;
+    all.hidden = true;
     return;
   }
 
-  const opened = attempts.filter((attempt) => attempt.opened).length;
-  const fromHistory = attempts.filter((attempt) => attempt.from === 'history').length;
+  const opened = attempts.filter((attempt) => outcome(attempt) === 'opened').length;
+  const fromHistory = attempts.filter((attempt) => outcome(attempt) === 'history').length;
   $('attempts-summary').textContent =
     `${plural(attempts.length, 'attempt')}, the latest at ${when.format(attempts[0].at)}.` +
     (opened ? ` ${plural(opened, 'page')} opened instead of being blocked.` : '') +
     (fromHistory ? ` ${fromHistory} from this browser's history.` : '');
+  table.caption.textContent = attempts.length > SHOWN ? `The latest ${SHOWN}` : '';
 
-  for (const attempt of attempts.slice(0, showAll ? attempts.length : SHOWN)) {
+  for (const attempt of attempts.slice(0, SHOWN)) {
     const row = document.createElement('tr');
-    row.className = attempt.from === 'history' ? 'history' : attempt.opened ? 'opened' : 'blocked';
-    for (const text of [when.format(attempt.at), attempt.site, RESULT(attempt)]) {
+    row.className = outcome(attempt);
+    for (const text of [when.format(attempt.at), attempt.site, LABELS[outcome(attempt)]]) {
       const cell = document.createElement('td');
       cell.textContent = text;
       row.append(cell);
@@ -198,14 +197,10 @@ async function renderAttempts() {
     rows.append(row);
   }
   table.hidden = false;
-  more.hidden = showAll || attempts.length <= SHOWN;
-  more.textContent = `Show all ${attempts.length}`;
+  all.hidden = false;
+  all.textContent = `See the whole record (${attempts.length})`;
 }
 
-$('attempts-more').addEventListener('click', () => {
-  showAll = true;
-  renderAttempts();
-});
 $('history-scan-now').addEventListener('click', () => {
   $('history-scan').textContent = "Looking through this browser's history…";
   api.runtime.sendMessage({ type: 'scan-history' }).catch(() => {});
