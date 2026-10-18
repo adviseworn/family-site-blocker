@@ -1,7 +1,8 @@
 # Publishes the files that let Firefox update Family Site Blocker by itself: updates.json and every signed
-# .xpi from this repository's releases, built by scripts/updates-manifest.mjs and pushed to the public
-# repository adviseworn/family-site-blocker-updates, whose GitHub Pages site the add-on's update_url points
-# at. "Sign with Mozilla" runs it after each new release; start it by hand from the Actions tab to publish
+# .xpi from this repository's releases, built by scripts/updates-manifest.mjs and pushed to the gh-pages
+# branch of the public repository adviseworn/family-site-blocker-updates. GitHub Pages serves that branch
+# (it switched itself on when the branch was first pushed), and the add-on's update_url points at it.
+# "Sign with Mozilla" runs it after each new release; start it by hand from the Actions tab to publish
 # again (after setting it up, or if a run failed).
 #
 # It needs one repository secret: UPDATES_DEPLOY_KEY, the private half of an SSH key whose public half is a
@@ -64,10 +65,10 @@ jobs:
           chmod 600 ~/.ssh/updates_key
           ssh-keyscan -t ed25519,rsa github.com >> ~/.ssh/known_hosts 2>/dev/null
           export GIT_SSH_COMMAND="ssh -i ~/.ssh/updates_key -o IdentitiesOnly=yes"
-          # A repository just made on GitHub may still be empty; the clone then warns and gives an empty folder.
+          # Start from the branch as it is, or from nothing if the repository was just made and is still empty.
           git clone --depth 1 git@github.com:adviseworn/family-site-blocker-updates.git repo
           cd repo
-          git checkout -q -B main
+          if git fetch -q --depth 1 origin gh-pages 2>/dev/null; then git checkout -q -B gh-pages FETCH_HEAD; else git checkout -q -B gh-pages; fi
           git rm -rfq --ignore-unmatch . >/dev/null
           cp -R ../site/. .
           git add -A
@@ -76,5 +77,5 @@ jobs:
             exit 0
           fi
           git -c user.name="Family Site Blocker" -c user.email="family-site-blocker@users.noreply.github.com" commit -q -m "Family Site Blocker $NEWEST"
-          git push -q origin main
+          git push -q origin gh-pages
           echo "::notice title=Updates::Published, newest $NEWEST: https://adviseworn.github.io/family-site-blocker-updates/updates.json (GitHub Pages takes a minute or two to show it)"
