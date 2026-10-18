@@ -201,6 +201,9 @@ $('private-open').addEventListener('click', () => {
 });
 $('save').addEventListener('click', save);
 
+// The version next to the title: when a new one is being installed account by account, it shows which
+// accounts still have the old one.
+$('version').textContent = `Version ${api.runtime.getManifest().version}`;
 checkAccess();
 checkPrivateWindows();
 renderAttempts().catch((error) => {
