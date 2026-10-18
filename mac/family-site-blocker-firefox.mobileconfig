@@ -27,6 +27,8 @@
 										<string>family-site-blocker@parental-controls.local</string>
 									</array>
 								</dict>
+								<key>ExtensionUpdate</key>
+								<true/>
 								<key>DisablePrivateBrowsing</key>
 								<true/>
 								<key>DisableSafeMode</key>

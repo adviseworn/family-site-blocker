@@ -1,0 +1,80 @@
+# Publishes the files that let Firefox update Family Site Blocker by itself: updates.json and every signed
+# .xpi from this repository's releases, built by scripts/updates-manifest.mjs and pushed to the public
+# repository adviseworn/family-site-blocker-updates, whose GitHub Pages site the add-on's update_url points
+# at. "Sign with Mozilla" runs it after each new release; start it by hand from the Actions tab to publish
+# again (after setting it up, or if a run failed).
+#
+# It needs one repository secret: UPDATES_DEPLOY_KEY, the private half of an SSH key whose public half is a
+# deploy key with write access on family-site-blocker-updates (see "Let it update itself" in the README).
+name: Publish updates
+
+on:
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read # the releases
+
+concurrency:
+  group: publish-updates
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+
+      - name: Check that the deploy key is saved
+        env:
+          UPDATES_DEPLOY_KEY: ${{ secrets.UPDATES_DEPLOY_KEY }}
+        run: |
+          if [ -z "$UPDATES_DEPLOY_KEY" ]; then
+            echo "::error title=No deploy key::Save UPDATES_DEPLOY_KEY under Settings → Secrets and variables → Actions: the private half of an SSH key whose public half is a deploy key with write access on adviseworn/family-site-blocker-updates. The README's \"Let it update itself\" section has the steps."
+            exit 1
+          fi
+
+      - name: Get every signed release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir xpis
+          for tag in $(gh release list --limit 1000 --json tagName --jq '.[].tagName'); do
+            gh release download "$tag" --pattern 'family-site-blocker-*.xpi' --dir xpis || echo "::warning title=$tag::no signed .xpi in this release"
+          done
+          ls -l xpis
+
+      - name: Build the site
+        id: build
+        run: |
+          node scripts/updates-manifest.mjs xpis site
+          echo "newest=$(node -e "const m = require('./site/updates.json'); const u = m.addons[Object.keys(m.addons)[0]].updates; console.log(u[u.length - 1].version)")" >> "$GITHUB_OUTPUT"
+
+      - name: Push it to the updates repository
+        env:
+          UPDATES_DEPLOY_KEY: ${{ secrets.UPDATES_DEPLOY_KEY }}
+          NEWEST: ${{ steps.build.outputs.newest }}
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "$UPDATES_DEPLOY_KEY" > ~/.ssh/updates_key
+          chmod 600 ~/.ssh/updates_key
+          ssh-keyscan -t ed25519,rsa github.com >> ~/.ssh/known_hosts 2>/dev/null
+          export GIT_SSH_COMMAND="ssh -i ~/.ssh/updates_key -o IdentitiesOnly=yes"
+          # A repository just made on GitHub may still be empty; the clone then warns and gives an empty folder.
+          git clone --depth 1 git@github.com:adviseworn/family-site-blocker-updates.git repo
+          cd repo
+          git checkout -q -B main
+          git rm -rfq --ignore-unmatch . >/dev/null
+          cp -R ../site/. .
+          git add -A
+          if git diff --cached --quiet; then
+            echo "::notice title=Updates::Already published, newest $NEWEST: https://adviseworn.github.io/family-site-blocker-updates/updates.json"
+            exit 0
+          fi
+          git -c user.name="Family Site Blocker" -c user.email="family-site-blocker@users.noreply.github.com" commit -q -m "Family Site Blocker $NEWEST"
+          git push -q origin main
+          echo "::notice title=Updates::Published, newest $NEWEST: https://adviseworn.github.io/family-site-blocker-updates/updates.json (GitHub Pages takes a minute or two to show it)"
