@@ -8,7 +8,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { MAX_ATTEMPTS, hostOf, listedDomain, record } from '../extension/lib/attempts.js';
+import { MAX_ATTEMPTS, hostOf, listedDomain, mergeVisits, record } from '../extension/lib/attempts.js';
 import { normalizeDomain, parseDomainList } from '../extension/lib/domains.js';
 import { BLOCK_PAGE, CHUNK_SIZE, buildRules, domainsOf } from '../extension/lib/rules.js';
 import { BLOCKLIST_DIR, DOMAINS_PATH, MANIFEST_PATH, MAX_RULESET_BYTES, RULES_DIR, formatManifest, loadBlocklists, loadRules, renderDomains, renderRulesets, ruleResources } from '../scripts/build-rules.mjs';
@@ -228,6 +228,37 @@ test('blocked attempts: notes are added oldest first, repeats within two seconds
   assert.equal(record('not a list', { at: t, site: 'a.test' }).length, 1, 'a damaged record starts over');
 });
 
+test("blocked attempts: visits found in the browser's history are added in time order, marked, each once, and never twice", () => {
+  const t = 1_700_000_000_000;
+  const seen = [{ at: t, site: 'a.test' }, { at: t + 5000, site: 'b.test', opened: true }];
+  const visits = [
+    { at: t - 86_400_000, site: 'a.test' }, // yesterday: new
+    { at: t - 86_400_000 + 1500, site: 'a.test' }, // the same try, a reload
+    { at: t + 500, site: 'a.test' }, // the try the record saw live
+    { at: t + 60_000, site: 'c.test' }, // new
+    { at: NaN, site: 'c.test' }, // nothing without a time
+    { at: t + 70_000, site: '' }, // or a site
+  ];
+  const first = mergeVisits(seen, visits);
+  assert.deepEqual({ found: first.found, added: first.added }, { found: 3, added: 2 });
+  assert.deepEqual(first.attempts, [
+    { at: t - 86_400_000, site: 'a.test', from: 'history' },
+    { at: t, site: 'a.test' },
+    { at: t + 5000, site: 'b.test', opened: true },
+    { at: t + 60_000, site: 'c.test', from: 'history' },
+  ]);
+  // Looking again finds the same visits and adds nothing; the list comes back unchanged.
+  const again = mergeVisits(first.attempts, visits);
+  assert.deepEqual({ found: again.found, added: again.added }, { found: 3, added: 0 });
+  assert.equal(again.attempts, first.attempts);
+  assert.deepEqual(mergeVisits(undefined, []), { attempts: [], found: 0, added: 0 });
+  // Only the newest MAX_ATTEMPTS stay, however many the history holds.
+  const flood = Array.from({ length: MAX_ATTEMPTS + 10 }, (_, i) => ({ at: t - (i + 1) * 10_000, site: 'old.test' }));
+  const full = mergeVisits(seen, flood);
+  assert.equal(full.attempts.length, MAX_ATTEMPTS);
+  assert.deepEqual(full.attempts.slice(-2), seen, 'the live tries, being newest, stay');
+});
+
 test(`blocked attempts: only the newest ${MAX_ATTEMPTS} are kept`, () => {
   let list = [];
   for (let i = 0; i < MAX_ATTEMPTS + 5; i += 1) list = record(list, { at: i * 10_000, site: `site${i}.test` });
@@ -274,6 +305,7 @@ test('manifest points at files that exist', () => {
   assert.ok(manifest.permissions.includes('declarativeNetRequest'));
   assert.ok(manifest.permissions.includes('storage'), 'the lists and the record of attempts are stored');
   assert.ok(manifest.permissions.includes('webNavigation') && manifest.permissions.includes('webRequest'), 'noting blocked attempts needs to see page loads');
+  assert.ok(manifest.permissions.includes('history'), "adding earlier visits needs the browser's history");
   assert.ok(manifest.host_permissions.includes('<all_urls>'), 'redirect rules need host access');
   for (const { path } of manifest.declarative_net_request.rule_resources) {
     assert.ok(existsSync(join(EXT, path)), path);

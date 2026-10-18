@@ -57,7 +57,7 @@ By hand:
 
 For a later version, raise `version` in `extension/manifest.json`, then run **Sign with Mozilla** again, or run `npm run package:firefox`, upload the new zip on the same add-on's page and carry on from step 5.
 
-Version 1.3.0 asks for two permissions earlier versions didn't have, to note blocked attempts (see **Blocked attempts**). Installing it by hand over an older version, Firefox asks you to accept them; under the lock, Firefox grants them itself. In Chrome, Edge and Brave, click the reload button under Family Site Blocker on the extensions page after replacing the folder's files, and if the extension shows as switched off with a note about new permissions, accept them there.
+Version 1.3.0 asks for two permissions earlier versions didn't have, to note blocked attempts, and 1.3.4 for a third, to add earlier visits from the browser's history (see **Blocked attempts**). Installing it by hand over an older version, Firefox asks you to accept them; under the lock, Firefox grants them itself. In Chrome, Edge and Brave, click the reload button under Family Site Blocker on the extensions page after replacing the folder's files, and if the extension shows as switched off with a note about new permissions, accept them there.
 
 **Let it update itself (Firefox)**
 
@@ -140,6 +140,8 @@ Each time a page on a listed site is opened in a tab, by typing the address, fol
 
 If a listed site's page loaded anyway, because the extension had no access to websites yet, say, or its rules were off, the note says **Opened, not blocked** and the summary line counts those pages. That means something above still needs switching on.
 
+The record starts when the extension starts watching, but the browser's own history goes back further: every page loaded in that browser profile, for months in Firefox and 90 days in Chrome, except in private windows and whatever someone deleted. From version 1.3.4, when the extension is installed or updated it looks through that history for visits to listed sites and adds them, with their original times, marked **Visited (browser history)**; the line under the summary says when it last looked and what it found, and a button looks again (after adding a site to your list, say). Those entries say the site was visited; whether something else blocked it at the time isn't known. The same visit is never added twice, and a try the extension saw as it happened isn't added again from the history. This is what makes the record an answer to "has this browser been used for such sites", not only from the day the extension arrived.
+
 Nothing on the settings page clears the record, and the page has no PIN, so anyone who opens it can read it. The record stays until the extension is removed (which the Firefox lock prevents) or the browser profile is deleted, and only the oldest notes go once there are more than 1,000. Like the sites you add, it is kept in the browser's own storage for the extension, so Firefox drops it when it quits if the add-on isn't signed, and it never leaves the computer: the add-on still collects no data in Mozilla's sense.
 
 What it doesn't see:
@@ -147,9 +149,9 @@ What it doesn't see:
 - Images, scripts and frames that another page loads from a listed site. Those are blocked silently, and they aren't the person's doing.
 - Anything in another browser, or in Firefox's Troubleshoot Mode, where the add-on doesn't run. Firefox's own copy of the list still blocks the built-in sites there, but nothing is noted.
 - Private windows, unless the extension is allowed there (the settings page says whether it is). Under the Firefox lock there are none.
-- Tries while the extension was off, or sites that aren't on either list.
+- Tries while the extension was off, or sites that aren't on either list, unless the browser's history has them (see above).
 
-To note attempts, the extension asks the browser to tell it about page loads (the `webNavigation` and `webRequest` permissions). Firefox's add-on permission prompt calls that "Access browser activity during navigation".
+To note attempts, the extension asks the browser to tell it about page loads (the `webNavigation` and `webRequest` permissions), and to read its history (`history`). Firefox's add-on permission prompt calls those "Access browser activity during navigation" and "Access browsing history".
 
 ## Locked-away password
 
@@ -173,8 +175,8 @@ What it can't do:
 npm test                  # fast checks, no install needed
 npm install               # once, for the Chromium tests
 npx playwright install chromium    # once, if Playwright has no browser yet
-npm run test:browser      # 52 tests in a real Chromium
-npm run test:firefox      # 24 tests in the Firefox installed on this computer
+npm run test:browser      # 53 tests in a real Chromium
+npm run test:firefox      # 25 tests in the Firefox installed on this computer
 ```
 
 `npm run test:browser` loads the extension the way "Load unpacked" does and drives it like a person would. `npm run test:firefox` does the same in Firefox. It builds the zip that `npm run package:firefox` makes, loads it the way "Load Temporary Add-on…" does, and then checks that the `extension` folder itself loads too. It finds Firefox in its usual place on macOS, Windows or Linux, or uses the one in `FIREFOX`, and is skipped if there is none.
