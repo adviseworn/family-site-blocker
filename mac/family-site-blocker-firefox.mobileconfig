@@ -20,7 +20,7 @@
 								<dict>
 									<key>Install</key>
 									<array>
-										<string>/Users/Shared/Family Site Blocker/family-site-blocker.xpi</string>
+										<string>https://adviseworn.github.io/family-site-blocker-updates/family-site-blocker.xpi</string>
 									</array>
 									<key>Locked</key>
 									<array>
@@ -91,7 +91,7 @@
 		</dict>
 	</array>
 	<key>PayloadDescription</key>
-	<string>Keeps the Family Site Blocker add-on installed and switched on in Firefox, for every account on this Mac. Firefox installs it from /Users/Shared/Family Site Blocker/family-site-blocker.xpi, and nobody can turn it off or remove it there. Firefox also gets its own copy of the add-on’s built-in list of sites, which keeps blocking them when add-ons don’t run, as in Troubleshoot Mode. Private windows, Troubleshoot Mode from Firefox’s menus, about:config and Refresh Firefox, which could get round it, are turned off. Settings that other programs, such as another blocker, give Firefox for their own add-ons stay in force. Only an administrator can remove this profile.</string>
+	<string>Keeps the Family Site Blocker add-on installed and switched on in Firefox, for every account on this Mac. Firefox installs the newest signed version from https://adviseworn.github.io/family-site-blocker-updates/family-site-blocker.xpi, keeps it up to date, and nobody can turn it off or remove it there. Firefox also gets its own copy of the add-on’s built-in list of sites, which keeps blocking them when add-ons don’t run, as in Troubleshoot Mode. Private windows, Troubleshoot Mode from Firefox’s menus, about:config and Refresh Firefox, which could get round it, are turned off. Settings that other programs, such as another blocker, give Firefox for their own add-ons stay in force. Only an administrator can remove this profile.</string>
 	<key>PayloadDisplayName</key>
 	<string>Family Site Blocker for Firefox</string>
 	<key>PayloadIdentifier</key>

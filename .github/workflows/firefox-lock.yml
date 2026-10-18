@@ -1,12 +1,13 @@
 # Checks the Firefox lock on a GitHub-hosted Mac: puts the settings from
-# mac/family-site-blocker-firefox.mobileconfig in force (as installing the profile would), with the latest
-# signed release in /Users/Shared/Family Site Blocker, and runs test/firefox-lock.e2e.mjs. That includes
-# Troubleshoot Mode, started with --safe-mode as the Option key does, where Firefox's own copy of the built-in
-# list has to do the blocking because no add-on runs; the lock next to another blocker's policies, set in
-# Firefox's own policies.json the way a program like Plucky can set them (with LeechBlock NG, a site blocker
-# from addons.mozilla.org, as that blocker's add-on), and the
-# lock arriving after an older signed version (1.1.1, fetched from Mozilla with the API key the Sign with
-# Mozilla workflow uses) was installed by hand and switched off.
+# mac/family-site-blocker-firefox.mobileconfig in force (as installing the profile would), installing the
+# latest signed release from the test's stand-in internet in place of the update site, and runs
+# test/firefox-lock.e2e.mjs. That includes Troubleshoot Mode, started with --safe-mode as the Option key
+# does, where Firefox's own copy of the built-in list has to do the blocking because no add-on runs; the lock
+# next to another blocker's policies, set in Firefox's own policies.json the way a program like Plucky can
+# set them (with LeechBlock NG, a site blocker from addons.mozilla.org, as that blocker's add-on); the lock
+# arriving after an older signed version (1.1.1, fetched from Mozilla with the API key the Sign with Mozilla
+# workflow uses) was installed by hand and switched off; a new lock reaching a profile that has the older
+# version; and the add-on updating itself from the update manifest.
 # Start it from the Actions tab with "Run workflow", for example after a new release or a new Firefox.
 name: Firefox lock check
 
