@@ -23,22 +23,25 @@
 //
 // `npm run firefox-lock` writes them as mac/family-site-blocker-firefox.mobileconfig, a configuration
 // profile: installed once with an administrator's password, it applies to every account on the Mac, and only
-// an administrator can remove it. Firefox installs the add-on from XPI_PATH once in each Firefox profile (and
-// tries again at the next start if the file isn't there yet). It doesn't take a newer version from there by
-// itself; from version 1.3.2 the add-on updates itself (scripts/updates-manifest.mjs), and the lock keeps
-// automatic add-on updates switched on (ExtensionUpdate). The lock still lets anyone install a newer signed
-// version over it by hand.
+// an administrator can remove it. Firefox installs the add-on from XPI_URL, the newest signed version on the
+// update site (scripts/updates-site.mjs), once in each Firefox profile for each value of that address (and
+// tries again at the next start if it couldn't fetch it). So installing a profile whose address differs from
+// the last one's makes Firefox install the newest version in every account at its next start, permissions
+// included, with nobody at the screen. From version 1.3.2 the add-on then updates itself
+// (scripts/updates-manifest.mjs), and the lock keeps automatic add-on updates switched on (ExtensionUpdate).
+// The lock still lets anyone install a newer signed version over it by hand.
 import { mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, relative } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { parseDomainList } from '../extension/lib/domains.js';
 import { BLOCKLIST_DIR } from './build-rules.mjs';
+import { LATEST_URL } from './updates-site.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 export const ADDON_ID = JSON.parse(readFileSync(join(ROOT, 'extension', 'manifest.json'), 'utf8')).browser_specific_settings.gecko.id;
 export const PROFILE_PATH = join(ROOT, 'mac', 'family-site-blocker-firefox.mobileconfig');
-// Readable by every account. A folder made there by one account can't be changed by the others.
-export const XPI_PATH = '/Users/Shared/Family Site Blocker/family-site-blocker.xpi';
+// The newest signed version, on the public update site; the Mac has to be online when Firefox first starts.
+export const XPI_URL = LATEST_URL;
 
 // Firefox's own filter reads at most this many sites and ignores the rest without saying so.
 export const FILTER_LIMIT = 1000;
@@ -63,10 +66,13 @@ export function filterSites(dir = BLOCKLIST_DIR) {
 /** A site and all its subdomains, over http and https on any port, as Firefox's filter writes it (a match pattern). */
 export const filterPattern = (domain) => `*://*.${domain}/*`;
 
-/** The policies, in the form Firefox reads them (policies.json, or the org.mozilla.firefox settings on a Mac). */
-export function firefoxPolicies(xpiPath = XPI_PATH, sites = filterSites().sites) {
+/**
+ * The policies, in the form Firefox reads them (policies.json, or the org.mozilla.firefox settings on a Mac).
+ * `xpiSource` is the address or file path Firefox installs the add-on from.
+ */
+export function firefoxPolicies(xpiSource = XPI_URL, sites = filterSites().sites) {
   return {
-    Extensions: { Install: [xpiPath], Locked: [ADDON_ID] },
+    Extensions: { Install: [xpiSource], Locked: [ADDON_ID] },
     ExtensionUpdate: true,
     DisablePrivateBrowsing: true,
     DisableSafeMode: true,
@@ -121,7 +127,7 @@ export function mobileconfig(settings = macSettings()) {
     ],
     PayloadDescription:
       'Keeps the Family Site Blocker add-on installed and switched on in Firefox, for every account on this Mac. ' +
-      `Firefox installs it from ${XPI_PATH}, and nobody can turn it off or remove it there. ` +
+      `Firefox installs the newest signed version from ${XPI_URL}, keeps it up to date, and nobody can turn it off or remove it there. ` +
       'Firefox also gets its own copy of the add-on\u2019s built-in list of sites, which keeps blocking them when add-ons don\u2019t run, as in Troubleshoot Mode. ' +
       'Private windows, Troubleshoot Mode from Firefox\u2019s menus, about:config and Refresh Firefox, which could get round it, are turned off. ' +
       'Settings that other programs, such as another blocker, give Firefox for their own add-ons stay in force. ' +
