@@ -11,7 +11,8 @@ import { fileURLToPath } from 'node:url';
 import { MAX_ATTEMPTS, hostOf, listedDomain, record } from '../extension/lib/attempts.js';
 import { normalizeDomain, parseDomainList } from '../extension/lib/domains.js';
 import { BLOCK_PAGE, CHUNK_SIZE, buildRules, domainsOf } from '../extension/lib/rules.js';
-import { BLOCKLIST_DIR, RULES_PATH, loadBlocklists, renderRules } from '../scripts/build-rules.mjs';
+import { BLOCKLIST_DIR, DOMAINS_PATH, MANIFEST_PATH, MAX_RULESET_BYTES, RULES_DIR, formatManifest, loadBlocklists, loadRules, renderDomains, renderRulesets, ruleResources } from '../scripts/build-rules.mjs';
+import { COMMUNITY_PATH, COMMUNITY_URL, communityList } from '../scripts/update-blocklist.mjs';
 import { firefoxManifest, packageFirefox } from '../scripts/package-firefox.mjs';
 import { FILTER_LIMIT, PROFILE_PATH, XPI_URL, filterPattern, filterSites, firefoxPolicies, mobileconfig } from '../scripts/firefox-lock.mjs';
 import { ICNS_PATH, packageSigned } from '../scripts/package-signed.mjs';
@@ -20,7 +21,7 @@ import { LATEST_NAME, LATEST_URL, SITE_URL, UPDATES_URL, buildSite, compareVersi
 
 const EXT = resolve(dirname(fileURLToPath(import.meta.url)), '..', 'extension');
 const manifest = JSON.parse(readFileSync(join(EXT, 'manifest.json'), 'utf8'));
-const rules = JSON.parse(readFileSync(RULES_PATH, 'utf8'));
+const rules = loadRules();
 
 // A stand-in for the browser's matcher that follows the documented behaviour of requestDomains:
 // the request's host is the listed domain or one of its subdomains, whatever the scheme, port or path.
@@ -106,10 +107,64 @@ test('every domain is listed with and without a trailing dot, because Firefox ma
   }
 });
 
-test('extension/rules/adult.json is up to date with blocklists/ (run npm run build)', () => {
+test('extension/rules/*.json and manifest.json are up to date with blocklists/ (run npm run build)', () => {
   const { domains } = loadBlocklists();
   assert.ok(domains.includes('exampleadultsite.com'));
-  assert.equal(readFileSync(RULES_PATH, 'utf8'), renderRules(domains));
+  assert.ok(domains.includes('naughtyamerica.com'));
+  const rulesets = renderRulesets(domains);
+  assert.ok(rulesets.length >= 2, 'the list is big enough to need more than one file');
+  for (const { file, text } of rulesets) {
+    assert.equal(readFileSync(join(RULES_DIR, file), 'utf8'), text, file);
+    assert.ok(Buffer.byteLength(text) <= MAX_RULESET_BYTES, `${file} stays under the size Mozilla's linter reads`);
+  }
+  assert.deepEqual(readdirSync(RULES_DIR).filter((name) => /^adult/.test(name)).sort(), rulesets.map(({ file }) => file).sort(), 'no stale rule files');
+  assert.deepEqual(manifest.declarative_net_request.rule_resources, ruleResources(rulesets));
+  assert.equal(readFileSync(MANIFEST_PATH, 'utf8'), formatManifest(manifest), 'manifest.json is written the way the build writes it');
+  assert.equal(readFileSync(DOMAINS_PATH, 'utf8'), renderDomains(domains));
+  assert.deepEqual(JSON.parse(readFileSync(DOMAINS_PATH, 'utf8')), domains, 'the plain list the background script and settings page read');
+  assert.deepEqual(domainsOf(rules), domains, 'the rules block exactly those domains');
+});
+
+// The community list widens the built-in list by tens of thousands of sites. A site on the built-in list
+// can't be allowed again from the settings page, so a well-known site swept up by mistake would be a real
+// nuisance: these must never appear. Add to this list when a mistake turns up, and pick a different list if
+// the maintainers don't fix it.
+const NEVER_LISTED = [
+  'wikipedia.org', 'google.com', 'bing.com', 'duckduckgo.com', 'youtube.com', 'reddit.com', 'tumblr.com', 'twitter.com', 'x.com',
+  'imgur.com', 'flickr.com', 'deviantart.com', 'instagram.com', 'tiktok.com', 'pinterest.com', 'vimeo.com', 'dailymotion.com',
+  'discord.com', 'telegram.org', 'archive.org', 'github.com', 'stackoverflow.com', 'medium.com', 'substack.com', 'patreon.com',
+  'fandom.com', 'quora.com', 'wattpad.com', 'twitch.tv', 'spotify.com', 'netflix.com', 'amazon.com', 'ebay.com', 'etsy.com', 'apple.com',
+  'plannedparenthood.org', 'webmd.com', 'mayoclinic.org', 'healthline.com', 'scarleteen.com', 'mozilla.org', 'example.com', 'allowed.test',
+];
+
+test('blocklists/community.txt is the community list as fetched, with a note of its source, and sweeps up none of the well-known sites', () => {
+  const file = readFileSync(COMMUNITY_PATH, 'utf8');
+  assert.match(file, /^# Community list: StevenBlack\/hosts/, 'starts with the note');
+  assert.ok(file.includes(`# From ${COMMUNITY_URL}`));
+  assert.match(file, /^# Fetched \d{4}-\d{2}-\d{2}; \d+ domains\./m);
+  const { domains } = parseDomainList(file);
+  assert.ok(domains.length > 10_000, `${domains.length} domains`);
+  assert.ok(domains.includes('naughtyamerica.com'));
+  const listed = new Set(loadBlocklists().domains);
+  const mistakes = NEVER_LISTED.filter((site) => listed.has(site) || listed.has(`www.${site}`));
+  assert.deepEqual(mistakes, [], 'well-known sites on the built-in list');
+  // communityList() is what npm run blocklist writes: the note, then the download unchanged.
+  const written = communityList('0.0.0.0 a.test\n'.repeat(1) + Array.from({ length: 12_000 }, (_, i) => `0.0.0.0 site${i}.test`).join('\n'), new Date('2026-10-18T12:00:00Z'));
+  assert.match(written, /^# Community list: StevenBlack\/hosts.*\n# From https:.*\n# Fetched 2026-10-18; 12001 domains\./);
+  assert.ok(written.endsWith('0.0.0.0 site11999.test\n'));
+  assert.throws(() => communityList('0.0.0.0 a.test\n'), /Only 1 domains/);
+});
+
+test('renderRulesets packs whole rules into files under the size limit, in order, with ids the manifest lists', () => {
+  const many = Array.from({ length: 2600 }, (_, i) => `site-number-${i}.example`);
+  const small = renderRulesets(many, 60_000);
+  assert.ok(small.length > 1);
+  const all = small.flatMap(({ text }) => JSON.parse(text));
+  assert.deepEqual(all, buildRules(many), 'every rule, once, in order');
+  for (const { file, text } of small) assert.ok(Buffer.byteLength(text) <= 60_000 || JSON.parse(text).length === 1, file);
+  assert.deepEqual(small.map(({ id }) => id), small.map((_, i) => `adult-${i + 1}`));
+  assert.deepEqual(ruleResources(small.slice(0, 2)), [{ id: 'adult-1', enabled: true, path: 'rules/adult-1.json' }, { id: 'adult-2', enabled: true, path: 'rules/adult-2.json' }]);
+  assert.equal(renderRulesets(['one.example']).length, 1);
 });
 
 test('buildRules splits long lists into chunks with unique ids', () => {
@@ -190,6 +245,7 @@ test('normalizeDomain accepts what people paste and rejects what is not a domain
     ['*.exampleadultsite.com', 'exampleadultsite.com'],
     ['.exampleadultsite.com.', 'exampleadultsite.com'],
     ['m.exampleadultsite.com', 'm.exampleadultsite.com'],
+    ['www.www.exampleadultsite.com', 'exampleadultsite.com'],
     ['BÜCHER.example', 'xn--bcher-kva.example'],
   ];
   for (const [input, expected] of accepted) assert.equal(normalizeDomain(input), expected, input);
@@ -222,6 +278,7 @@ test('manifest points at files that exist', () => {
   for (const { path } of manifest.declarative_net_request.rule_resources) {
     assert.ok(existsSync(join(EXT, path)), path);
   }
+  assert.ok(existsSync(join(EXT, 'rules', 'domains.json')), 'rules/domains.json, which background.js and options.js read');
   for (const file of [manifest.background.service_worker, manifest.options_page]) {
     assert.ok(existsSync(join(EXT, file)), file);
   }

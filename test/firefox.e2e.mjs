@@ -14,6 +14,7 @@ import { EXTENSION_DIR, startStubInternet } from './helpers/browser.mjs';
 import { findFirefox, launchFirefox } from './helpers/firefox.mjs';
 
 const VERSION = JSON.parse(readFileSync(join(EXTENSION_DIR, 'manifest.json'), 'utf8')).version;
+const BUILT_IN = JSON.parse(readFileSync(join(EXTENSION_DIR, 'rules', 'domains.json'), 'utf8')).length;
 const SITE = 'exampleadultsite.com';
 const BLOCKED_URL = `http://${SITE}/`;
 const test = (name, fn) => it(name, { timeout: 60_000 }, fn);
@@ -155,7 +156,7 @@ describe('Firefox', { skip: findFirefox() ? false : 'no Firefox found (set FIREF
       } while (Date.now() < until);
 
       assert.equal(state.version, `Version ${VERSION}`, 'the installed version, next to the title');
-      assert.match(state.summary, /^20 sites on the built-in list/);
+      assert.match(state.summary, new RegExp(`^${BUILT_IN} sites on the built-in list`));
       assert.equal(state.note, "Firefox doesn't let add-ons run this check automatically, so use the button above.");
       assert.equal(state.introShown, false, 'no sentence promising a check Firefox cannot run');
       assert.equal(state.results, 0);
@@ -195,7 +196,8 @@ describe('Firefox', { skip: findFirefox() ? false : 'no Firefox found (set FIREF
       const builtInRules = (on) =>
         browser.fx.send('WebDriver:ExecuteAsyncScript', {
           script: `const done = arguments[arguments.length - 1];
-            const change = arguments[0] ? { enableRulesetIds: ['adult'] } : { disableRulesetIds: ['adult'] };
+            const ids = browser.runtime.getManifest().declarative_net_request.rule_resources.map(({ id }) => id);
+            const change = arguments[0] ? { enableRulesetIds: ids } : { disableRulesetIds: ids };
             browser.declarativeNetRequest.updateEnabledRulesets(change).then(() => done('ok'), (error) => done('error: ' + error));`,
           args: [on],
         });
