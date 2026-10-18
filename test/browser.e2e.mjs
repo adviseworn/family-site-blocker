@@ -11,6 +11,7 @@ import { join } from 'node:path';
 import { EXTENSION_DIR, findPage, launchBrowser, startStubInternet, visit } from './helpers/browser.mjs';
 
 const VERSION = JSON.parse(readFileSync(join(EXTENSION_DIR, 'manifest.json'), 'utf8')).version;
+const BUILT_IN = JSON.parse(readFileSync(join(EXTENSION_DIR, 'rules', 'domains.json'), 'utf8')).length;
 const SITE = 'exampleadultsite.com';
 const BLOCKED_URL = `http://${SITE}/`;
 const BLOCK_PAGE = /\/blocked\.html$/;
@@ -330,7 +331,7 @@ describe('real browser', () => {
         );
         assert.equal(await page.locator('#check-intro').isVisible(), false, 'no sentence promising a check that cannot run');
         assert.equal(await page.locator('#results li').count(), 0);
-        assert.match(await page.locator('#summary').innerText(), /^20 sites on the built-in list/);
+        assert.match(await page.locator('#summary').innerText(), new RegExp(`^${BUILT_IN} sites on the built-in list`));
       } finally {
         await page.close();
       }
@@ -504,7 +505,10 @@ describe('real browser', () => {
       const page = await freshRecord();
       // Stand in for a browser where the blocking is off: switch the built-in rules off for a moment.
       const builtInRules = (enabled) =>
-        page.evaluate((on) => chrome.declarativeNetRequest.updateEnabledRulesets(on ? { enableRulesetIds: ['adult'] } : { disableRulesetIds: ['adult'] }), enabled);
+        page.evaluate(async (on) => {
+          const ids = chrome.runtime.getManifest().declarative_net_request.rule_resources.map(({ id }) => id);
+          await chrome.declarativeNetRequest.updateEnabledRulesets(on ? { enableRulesetIds: ids } : { disableRulesetIds: ids });
+        }, enabled);
       try {
         await builtInRules(false);
         assert.equal((await visit(browser.context, BLOCKED_URL)).outcome, 'site loaded');
