@@ -2,6 +2,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve, sep } from 'node:path';
@@ -15,6 +16,7 @@ import { firefoxManifest, packageFirefox } from '../scripts/package-firefox.mjs'
 import { FILTER_LIMIT, PROFILE_PATH, XPI_PATH, filterPattern, filterSites, firefoxPolicies, mobileconfig } from '../scripts/firefox-lock.mjs';
 import { ICNS_PATH, packageSigned } from '../scripts/package-signed.mjs';
 import { readZip } from '../scripts/read-zip.mjs';
+import { SITE_URL, UPDATES_URL, buildSite, compareVersions, describeXpi, updatesManifest } from '../scripts/updates-manifest.mjs';
 
 const EXT = resolve(dirname(fileURLToPath(import.meta.url)), '..', 'extension');
 const manifest = JSON.parse(readFileSync(join(EXT, 'manifest.json'), 'utf8'));
@@ -247,6 +249,17 @@ test('one manifest works in Chrome, Edge, Brave and Firefox', () => {
   assert.equal(manifest.options_page, 'options.html');
 });
 
+test('the add-on updates itself from the update files that scripts/updates-manifest.mjs publishes', () => {
+  assert.equal(manifest.browser_specific_settings.gecko.update_url, UPDATES_URL);
+  assert.ok(UPDATES_URL.startsWith('https://'), 'Firefox only takes update manifests over https');
+  assert.equal(UPDATES_URL, `${SITE_URL}updates.json`);
+  // Mozilla's linter rejects update_url on an add-on listed on addons.mozilla.org; this one is self-hosted.
+  const check = readFileSync(join(EXT, '..', '.github', 'workflows', 'firefox-package.yml'), 'utf8');
+  assert.match(check, /addons-linter .*--self-hosted/, 'the package check tells the linter the add-on is self-hosted');
+  const sign = readFileSync(join(EXT, '..', '.github', 'workflows', 'sign-firefox.yml'), 'utf8');
+  assert.match(sign, /uses: \.\/\.github\/workflows\/publish-updates\.yml/, 'signing publishes the update files');
+});
+
 test("Firefox's manifest leaves out only background.service_worker, which Mozilla's linter warns about", () => {
   const firefox = firefoxManifest(manifest);
   assert.deepEqual(firefox.background, { scripts: ['background.js'], type: 'module' });
@@ -391,6 +404,62 @@ test('scripts/check-signed.mjs accepts the uploaded files, unchanged, plus a sig
   }
 });
 
+test('the update manifest lists every signed version, oldest first, with its address, hash and Firefox version', { skip: !hasZip && 'no zip command' }, () => {
+  const dir = mkdtempSync(join(tmpdir(), 'family-site-blocker-updates-test-'));
+  try {
+    const xpis = ['1.3.2', '1.10.0', '1.9.1'].map((version) => {
+      const name = `family-site-blocker-${version}.xpi`;
+      const data = readFileSync(makeXpi(dir, signedFiles({ version })));
+      return { name, data };
+    });
+    const built = updatesManifest(xpis, 'https://example.org/updates/');
+    const updates = built.addons[manifest.browser_specific_settings.gecko.id].updates;
+    assert.deepEqual(updates.map((update) => update.version), ['1.3.2', '1.9.1', '1.10.0'], 'numeric order, not alphabetical');
+    const sha256 = (data) => `sha256:${createHash('sha256').update(data).digest('hex')}`;
+    assert.deepEqual(updates[0], {
+      version: '1.3.2',
+      update_link: 'https://example.org/updates/family-site-blocker-1.3.2.xpi',
+      update_hash: sha256(xpis[0].data),
+      // Firefox reads the versions an update needs from "applications", whatever the add-on's manifest calls them.
+      applications: { gecko: { strict_min_version: manifest.browser_specific_settings.gecko.strict_min_version } },
+    });
+    assert.match(updates[1].update_hash, /^sha256:[0-9a-f]{64}$/);
+    assert.deepEqual(Object.keys(built), ['addons']);
+
+    // The site: the files, the manifest for them, and nothing GitHub Pages would change.
+    const xpiDir = join(dir, 'xpis');
+    mkdirSync(xpiDir);
+    for (const { name, data } of xpis) writeFileSync(join(xpiDir, name), data);
+    writeFileSync(join(xpiDir, 'notes.txt'), 'ignored');
+    const site = join(dir, 'site');
+    assert.deepEqual(buildSite(xpiDir, site), ['1.3.2', '1.9.1', '1.10.0']);
+    assert.deepEqual(readdirSync(site).sort(), ['.nojekyll', 'README.md', 'family-site-blocker-1.10.0.xpi', 'family-site-blocker-1.3.2.xpi', 'family-site-blocker-1.9.1.xpi', 'index.html', 'updates.json']);
+    const published = JSON.parse(readFileSync(join(site, 'updates.json'), 'utf8'));
+    assert.equal(published.addons[manifest.browser_specific_settings.gecko.id].updates[2].update_link, `${SITE_URL}family-site-blocker-1.10.0.xpi`);
+    assert.ok(readFileSync(join(site, 'family-site-blocker-1.9.1.xpi')).equals(xpis[2].data), 'copied unchanged');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('the update manifest takes only signed files of this add-on, named for their version', { skip: !hasZip && 'no zip command' }, () => {
+  const dir = mkdtempSync(join(tmpdir(), 'family-site-blocker-updates-test-'));
+  try {
+    const read = (file) => readFileSync(file);
+    const { 'META-INF/mozilla.rsa': _, 'META-INF/cose.sig': __, ...unsigned } = signedFiles({ version: '2.0.0' });
+    assert.throws(() => describeXpi('family-site-blocker-2.0.0.xpi', read(makeXpi(dir, unsigned))), /isn't signed by Mozilla/);
+    const other = { browser_specific_settings: { gecko: { id: 'someone-else@example.com' } }, version: '2.0.0' };
+    assert.throws(() => describeXpi('family-site-blocker-2.0.0.xpi', read(makeXpi(dir, signedFiles(other)))), /is a different add-on \(someone-else@example\.com\)/);
+    assert.throws(() => describeXpi('family-site-blocker-2.0.0.xpi', read(makeXpi(dir, signedFiles({ version: '2.0.1' })))), /holds version 2\.0\.1/);
+    assert.throws(() => describeXpi('family-site-blocker.xpi', read(makeXpi(dir, signedFiles()))), /isn't named family-site-blocker-<version>\.xpi/);
+    assert.throws(() => describeXpi('family-site-blocker-1.0.0.xpi', Buffer.from('not a zip')), /can't be read as a zip/);
+    assert.throws(() => buildSite(dir, join(dir, 'site')), /No family-site-blocker-<version>\.xpi files/);
+    assert.deepEqual(['1.2.0', '1.10.0', '1.9.9', '1.10'].sort(compareVersions), ['1.2.0', '1.9.9', '1.10.0', '1.10'], '1.10 and 1.10.0 are the same version');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('on a Mac, opening the zip puts the icon on the .xpi', { skip: process.platform !== 'darwin' && 'needs macOS' }, () => {
   const dir = mkdtempSync(join(tmpdir(), 'family-site-blocker-signed-test-'));
   try {
@@ -413,7 +482,7 @@ test('the Firefox lock installs and locks this add-on and closes the ways round 
   const policies = firefoxPolicies();
   assert.equal(XPI_PATH, '/Users/Shared/Family Site Blocker/family-site-blocker.xpi');
   assert.deepEqual(policies.Extensions, { Install: [XPI_PATH], Locked: [manifest.browser_specific_settings.gecko.id] });
-  for (const key of ['DisablePrivateBrowsing', 'DisableSafeMode', 'BlockAboutConfig', 'DisableProfileRefresh']) {
+  for (const key of ['DisablePrivateBrowsing', 'DisableSafeMode', 'BlockAboutConfig', 'DisableProfileRefresh', 'ExtensionUpdate']) {
     assert.equal(policies[key], true, key);
   }
   assert.deepEqual(policies.Preferences, { 'extensions.dnr.enabled': { Value: true, Status: 'locked' } });
@@ -423,7 +492,7 @@ test("the Firefox lock leaves alone the policy other blockers lock their own add
   // Firefox takes each policy from one place: if the profile set ExtensionSettings, another blocker's
   // ExtensionSettings (Plucky's, for one) would be dropped, and its add-ons with it.
   assert.deepEqual(Object.keys(firefoxPolicies()).sort(), [
-    'BlockAboutConfig', 'DisablePrivateBrowsing', 'DisableProfileRefresh', 'DisableSafeMode', 'Extensions', 'Preferences', 'WebsiteFilter',
+    'BlockAboutConfig', 'DisablePrivateBrowsing', 'DisableProfileRefresh', 'DisableSafeMode', 'ExtensionUpdate', 'Extensions', 'Preferences', 'WebsiteFilter',
   ]);
 });
 

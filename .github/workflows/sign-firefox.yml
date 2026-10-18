@@ -1,7 +1,9 @@
 # Signs the Firefox add-on with Mozilla (addons.mozilla.org, unlisted) and publishes the result as a GitHub
 # release named after the version: the signed .xpi, and the zip that gives it the add-on's icon on a Mac
 # (npm run package:signed). Start it from the Actions tab with "Run workflow". If Mozilla already has the
-# version, it downloads that signed file instead of uploading again.
+# version, it downloads that signed file instead of uploading again. Then it publishes the update files
+# that let installed copies update themselves (.github/workflows/publish-updates.yml), when the deploy key
+# for that is saved.
 #
 # It needs two repository secrets (Settings → Secrets and variables → Actions), the two parts of an API key
 # from https://addons.mozilla.org/developers/addon/api/key/ : AMO_JWT_ISSUER (the "JWT issuer") and
@@ -21,6 +23,8 @@ jobs:
   sign:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    outputs:
+      publish: ${{ steps.key.outputs.publish }}
     steps:
       - uses: actions/checkout@v5
 
@@ -95,3 +99,22 @@ jobs:
           gh release create "v$VERSION" "dist/family-site-blocker-$VERSION.zip" "dist/family-site-blocker-$VERSION.xpi" \
             --target "$GITHUB_SHA" --title "Family Site Blocker $VERSION" --notes-file notes.md
           echo "::notice title=Released::$(gh release view "v$VERSION" --json url --jq .url)"
+
+      # Secrets can't be read in a job's `if`, so this step turns the deploy key's presence into an output.
+      - name: Can the update files be published?
+        id: key
+        env:
+          UPDATES_DEPLOY_KEY: ${{ secrets.UPDATES_DEPLOY_KEY }}
+        run: |
+          if [ -n "$UPDATES_DEPLOY_KEY" ]; then
+            echo "publish=yes" >> "$GITHUB_OUTPUT"
+          else
+            echo "publish=no" >> "$GITHUB_OUTPUT"
+            echo "::warning title=Updates not published::Installed copies won't pick this version up by themselves until the update files are published. Save the UPDATES_DEPLOY_KEY secret (README: \"Let it update itself\") and run the Publish updates workflow."
+          fi
+
+  publish:
+    needs: sign
+    if: needs.sign.outputs.publish == 'yes'
+    uses: ./.github/workflows/publish-updates.yml
+    secrets: inherit
