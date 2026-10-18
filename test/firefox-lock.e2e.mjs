@@ -24,6 +24,7 @@ import { dirname, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { ADDON_ID, XPI_PATH, filterSites, firefoxPolicies, macSettings, plist } from '../scripts/firefox-lock.mjs';
 import { readZip } from '../scripts/read-zip.mjs';
+import { updatesManifest } from '../scripts/updates-manifest.mjs';
 import { startStubInternet } from './helpers/browser.mjs';
 import { findFirefox, launchFirefox } from './helpers/firefox.mjs';
 
@@ -337,6 +338,96 @@ describe('Firefox lock', { skip: SKIP }, () => {
   test("the setting that switches off every add-on's blocking is locked on", async () => {
     const pref = await firefox.chrome(`return { value: Services.prefs.getBoolPref('extensions.dnr.enabled'), locked: Services.prefs.prefIsLocked('extensions.dnr.enabled') };`);
     assert.deepEqual(pref, { value: true, locked: true });
+  });
+});
+
+// From 1.3.2 the add-on updates itself: its update_url names an update manifest (scripts/updates-manifest.mjs)
+// on a public site, which Firefox reads about once a day. Here the stub internet stands in for that site, and
+// the older signed version plays the copy a family Mac has today. That version has no update_url of its own,
+// so Firefox asks the address in extensions.update.url instead, which the profile points at the stub; the
+// manifest and the file it links to are the real thing, made from the newest signed version.
+describe('Firefox lock, when the add-on updates itself', { skip: SKIP || (!OLDER && 'set OLDER_XPI to an earlier signed version of this add-on') }, () => {
+  const scratch = mkdtempSync(join(tmpdir(), 'family-site-blocker-lock-'));
+  const UPDATES = 'http://updates.test/';
+  const older = OLDER && manifestOf(OLDER).version;
+  const newer = SIGNED && manifestOf(SIGNED).version;
+  const file = `family-site-blocker-${newer}.xpi`;
+  let policies;
+  let stub;
+  let firefox;
+
+  const setUpdateUrl = (url) => firefox.chrome(`Services.prefs.setCharPref('extensions.update.url', arguments[0]); return true;`, url);
+
+  /** Asks Firefox to check for updates, as the Add-ons Manager's "Check for Updates" does, and installs what it finds. */
+  const updateNow = () => firefox.chrome(`
+    const addon = await AddonManager.getAddonByID(arguments[0]);
+    let install = null;
+    const status = await new Promise((done) => addon.findUpdates({
+      onUpdateAvailable(a, found) { install = found; },
+      onUpdateFinished(a, result) { done(result); },
+    }, AddonManager.UPDATE_WHEN_USER_REQUESTED));
+    if (!install) return { found: false, status };
+    // The newer version may ask for permissions the older one didn't; Firefox would ask the person first. Stand in for their click.
+    install.promptHandler = () => Promise.resolve();
+    const outcome = await new Promise((done) => {
+      install.addListener({
+        onInstallEnded: () => done('installed'),
+        onInstallFailed: () => done('install failed: ' + install.error),
+        onDownloadFailed: () => done('download failed: ' + install.error),
+      });
+      install.install();
+    });
+    return { found: true, version: install.version, outcome, incorrectHash: AddonManager.ERROR_INCORRECT_HASH };`, ADDON_ID);
+
+  before(async () => {
+    policies = applyPolicies(scratch, { xpi: OLDER });
+    stub = await startStubInternet();
+    const signed = readFileSync(SIGNED);
+    const manifest = updatesManifest([{ name: file, data: signed }], UPDATES);
+    stub.page(`updates.test/updates.json`, JSON.stringify(manifest), { headers: { 'content-type': 'application/json' } });
+    stub.page(`updates.test/${file}`, signed, { headers: { 'content-type': 'application/x-xpinstall' } });
+    // The same manifest with the wrong hash, to see that Firefox checks it.
+    const tampered = structuredClone(manifest);
+    tampered.addons[ADDON_ID].updates[0].update_hash = `sha256:${'0'.repeat(64)}`;
+    stub.page(`updates.test/tampered.json`, JSON.stringify(tampered), { headers: { 'content-type': 'application/json' } });
+    firefox = await startFirefox(stub, { prefs: { 'extensions.update.url': `${UPDATES}updates.json` } });
+    await firefox.waitForAddon(ADDON_ID);
+    await firefox.newTab();
+  }, HOOK);
+
+  after(async () => {
+    await firefox?.close();
+    await stub?.close();
+    policies?.remove();
+    rmSync(scratch, { recursive: true, force: true });
+  }, HOOK);
+
+  test('Firefox installs the older file the lock points at', async () => {
+    const info = await firefox.addon(ADDON_ID);
+    assert.equal(info.version, older);
+    assert.notEqual(older, newer, 'OLDER_XPI is an earlier version than SIGNED_XPI');
+  });
+
+  test("a file that doesn't match the hash in the update manifest is refused, and the older version stays", async () => {
+    await setUpdateUrl(`${UPDATES}tampered.json`);
+    const result = await updateNow();
+    assert.equal(result.found, true, JSON.stringify(result));
+    assert.equal(result.outcome, `download failed: ${result.incorrectHash}`, JSON.stringify(result));
+    assert.equal((await firefox.addon(ADDON_ID)).version, older);
+  });
+
+  test('asked to check for updates, Firefox finds the newer signed version in the update manifest and installs it; the lock holds', async () => {
+    await setUpdateUrl(`${UPDATES}updates.json`);
+    stub.clear();
+    const result = await updateNow();
+    assert.deepEqual({ found: result.found, version: result.version, outcome: result.outcome }, { found: true, version: newer, outcome: 'installed' }, JSON.stringify(result));
+    assert.ok(stub.requests.some(({ host, path }) => host === 'updates.test' && path === `/${file}`), 'the file came from the update site');
+    const info = await firefox.waitForAddon(ADDON_ID, (found) => found?.version === newer && found.active);
+    const { updated, canEnable, source, ...rest } = info;
+    assert.deepEqual(rest, { version: newer, active: true, temporary: false, signedByMozilla: true, canDisable: false, canRemove: false });
+    assert.deepEqual(await firefox.card(ADDON_ID), { name: 'Family Site Blocker', onOffSwitch: 'none', removeItem: CANT_BE_REMOVED });
+    await firefox.assertBlocked();
+    await firefox.assertAddonBlocks();
   });
 });
 
