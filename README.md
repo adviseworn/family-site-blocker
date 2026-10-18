@@ -105,7 +105,7 @@ What can still get round it:
 
 ### Settings page
 
-To open it later, click the puzzle-piece **Extensions** button in the toolbar and choose **Family Site Blocker** (in Chrome you can pin it there to keep its icon in view). In Chrome, Edge and Brave it also checks six addresses against the browser's own rule matcher and shows Passed or Failed for each. Firefox doesn't let extensions run that check, so use the **Open exampleadultsite.com** button there instead. Its **Blocked attempts** section lists every try at a listed site (see below).
+To open it later, click the puzzle-piece **Extensions** button in the toolbar and choose **Family Site Blocker** (in Chrome you can pin it there to keep its icon in view). The version installed is shown next to the title: when a new version is going in account by account, that shows which accounts still have the old one. In Chrome, Edge and Brave it also checks six addresses against the browser's own rule matcher and shows Passed or Failed for each. Firefox doesn't let extensions run that check, so use the **Open exampleadultsite.com** button there instead. Its **Blocked attempts** section lists every try at a listed site (see below).
 
 ## What it blocks
 
@@ -161,7 +161,7 @@ What it can't do:
 npm test                  # fast checks, no install needed
 npm install               # once, for the Chromium tests
 npx playwright install chromium    # once, if Playwright has no browser yet
-npm run test:browser      # 51 tests in a real Chromium
+npm run test:browser      # 52 tests in a real Chromium
 npm run test:firefox      # 24 tests in the Firefox installed on this computer
 ```
 
