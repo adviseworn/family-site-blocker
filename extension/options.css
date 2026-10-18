@@ -191,38 +191,50 @@ textarea {
   white-space: nowrap;
 }
 
-/* Blocked attempts */
+/* Blocked attempts: the latest few on the settings page, the whole record on attempts.html. */
 
-#attempts-table {
+.attempts {
   width: 100%;
   margin: 0 0 1rem;
   border-collapse: collapse;
   font-size: 0.95rem;
 }
 
-#attempts-table th,
-#attempts-table td {
+.attempts caption {
+  padding: 0 0 0.35rem;
+  color: var(--muted);
+  text-align: left;
+}
+
+.attempts caption:empty {
+  display: none;
+}
+
+.attempts th,
+.attempts td {
   padding: 0.5rem 0.75rem 0.5rem 0;
   border-top: 1px solid var(--line);
   text-align: left;
   vertical-align: top;
 }
 
-#attempts-table th {
+.attempts th {
   border-top: 0;
   color: var(--muted);
   font-weight: 600;
 }
 
-#attempts-table td:first-child {
+.attempts td:first-child {
   white-space: nowrap;
 }
 
-#attempts-table td:nth-child(2) {
+#attempts-table td:nth-child(2),
+.day td:nth-child(2) {
   overflow-wrap: anywhere;
 }
 
-#attempts-table td:last-child {
+#attempts-table td:last-child,
+.day td:last-child {
   font-weight: 600;
 }
 
@@ -240,6 +252,106 @@ textarea {
 
 #history-scan {
   color: var(--muted);
+}
+
+/* The record page */
+
+.record .eyebrow {
+  margin: 0 0 0.5rem;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.record .eyebrow a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.record .eyebrow a:hover {
+  text-decoration: underline;
+}
+
+.record .eyebrow .version {
+  margin-left: 0.5em;
+  vertical-align: baseline;
+}
+
+.record h1 {
+  margin-bottom: 0.4rem;
+}
+
+.record #summary {
+  margin-bottom: 1rem;
+}
+
+.record header .actions {
+  margin-top: 0.25rem;
+}
+
+#save-status {
+  color: var(--muted);
+}
+
+button.link {
+  padding: 0;
+  border: 0;
+  border-radius: 2px;
+  background: none;
+  color: var(--gate);
+  font: inherit;
+  font-weight: 600;
+  text-align: left;
+  text-decoration: underline;
+  overflow-wrap: anywhere;
+}
+
+button.link:hover {
+  filter: none;
+  text-decoration-thickness: 2px;
+}
+
+#sites-table td:first-child {
+  white-space: normal;
+}
+
+#sites-table td:nth-child(2) {
+  white-space: nowrap;
+}
+
+#sites-table small.opened {
+  display: block;
+  color: var(--bad);
+  font-weight: 600;
+}
+
+.chosen td {
+  background: var(--surface);
+}
+
+.chosen button.link {
+  text-decoration: none;
+  color: var(--ink);
+}
+
+#filter {
+  color: var(--muted);
+}
+
+.day {
+  margin-top: 1.5rem;
+  padding-top: 0;
+  border-top: 0;
+}
+
+.day h3 {
+  margin: 0 0 0.5rem;
+  font: 700 1.1rem / 1.3 var(--serif);
+}
+
+.day h3 small {
+  margin-left: 0.5em;
+  color: var(--muted);
+  font: 600 0.9rem / 1.3 var(--sans);
 }
 
 /* Locked-away password */
