@@ -23,7 +23,7 @@ export function normalizeDomain(input) {
   s = s.replace(/^.*@/, ''); // user:password@
   s = s.replace(/:\d+$/, ''); // port
   s = s.replace(/^(?:\*\.|\.)+/, '').replace(/\.+$/, ''); // "*." and stray dots
-  s = s.replace(/^www\./, '');
+  s = s.replace(/^(?:www\.)+/, ''); // lists sometimes carry "www.www.example.com" too
   if (!s || /\s/.test(s)) return null;
 
   let host;

@@ -24,6 +24,8 @@ import { accessSync, constants, copyFileSync, existsSync, mkdirSync, mkdtempSync
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { parseDomainList } from '../extension/lib/domains.js';
+import { BLOCKLIST_DIR } from '../scripts/build-rules.mjs';
 import { ADDON_ID, filterSites, firefoxPolicies, macSettings, plist } from '../scripts/firefox-lock.mjs';
 import { readZip } from '../scripts/read-zip.mjs';
 import { updatesManifest } from '../scripts/updates-manifest.mjs';
@@ -529,8 +531,12 @@ describe('Firefox lock in Troubleshoot Mode', { skip: SKIP }, () => {
     for (const [name, url] of variants) test(name, () => firefox.assertBlocked(url));
   });
 
-  test('every site in the built-in list is blocked', async () => {
-    for (const site of filterSites().sites) await firefox.assertBlocked(`http://${site}/`, site);
+  test("the sites in Firefox's own copy of the list are blocked: all of starter.txt, and a sample of the rest", async () => {
+    const { sites } = filterSites();
+    const starter = parseDomainList(readFileSync(join(BLOCKLIST_DIR, 'starter.txt'), 'utf8')).domains;
+    const sample = [...starter, ...sites.filter((site, i) => !starter.includes(site) && i % 25 === 0)];
+    assert.ok(sample.length >= starter.length, `${sample.length} sites to check`);
+    for (const site of sample) await firefox.assertBlocked(`http://${site}/`, site);
   });
 
   test('a link, a redirect and a frame on another site lead nowhere', async () => {

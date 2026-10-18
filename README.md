@@ -1,6 +1,6 @@
 # Family Site Blocker
 
-A browser extension for Chrome, Edge, Brave and Firefox that blocks websites on a list. It starts with `exampleadultsite.com` (the test case) and 19 large adult sites, and you can add your own. Each attempt to open a listed site is noted on its settings page, with the time (see **Blocked attempts**).
+A browser extension for Chrome, Edge, Brave and Firefox that blocks websites on a list. Its built-in list is `exampleadultsite.com` (the test case), 20 large adult sites, and a community list of some 64,000 more (StevenBlack/hosts's adult list, MIT), and you can add your own. Each attempt to open a listed site is noted on its settings page, with the time (see **Blocked attempts**).
 
 **Test case:** navigate to `exampleadultsite.com`. **Expected:** the website is blocked. With the extension loaded, you land on a "This site is blocked" page and nothing is fetched from the site. Under the Firefox lock, Firefox blocks it itself before the extension does, so you land on Firefox's own **Blocked Page** instead.
 
@@ -131,7 +131,7 @@ It blocks by domain. It can't block one page of a site, and it doesn't read page
 ## Adding sites
 
 - **Your blocked sites** on the settings page: one site per line, saved straight away. Pasted addresses are cleaned up (`https://www.Example.com/a?b` becomes `example.com`) and hosts-file lines (`0.0.0.0 example.com`) work too.
-- **The built-in list** lives in `blocklists/*.txt`. For wider coverage, save a community list (hosts-file format or one domain per line) as another `.txt` file there, run `npm run build`, then reload the extension. Large lists are fine in Chromium: 400,000 domains in the built-in list and 300,000 pasted into the settings page both worked in testing. The settings page can't remove built-in sites.
+- **The built-in list** lives in `blocklists/*.txt`: `starter.txt`, the test case and the large sites, which Firefox's own copy (the lock) takes first; and `community.txt`, the "porn" extension of [StevenBlack/hosts](https://github.com/StevenBlack/hosts) on its own, some 64,000 sites gathered from lists its maintainers rebuild every few days (MIT; it holds Clefspeare13/pornhosts and bigdargon/hostsVN's adult list, MIT too). `npm run blocklist` fetches the latest copy of it; any other `.txt` file saved there is taken too. After a change, run `npm run build`, which rewrites the rules (`extension/rules/`, split into files Mozilla's linter will read) and the lock's profile, then release a new version. Large lists are fine: 400,000 domains in the built-in list and 300,000 pasted into the settings page both worked in testing. The settings page can't remove built-in sites, so the fast checks make sure well-known sites never get onto it by mistake (`test/blocker.test.mjs`, `NEVER_LISTED`); add to that list if one turns up.
 - `npm run build` also writes the Firefox lock's profile, `mac/family-site-blocker-firefox.mobileconfig`, with the same list for Firefox to enforce itself. Firefox takes at most 1,000 sites there: those in `starter.txt` first, then the other files by name. The build says how many were left out, and the add-on still blocks those while it runs. On a Mac with the lock, install the new profile (steps 1 and 2 of the lock) to bring Firefox's copy up to date.
 
 ## Blocked attempts
@@ -201,12 +201,13 @@ No real website is contacted: every request goes to a small local server instead
 | Path | What it is |
 | --- | --- |
 | `extension/` | The extension. Load this folder. |
-| `extension/rules/adult.json` | The built-in rules, generated from `blocklists/`. Don't edit by hand. |
+| `extension/rules/` | The built-in rules (`adult-1.json`, `adult-2.json`, …, each a ruleset the manifest lists) and the same domains as a plain list (`domains.json`), generated from `blocklists/`. Don't edit by hand. |
 | `extension/lib/` | Domain cleanup and rule building, shared with the build script; the record of blocked attempts (`attempts.js`), shared by `background.js` and the settings page; and the time-lock puzzle (`timelock.js`). |
 | `extension/background.js` | Opens the settings page after install and from the toolbar button, and notes blocked attempts from what the browser reports about page loads. |
 | `extension/lockbox.js`, `extension/lockbox-worker.js` | The locked-away password on the settings page, and the worker that does the puzzle's squaring. |
-| `blocklists/` | The built-in list, as plain text. |
-| `scripts/build-rules.mjs` | Turns `blocklists/` into `adult.json`. `npm run build` runs it, then `scripts/firefox-lock.mjs`, so the lock's profile carries the same list. |
+| `blocklists/` | The built-in list, as plain text: `starter.txt` (the test case and the large sites) and `community.txt` (the community list). |
+| `scripts/build-rules.mjs` | Turns `blocklists/` into the files in `extension/rules/` and lists the rule files in `manifest.json`. `npm run build` runs it, then `scripts/firefox-lock.mjs`, so the lock's profile carries the same list. |
+| `scripts/update-blocklist.mjs` | `npm run blocklist`: fetches the latest copy of the community list into `blocklists/community.txt`. |
 | `scripts/package-firefox.mjs` | `npm run package:firefox`: makes the zip to upload to Mozilla, with Firefox's copy of `manifest.json`. |
 | `scripts/package-signed.mjs` | `npm run package:signed`: puts the signed `.xpi` from Mozilla in a zip that gives it a clear name and the gate icon in Finder. |
 | `assets/finder-icon.icns` | The gate icon for Finder. `npm run icons` makes it along with the extension's icons. |
