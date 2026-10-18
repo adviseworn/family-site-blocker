@@ -6,8 +6,11 @@
 // A request that never reaches that server was stopped by the browser.
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { findPage, launchBrowser, startStubInternet, visit } from './helpers/browser.mjs';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { EXTENSION_DIR, findPage, launchBrowser, startStubInternet, visit } from './helpers/browser.mjs';
 
+const VERSION = JSON.parse(readFileSync(join(EXTENSION_DIR, 'manifest.json'), 'utf8')).version;
 const SITE = 'exampleadultsite.com';
 const BLOCKED_URL = `http://${SITE}/`;
 const BLOCK_PAGE = /\/blocked\.html$/;
@@ -270,6 +273,16 @@ describe('real browser', () => {
   describe('settings page', () => {
     test('opens by itself right after the extension is installed', () => {
       assert.equal(openedOnInstall, true);
+    });
+
+    test('shows the installed version next to the title', async () => {
+      const page = await openSettings();
+      try {
+        assert.equal(await page.locator('#version').innerText(), `Version ${VERSION}`);
+        assert.equal(await page.locator('h1').innerText(), `Family Site Blocker Version ${VERSION}`);
+      } finally {
+        await page.close();
+      }
     });
 
     test('if the browser has not given the extension access to websites, as Firefox can, it says so and asks for it', async () => {
