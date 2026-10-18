@@ -100,8 +100,9 @@ const sleep = (ms) => new Promise((done) => setTimeout(done, ms));
  * { profile } names a folder to use (and keep) instead, so a later start can pick up where this one left off.
  * With { troubleshootMode: true } Firefox starts in Troubleshoot Mode (--safe-mode), as holding Option (⌥)
  * while it opens does on a Mac; the automation accepts the "Open Firefox in Troubleshoot Mode?" question.
+ * { prefs } adds to or changes the settings the profile starts with.
  */
-export async function launchFirefox(stub, { extension = true, extensionDir = EXTENSION_DIR, packaged = true, profile: keep, troubleshootMode = false } = {}) {
+export async function launchFirefox(stub, { extension = true, extensionDir = EXTENSION_DIR, packaged = true, profile: keep, troubleshootMode = false, prefs: extraPrefs = {} } = {}) {
   const binary = findFirefox();
   const profile = keep ?? mkdtempSync(join(tmpdir(), 'family-site-blocker-firefox-'));
   const marionettePort = 20000 + Math.floor(Math.random() * 20000);
@@ -129,6 +130,7 @@ export async function launchFirefox(stub, { extension = true, extensionDir = EXT
     'network.connectivity-service.enabled': false,
     'browser.safebrowsing.malware.enabled': false,
     'browser.safebrowsing.phishing.enabled': false,
+    ...extraPrefs,
   };
   writeFileSync(
     join(profile, 'user.js'),

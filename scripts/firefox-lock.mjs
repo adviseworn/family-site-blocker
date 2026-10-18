@@ -25,7 +25,9 @@
 // profile: installed once with an administrator's password, it applies to every account on the Mac, and only
 // an administrator can remove it. Firefox installs the add-on from XPI_PATH once in each Firefox profile (and
 // tries again at the next start if the file isn't there yet). It doesn't take a newer version from there by
-// itself; the lock still lets anyone install a newer signed version over it.
+// itself; from version 1.3.2 the add-on updates itself (scripts/updates-manifest.mjs), and the lock keeps
+// automatic add-on updates switched on (ExtensionUpdate). The lock still lets anyone install a newer signed
+// version over it by hand.
 import { mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, relative } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -65,6 +67,7 @@ export const filterPattern = (domain) => `*://*.${domain}/*`;
 export function firefoxPolicies(xpiPath = XPI_PATH, sites = filterSites().sites) {
   return {
     Extensions: { Install: [xpiPath], Locked: [ADDON_ID] },
+    ExtensionUpdate: true,
     DisablePrivateBrowsing: true,
     DisableSafeMode: true,
     BlockAboutConfig: true,
