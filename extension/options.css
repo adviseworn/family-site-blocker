@@ -234,6 +234,14 @@ textarea {
   color: var(--bad);
 }
 
+.history td:last-child {
+  color: var(--muted);
+}
+
+#history-scan {
+  color: var(--muted);
+}
+
 /* Locked-away password */
 
 #lockbox label:not(.button) {

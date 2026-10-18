@@ -1,4 +1,4 @@
-import { ATTEMPTS } from './lib/attempts.js';
+import { ATTEMPTS, HISTORY_SCAN } from './lib/attempts.js';
 import { parseDomainList } from './lib/domains.js';
 import { buildRules, domainsOf } from './lib/rules.js';
 
@@ -146,9 +146,28 @@ const when = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle
 const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
 let showAll = false;
 
+const RESULT = (attempt) => (attempt.from === 'history' ? 'Visited (browser history)' : attempt.opened ? 'Opened, not blocked' : 'Blocked');
+
+function renderHistoryScan(scan) {
+  const line = $('history-scan');
+  if (!scan) {
+    line.textContent = "This browser's history hasn't been looked through yet.";
+    return;
+  }
+  const date = when.format(scan.at);
+  if (scan.error) {
+    line.textContent = `Couldn't look through this browser's history on ${date}: ${scan.error}`;
+    return;
+  }
+  const found = scan.found ? `found ${plural(scan.found, 'visit')} to listed sites` : 'found no visits to listed sites';
+  const added = scan.added ? `, ${scan.added === scan.found ? 'all' : scan.added} new` : scan.found ? ', none new' : '';
+  line.textContent = `Looked through this browser's history on ${date}: ${found}${added}.`;
+}
+
 async function renderAttempts() {
-  const stored = (await api.storage.local.get(ATTEMPTS))[ATTEMPTS];
-  const attempts = Array.isArray(stored) ? [...stored].reverse() : [];
+  const stored = await api.storage.local.get([ATTEMPTS, HISTORY_SCAN]);
+  const attempts = Array.isArray(stored[ATTEMPTS]) ? [...stored[ATTEMPTS]].reverse() : [];
+  renderHistoryScan(stored[HISTORY_SCAN]);
   const table = $('attempts-table');
   const more = $('attempts-more');
   const rows = table.querySelector('tbody');
@@ -162,14 +181,16 @@ async function renderAttempts() {
   }
 
   const opened = attempts.filter((attempt) => attempt.opened).length;
+  const fromHistory = attempts.filter((attempt) => attempt.from === 'history').length;
   $('attempts-summary').textContent =
     `${plural(attempts.length, 'attempt')}, the latest at ${when.format(attempts[0].at)}.` +
-    (opened ? ` ${plural(opened, 'page')} opened instead of being blocked.` : '');
+    (opened ? ` ${plural(opened, 'page')} opened instead of being blocked.` : '') +
+    (fromHistory ? ` ${fromHistory} from this browser's history.` : '');
 
   for (const attempt of attempts.slice(0, showAll ? attempts.length : SHOWN)) {
     const row = document.createElement('tr');
-    row.className = attempt.opened ? 'opened' : 'blocked';
-    for (const text of [when.format(attempt.at), attempt.site, attempt.opened ? 'Opened, not blocked' : 'Blocked']) {
+    row.className = attempt.from === 'history' ? 'history' : attempt.opened ? 'opened' : 'blocked';
+    for (const text of [when.format(attempt.at), attempt.site, RESULT(attempt)]) {
       const cell = document.createElement('td');
       cell.textContent = text;
       row.append(cell);
@@ -185,9 +206,13 @@ $('attempts-more').addEventListener('click', () => {
   showAll = true;
   renderAttempts();
 });
+$('history-scan-now').addEventListener('click', () => {
+  $('history-scan').textContent = "Looking through this browser's history…";
+  api.runtime.sendMessage({ type: 'scan-history' }).catch(() => {});
+});
 // Keep the record current while the page is open.
 api.storage.onChanged.addListener((changes, area) => {
-  if (area === 'local' && changes[ATTEMPTS]) renderAttempts();
+  if (area === 'local' && (changes[ATTEMPTS] || changes[HISTORY_SCAN])) renderAttempts();
 });
 
 $('access-allow').addEventListener('click', () => {
