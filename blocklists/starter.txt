@@ -1,9 +1,10 @@
 # Starter blocklist. One domain per line; "#" starts a comment.
 # Blocking a domain also blocks all of its subdomains (www., m., cdn., ...).
 #
-# This list is short on purpose. For wider coverage, save a community list
-# (hosts-file format or one domain per line) as another .txt file in this
-# folder, run `npm run build`, then reload the extension.
+# This list is short on purpose: the sites Firefox's own copy of the list (the
+# lock) must have first. community.txt widens it (npm run blocklist refreshes
+# that file); any other .txt file here is taken too. After a change, run
+# `npm run build`, then release a new version.
 
 # Test case: navigating to this site must show the "Site blocked" page.
 exampleadultsite.com
@@ -28,3 +29,4 @@ bongacams.com
 livejasmin.com
 cam4.com
 onlyfans.com
+naughtyamerica.com
