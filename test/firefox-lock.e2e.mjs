@@ -12,6 +12,8 @@
 // and runs only in CI, so it never touches a family's own lock), and the other blocker's policies go in
 // Firefox's own distribution/policies.json, a separate place, as a program like Plucky can set them. Elsewhere
 // Firefox reads a single policies.json, so the two go in it combined, the way Firefox combines them on a Mac.
+// The lock installs the add-on from an address on the update site; here the stand-in internet serves the
+// signed file at a stand-in address, which the lock under test names instead.
 // Skipped without a signed .xpi or a way to set policies. The parts that need OLDER_XPI (an earlier signed
 // version of this add-on) or OTHER_XPI (the GitHub workflow uses LeechBlock NG, a site blocker from
 // addons.mozilla.org) are skipped without them.
@@ -22,7 +24,7 @@ import { accessSync, constants, copyFileSync, existsSync, mkdirSync, mkdtempSync
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { ADDON_ID, XPI_PATH, filterSites, firefoxPolicies, macSettings, plist } from '../scripts/firefox-lock.mjs';
+import { ADDON_ID, filterSites, firefoxPolicies, macSettings, plist } from '../scripts/firefox-lock.mjs';
 import { readZip } from '../scripts/read-zip.mjs';
 import { updatesManifest } from '../scripts/updates-manifest.mjs';
 import { startStubInternet } from './helpers/browser.mjs';
@@ -31,6 +33,8 @@ import { findFirefox, launchFirefox } from './helpers/firefox.mjs';
 const SITE = 'exampleadultsite.com';
 // Not on the built-in list, so only the add-on blocks it once the settings page adds it.
 const ADDED_SITE = 'added-on-the-settings-page.test';
+// Where the lock under test installs from: the stand-in internet serves a signed file there (see serveLockFile).
+const LOCK_URL = 'http://updates.test/family-site-blocker.xpi';
 const FIREFOX = findFirefox();
 const SIGNED = process.env.SIGNED_XPI;
 const OLDER = process.env.OLDER_XPI;
@@ -91,19 +95,22 @@ function otherBlockerPolicies(id, xpi) {
 
 const sudo = (...args) => assert.equal(spawnSync('sudo', ['-n', ...args], { stdio: 'inherit' }).status, 0, args.join(' '));
 
+/** Serves `xpi` as the file the lock installs from, at `url` on the stand-in internet. */
+function serveLockFile(stub, xpi, url = LOCK_URL) {
+  const { host, pathname } = new URL(url);
+  stub.page(`${host}${pathname}`, readFileSync(xpi), { headers: { 'content-type': 'application/x-xpinstall' } });
+}
+
 /**
- * Puts the lock in force for the next Firefox start, with `xpi` as the file it installs from, and with { other }
- * another program's policies as well. { change } edits the lock's policies first, to stand in for an earlier
- * version of the lock. Returns the lock's policies, and a function that takes everything away.
+ * Puts the lock in force for the next Firefox start, installing from `url` (serve a file there with
+ * serveLockFile), and with { other } another program's policies as well. { change } edits the lock's policies
+ * first, to stand in for an earlier version of the lock. Returns the lock's policies, and a function that takes
+ * everything away.
  */
-function applyPolicies(scratch, { xpi = SIGNED, other = null, change = (lock) => lock } = {}) {
+function applyPolicies(scratch, { url = LOCK_URL, other = null, change = (lock) => lock } = {}) {
   const undo = [];
-  let lock;
+  const lock = change(firefoxPolicies(url));
   if (MAC) {
-    mkdirSync(dirname(XPI_PATH), { recursive: true });
-    copyFileSync(xpi, XPI_PATH);
-    undo.push(() => rmSync(dirname(XPI_PATH), { recursive: true, force: true }));
-    lock = change(firefoxPolicies());
     const settings = join(scratch, 'org.mozilla.firefox.plist');
     writeFileSync(settings, plist(macSettings(lock)));
     sudo('defaults', 'import', '/Library/Preferences/org.mozilla.firefox', settings);
@@ -118,9 +125,6 @@ function applyPolicies(scratch, { xpi = SIGNED, other = null, change = (lock) =>
       undo.push(() => sudo('rm', '-rf', madeFolder ? dirname(APP_POLICIES) : APP_POLICIES));
     }
   } else {
-    const folderCopy = join(scratch, 'family-site-blocker.xpi');
-    copyFileSync(xpi, folderCopy);
-    lock = change(firefoxPolicies(folderCopy));
     const previous = existsSync(APP_POLICIES) ? readFileSync(APP_POLICIES) : null;
     mkdirSync(dirname(APP_POLICIES), { recursive: true });
     // A single file here: combined as Firefox combines them on a Mac, where the profile's win, policy by policy.
@@ -241,8 +245,9 @@ describe('Firefox lock', { skip: SKIP }, () => {
   let firefox;
 
   before(async () => {
-    policies = applyPolicies(scratch);
     stub = await startStubInternet();
+    serveLockFile(stub, SIGNED);
+    policies = applyPolicies(scratch);
     firefox = await startFirefox(stub);
     await firefox.waitForAddon(ADDON_ID);
     await firefox.newTab();
@@ -255,11 +260,12 @@ describe('Firefox lock', { skip: SKIP }, () => {
     rmSync(scratch, { recursive: true, force: true });
   }, HOOK);
 
-  test('Firefox installs the signed add-on by itself', async () => {
+  test('Firefox installs the signed add-on by itself, from the address the lock names', async () => {
     const { updated, canEnable, ...info } = await firefox.addon(ADDON_ID);
     assert.deepEqual(info, {
       version, active: true, temporary: false, signedByMozilla: true, source: 'enterprise-policy', canDisable: false, canRemove: false,
     });
+    assert.ok(stub.requests.some(({ host, path }) => host === 'updates.test' && path === '/family-site-blocker.xpi'), 'fetched from the update site');
   });
 
   test("test case: with the lock, exampleadultsite.com is blocked, by Firefox's own copy of the list", () => firefox.assertBlocked());
@@ -380,8 +386,9 @@ describe('Firefox lock, when the add-on updates itself', { skip: SKIP || (!OLDER
     return { found: true, version: install.version, outcome, incorrectHash: AddonManager.ERROR_INCORRECT_HASH };`, ADDON_ID);
 
   before(async () => {
-    policies = applyPolicies(scratch, { xpi: OLDER });
     stub = await startStubInternet();
+    serveLockFile(stub, OLDER);
+    policies = applyPolicies(scratch);
     const signed = readFileSync(SIGNED);
     const manifest = updatesManifest([{ name: file, data: signed }], UPDATES);
     stub.page(`updates.test/updates.json`, JSON.stringify(manifest), { headers: { 'content-type': 'application/json' } });
@@ -402,7 +409,7 @@ describe('Firefox lock, when the add-on updates itself', { skip: SKIP || (!OLDER
     rmSync(scratch, { recursive: true, force: true });
   }, HOOK);
 
-  test('Firefox installs the older file the lock points at', async () => {
+  test('Firefox installs the older version the lock points at', async () => {
     const info = await firefox.addon(ADDON_ID);
     assert.equal(info.version, older);
     assert.notEqual(older, newer, 'OLDER_XPI is an earlier version than SIGNED_XPI');
@@ -451,8 +458,9 @@ describe('Troubleshoot Mode, with the lock as it was before it gave Firefox its 
   let firefox;
 
   before(async () => {
-    policies = applyPolicies(scratch, { change: ({ WebsiteFilter, ...earlier }) => earlier });
     stub = await startStubInternet();
+    serveLockFile(stub, SIGNED);
+    policies = applyPolicies(scratch, { change: ({ WebsiteFilter, ...earlier }) => earlier });
     firefox = await startFirefox(stub, { troubleshootMode: true });
     await firefox.newTab();
   }, HOOK);
@@ -479,8 +487,9 @@ describe('Firefox lock in Troubleshoot Mode', { skip: SKIP }, () => {
   let firefox;
 
   before(async () => {
-    policies = applyPolicies(scratch);
     stub = await startStubInternet();
+    serveLockFile(stub, SIGNED);
+    policies = applyPolicies(scratch);
     stub.page('allowed.test/links', `<a id="go" href="http://${SITE}/">go</a>`);
     stub.page('allowed.test/frame', `<iframe id="frame" src="http://${SITE}/frame"></iframe>`);
     stub.page('allowed.test/redirect', '', { status: 302, headers: { location: `http://${SITE}/` } });
@@ -555,8 +564,9 @@ describe('Firefox lock next to another blocker', { skip: SKIP || (!OTHER && "set
   before(async () => {
     const otherXpi = join(scratch, 'other-blocker.xpi');
     copyFileSync(OTHER, otherXpi);
-    policies = applyPolicies(scratch, { other: otherBlockerPolicies(other.id, otherXpi) });
     stub = await startStubInternet();
+    serveLockFile(stub, SIGNED);
+    policies = applyPolicies(scratch, { other: otherBlockerPolicies(other.id, otherXpi) });
     firefox = await startFirefox(stub);
     await firefox.waitForAddon(ADDON_ID);
     await firefox.waitForAddon(other.id);
@@ -631,7 +641,8 @@ async function switchedOffThenLocked(stub, scratch, { handXpi, lockXpi = SIGNED 
   } finally {
     await first.close();
   }
-  const policies = applyPolicies(scratch, { xpi: lockXpi });
+  serveLockFile(stub, lockXpi);
+  const policies = applyPolicies(scratch);
   const firefox = await startFirefox(stub, { profile });
   // The lock's install runs once, early in the start; wait until Firefox has the lock's version.
   const wanted = manifestOf(lockXpi).version;
@@ -709,6 +720,62 @@ describe('Firefox lock, after an older version was installed by hand and switche
   });
 });
 
+// The situation of a family Mac today: every account already has an older copy, installed by an earlier lock.
+// A new lock names a different address (here: the same stand-in site under another name), so Firefox runs its
+// install again in the existing profile at the next start, and the newer version goes in with nobody clicking.
+describe("Firefox lock, when a new lock names a different address and the profile has the earlier lock's version", { skip: SKIP || (!OLDER && 'set OLDER_XPI to an earlier signed version of this add-on') }, () => {
+  const scratch = mkdtempSync(join(tmpdir(), 'family-site-blocker-lock-'));
+  const EARLIER_URL = 'http://updates.test/earlier/family-site-blocker.xpi';
+  let policies;
+  let stub;
+  let firefox;
+
+  before(async () => {
+    stub = await startStubInternet();
+    serveLockFile(stub, OLDER, EARLIER_URL);
+    serveLockFile(stub, SIGNED);
+    const profile = join(scratch, 'profile');
+    mkdirSync(profile);
+    // The earlier lock, in force while the account's Firefox profile is made.
+    policies = applyPolicies(scratch, { url: EARLIER_URL });
+    const earlier = await startFirefox(stub, { profile });
+    try {
+      assert.equal((await earlier.waitForAddon(ADDON_ID))?.version, manifestOf(OLDER).version, "the earlier lock's version is installed");
+    } finally {
+      await earlier.close();
+    }
+    policies.remove();
+    // Then the new lock arrives, and Firefox starts again with the same profile.
+    policies = applyPolicies(scratch);
+    firefox = await startFirefox(stub, { profile });
+    await firefox.waitForAddon(ADDON_ID, (info) => info?.version === manifestOf(SIGNED).version && info.active);
+    await firefox.newTab();
+  }, HOOK);
+
+  after(async () => {
+    await firefox?.close();
+    await stub?.close();
+    policies?.remove();
+    rmSync(scratch, { recursive: true, force: true });
+  }, HOOK);
+
+  test('Firefox installs the newer version from the new address at the next start, switched on and locked', async () => {
+    const { updated, canEnable, source, ...info } = await firefox.addon(ADDON_ID);
+    assert.deepEqual(info, { version: manifestOf(SIGNED).version, active: true, temporary: false, signedByMozilla: true, canDisable: false, canRemove: false });
+    assert.deepEqual(await firefox.card(ADDON_ID), { name: 'Family Site Blocker', onOffSwitch: 'none', removeItem: CANT_BE_REMOVED });
+  });
+
+  test('the new version has the permissions it asks for, so it blocks and notes attempts without anyone accepting anything', async () => {
+    const permissions = await firefox.chrome(`
+      const policy = WebExtensionPolicy.getByID(arguments[0]);
+      return { origins: policy.allowedOrigins.patterns.map((p) => p.pattern), permissions: [...policy.permissions] };`, ADDON_ID);
+    assert.ok(permissions.origins.includes('<all_urls>'), JSON.stringify(permissions));
+    for (const name of ['webNavigation', 'webRequest']) assert.ok(permissions.permissions.includes(name), `${name} granted: ${JSON.stringify(permissions)}`);
+    await firefox.assertBlocked();
+    await firefox.assertAddonBlocks();
+  });
+});
+
 describe('Firefox lock, when a newer version is installed by hand', { skip: SKIP || (!OLDER && 'set OLDER_XPI to an earlier signed version of this add-on') }, () => {
   const scratch = mkdtempSync(join(tmpdir(), 'family-site-blocker-lock-'));
   let policies;
@@ -716,9 +783,10 @@ describe('Firefox lock, when a newer version is installed by hand', { skip: SKIP
   let firefox;
 
   before(async () => {
-    // The lock with the earlier version in the folder, as when a newer one has come out since.
-    policies = applyPolicies(scratch, { xpi: OLDER });
+    // The lock installing the earlier version, as when a newer one has come out since.
     stub = await startStubInternet();
+    serveLockFile(stub, OLDER);
+    policies = applyPolicies(scratch);
     firefox = await startFirefox(stub);
     await firefox.waitForAddon(ADDON_ID);
     await firefox.newTab();
