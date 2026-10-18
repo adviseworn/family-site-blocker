@@ -218,6 +218,37 @@ describe('Firefox', { skip: findFirefox() ? false : 'no Firefox found (set FIREF
       await assertBlocked(BLOCKED_URL);
     });
 
+    test("a visit from before the add-on was watching is found in Firefox's history and added with its own date", async () => {
+      const settings = tabsAfterInstall.find(({ url }) => url.endsWith('/options.html'));
+      await browser.fx.send('WebDriver:SwitchToWindow', { handle: settings.handle });
+      const threeDaysAgo = Date.now() - 3 * 86_400_000;
+      // Firefox lets a visit be dated: a page of the test site opened three days ago, and an unlisted one.
+      const seeded = await browser.fx.send('WebDriver:ExecuteAsyncScript', {
+        script: `const done = arguments[arguments.length - 1];
+          Promise.all([
+            browser.history.addUrl({ url: 'http://exampleadultsite.com/from-before', visitTime: arguments[0] }),
+            browser.history.addUrl({ url: 'http://allowed.test/not-listed', visitTime: arguments[0] }),
+          ]).then(() => done('ok'), (error) => done('error: ' + error));`,
+        args: [threeDaysAgo],
+      });
+      assert.equal(seeded, 'ok');
+      await browser.run("document.getElementById('history-scan-now').click()");
+      const until = Date.now() + 15_000;
+      let status = '';
+      while (!/^Looked through this browser's history on .+: found \d+ visits? to listed sites/.test(status) && Date.now() < until) {
+        await sleep(200);
+        status = await browser.run("return document.getElementById('history-scan').textContent");
+      }
+      assert.match(status, /found \d+ visits? to listed sites, (all|\d+) new\.$/, status);
+      const rows = await browser.run(`return [...document.querySelectorAll('#attempts-table tbody tr')].map((row) => [...row.cells].map((cell) => cell.textContent))`);
+      const fromHistory = rows.filter((row) => row[2] === 'Visited (browser history)');
+      assert.ok(fromHistory.length >= 1, JSON.stringify(rows.slice(0, 5)));
+      assert.ok(fromHistory.every((row) => row[1] === SITE), 'only listed sites');
+      const expected = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(threeDaysAgo);
+      assert.ok(fromHistory.some((row) => row[0] === expected), `a row dated ${expected}: ${JSON.stringify(fromHistory)}`);
+      assert.equal(rows.at(-1)[2], 'Visited (browser history)', 'the oldest entry is the one from three days ago');
+    });
+
     test('a password locked away with a short wait comes back after it, and is locked away again', async () => {
       const settings = tabsAfterInstall.find(({ url }) => url.endsWith('/options.html'));
       await browser.fx.send('WebDriver:SwitchToWindow', { handle: settings.handle });

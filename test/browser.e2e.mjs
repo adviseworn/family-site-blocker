@@ -535,6 +535,36 @@ describe('real browser', () => {
       }
     });
 
+    test("visits found in this browser's history are added once, marked as such, with their own time", async () => {
+      const page = await freshRecord();
+      try {
+        // A visit the extension never saw: put straight into the browser's history (Chrome dates it now).
+        await page.evaluate(() => chrome.history.addUrl({ url: 'http://exampleadultsite.com/from-before' }));
+        await page.evaluate(() => chrome.history.addUrl({ url: 'http://allowed.test/not-listed' }));
+        await page.click('#history-scan-now');
+        await page.waitForFunction(() => /^Looked through this browser's history on .+: found \d+ visits? to listed sites/.test(document.getElementById('history-scan').textContent));
+        const list = await stored(page);
+        const fromHistory = list.filter((entry) => entry.from === 'history');
+        assert.ok(fromHistory.length >= 1, JSON.stringify(list));
+        assert.ok(fromHistory.every((entry) => entry.site === SITE || entry.site === 'custom-blocked.test'), 'only listed sites');
+        assert.equal(list.some((entry) => entry.site === 'allowed.test'), false);
+        assert.ok(fromHistory.some((entry) => Date.now() - entry.at < 60_000), 'the visit just added');
+        const rows = await shown(page);
+        assert.ok(rows.some((row) => row[1] === SITE && row[2] === 'Visited (browser history)'), JSON.stringify(rows.slice(0, 3)));
+        assert.match(await page.locator('#attempts-summary').innerText(), / \d+ from this browser's history\.$/);
+
+        // Looking again adds nothing.
+        const before = (await stored(page)).length;
+        await page.click('#history-scan-now');
+        await page.waitForFunction(() => /none new\.$/.test(document.getElementById('history-scan').textContent));
+        assert.equal((await stored(page)).length, before);
+        assert.deepEqual(page.errors, []);
+      } finally {
+        await page.evaluate(() => chrome.storage.local.remove(['attempts', 'historyScan'])).catch(() => {});
+        await page.close();
+      }
+    });
+
     test('the latest 50 are shown, and "Show all" shows the rest', async () => {
       const page = await freshRecord();
       try {
