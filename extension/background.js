@@ -3,13 +3,15 @@
 // person can see whether anything still needs switching on, and when the toolbar button is clicked) and
 // keeps the record of blocked attempts. Chrome, Edge and Brave run it as a service worker; Firefox runs
 // it as an event page. Both load it as a module (manifest.json: background.type).
-import { ATTEMPTS, hostOf, listedDomain, record } from './lib/attempts.js';
+import { ATTEMPTS, HISTORY_SCAN, hostOf, listedDomain, mergeVisits, record } from './lib/attempts.js';
 import { domainsOf } from './lib/rules.js';
 
 const api = globalThis.browser ?? globalThis.chrome;
 
 api.runtime.onInstalled.addListener(({ reason }) => {
   if (reason === 'install') api.runtime.openOptionsPage();
+  // A new or updated copy may list sites that were visited before it was watching: find them in the history.
+  if (reason === 'install' || reason === 'update') scanHistory();
 });
 api.action.onClicked.addListener(() => api.runtime.openOptionsPage());
 
@@ -37,9 +39,11 @@ function listedDomains() {
 }
 
 // The settings page says when the person's own list changes; the browser also restarts this script
-// after a short idle, so the lists are reread often anyway.
+// after a short idle, so the lists are reread often anyway. It also asks for the history to be looked
+// through again (the button on the page).
 api.runtime.onMessage.addListener((message) => {
   if (message?.type === 'list-changed') domains = null;
+  if (message?.type === 'scan-history') scanHistory();
 });
 
 // One write at a time: two navigations close together must not read the same old list and lose a note.
@@ -53,6 +57,44 @@ function note(attempt) {
     })
     .catch(() => {});
   return writing;
+}
+
+// --- The browser's history -------------------------------------------------------------------------------
+// The record starts when the extension starts watching, but the browser's own history goes back further:
+// every page it loaded in this profile, for months (Firefox) or 90 days (Chrome), except in private windows.
+// Looking through it for listed sites adds the visits from before the extension was installed, or before a
+// site was listed, marked as found in the history. Pages inside other pages (frames) are left out, as live.
+let scanning = null;
+function scanHistory() {
+  scanning ??= (async () => {
+    const started = Date.now();
+    const visits = [];
+    let error = null;
+    try {
+      const listed = await listedDomains();
+      const items = await api.history.search({ text: '', startTime: 0, maxResults: 1_000_000 });
+      for (const item of items) {
+        const site = listedDomain(hostOf(item.url), listed);
+        if (!site) continue;
+        for (const visit of await api.history.getVisits({ url: item.url })) {
+          if (!/subframe/.test(visit.transition ?? '')) visits.push({ at: visit.visitTime, site });
+        }
+      }
+    } catch (failure) {
+      error = String(failure?.message ?? failure);
+    }
+    await (writing = writing
+      .then(async () => {
+        const stored = (await api.storage.local.get(ATTEMPTS))[ATTEMPTS];
+        const { attempts, found, added } = mergeVisits(stored, visits);
+        const scan = { at: started, found, added, ...(error ? { error } : {}) };
+        await api.storage.local.set(added ? { [ATTEMPTS]: attempts, [HISTORY_SCAN]: scan } : { [HISTORY_SCAN]: scan });
+      })
+      .catch(() => {}));
+  })().finally(() => {
+    scanning = null;
+  });
+  return scanning;
 }
 
 // Only pages in a tab (frameId 0), not frames inside other pages, and not pages Chrome prerenders by
