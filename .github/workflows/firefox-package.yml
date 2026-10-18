@@ -23,8 +23,10 @@ jobs:
       - name: Build the Firefox zip
         run: npm run package:firefox
 
+      # --self-hosted: the add-on is distributed on its own, not listed on addons.mozilla.org, so its manifest
+      # may carry an update_url (the linter flags one on a listed add-on).
       - name: Run Mozilla's add-on linter on the zip
         shell: bash
         run: |
-          npx --yes addons-linter dist/family-site-blocker-firefox.zip --output json --boring --max-manifest-version=3 > lint.json || true
+          npx --yes addons-linter dist/family-site-blocker-firefox.zip --output json --boring --max-manifest-version=3 --self-hosted > lint.json || true
           node scripts/lint-firefox-report.mjs lint.json
