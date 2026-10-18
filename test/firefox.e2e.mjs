@@ -249,6 +249,66 @@ describe('Firefox', { skip: findFirefox() ? false : 'no Firefox found (set FIREF
       assert.equal(rows.at(-1)[2], 'Visited (browser history)', 'the oldest entry is the one from three days ago');
     });
 
+    test('the whole record has a page of its own, opened from the settings page, with the record by site and a file to save', async () => {
+      const settings = tabsAfterInstall.find(({ url }) => url.endsWith('/options.html'));
+      await browser.fx.send('WebDriver:SwitchToWindow', { handle: settings.handle });
+      const link = await browser.run(`const link = document.getElementById('attempts-all'); return { hidden: link.hidden, text: link.textContent, href: link.href, target: link.target }`);
+      assert.equal(link.hidden, false);
+      assert.match(link.text, /^See the whole record \(\d+\)$/);
+      assert.equal(link.target, '_blank');
+      const count = Number(link.text.match(/\d+/)[0]);
+      const shownOnSettings = await browser.run(`return document.querySelectorAll('#attempts-table tbody tr').length`);
+      assert.ok(shownOnSettings <= 10 && shownOnSettings <= count, 'the settings page shows the latest ten at most');
+
+      const before = (await browser.tabs()).map(({ handle }) => handle); // tabs() leaves another tab current
+      await browser.fx.send('WebDriver:SwitchToWindow', { handle: settings.handle });
+      await browser.run(`document.getElementById('attempts-all').click()`);
+      let opened = null;
+      for (let i = 0; i < 40 && !opened; i++) {
+        await sleep(250);
+        opened = (await browser.tabs()).find(({ handle, url }) => !before.includes(handle) && url.endsWith('/attempts.html'));
+      }
+      assert.ok(opened, 'the record page opened in a new tab');
+      await browser.fx.send('WebDriver:SwitchToWindow', { handle: opened.handle });
+      const until = Date.now() + 10_000;
+      let state = {};
+      do {
+        state = await browser.run(`return {
+          version: document.getElementById('version').textContent,
+          summary: document.getElementById('summary').textContent,
+          sites: [...document.querySelectorAll('#sites-table tbody tr')].map((row) => [...row.cells].map((cell) => cell.textContent)),
+          days: document.querySelectorAll('.day').length,
+          rows: [...document.querySelectorAll('.day tbody tr')].map((row) => [...row.cells].map((cell) => cell.textContent)),
+        }`);
+        if (state.sites.length > 0) break;
+        await sleep(200);
+      } while (Date.now() < until);
+      assert.equal(state.version, `Version ${VERSION}`);
+      assert.match(state.summary, new RegExp(`^${count} attempts? at 1 site, the latest at .+\\. 1 page opened instead of being blocked\\. \\d+ from this browser's history\\.$`));
+      assert.equal(state.sites.length, 1, JSON.stringify(state.sites));
+      assert.equal(state.sites[0][0], SITE);
+      assert.equal(state.sites[0][1], `${count}1 opened`, 'the tries, with how many got through');
+      assert.ok(state.days >= 2, `the try from three days ago has a day of its own: ${state.days} days`);
+      assert.equal(state.rows.length, count);
+      assert.ok(state.rows.every((row) => row[1] === SITE && /^(Blocked|Opened, not blocked|Visited \(browser history\))$/.test(row[2])), JSON.stringify(state.rows.slice(0, 3)));
+      assert.equal(state.rows.at(-1)[2], 'Visited (browser history)', 'oldest last');
+
+      // The file: the page makes it from the record the same way the fast tests check; Firefox then saves
+      // it to the downloads folder, which is Firefox's business, so only its contents are checked here.
+      const csv = await browser.fx.send('WebDriver:ExecuteAsyncScript', {
+        script: `const done = arguments[arguments.length - 1];
+          import(browser.runtime.getURL('lib/attempts.js'))
+            .then((lib) => browser.storage.local.get('attempts').then(({ attempts }) => done(lib.toCsv(attempts))))
+            .catch((error) => done('error: ' + error));`,
+        args: [],
+      });
+      const lines = String(csv).split('\n');
+      assert.equal(lines[0], 'when,site,result');
+      assert.equal(lines.length, count + 2, `${count} rows, a heading and a final newline`);
+      assert.match(lines[1], new RegExp(`^\\d{4}-\\d\\d-\\d\\dT\\d\\d:\\d\\d:\\d\\d[+-]\\d\\d:\\d\\d,${SITE.replace(/\./g, '\\.')},Visited \\(browser history\\)$`));
+      await browser.fx.send('WebDriver:SwitchToWindow', { handle: settings.handle });
+    });
+
     test('a password locked away with a short wait comes back after it, and is locked away again', async () => {
       const settings = tabsAfterInstall.find(({ url }) => url.endsWith('/options.html'));
       await browser.fx.send('WebDriver:SwitchToWindow', { handle: settings.handle });
