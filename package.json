@@ -1,11 +1,12 @@
 {
   "name": "family-site-blocker",
-  "version": "1.3.2",
+  "version": "1.3.3",
   "private": true,
   "type": "module",
   "description": "Chrome, Edge, Brave and Firefox extension that blocks adult websites",
   "scripts": {
     "build": "node scripts/build-rules.mjs && node scripts/firefox-lock.mjs",
+    "blocklist": "node scripts/update-blocklist.mjs",
     "icons": "node scripts/make-icons.mjs",
     "package:firefox": "node scripts/package-firefox.mjs",
     "package:signed": "node scripts/package-signed.mjs",

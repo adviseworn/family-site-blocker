@@ -22,8 +22,8 @@ const CHECKS = [
 const sites = (n) => (n === 1 ? '1 site' : `${n} sites`);
 
 async function builtInDomains() {
-  const response = await fetch(api.runtime.getURL('rules/adult.json'));
-  return domainsOf(await response.json());
+  const response = await fetch(api.runtime.getURL('rules/domains.json'));
+  return response.json();
 }
 
 async function refresh() {

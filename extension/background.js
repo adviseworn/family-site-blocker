@@ -19,15 +19,15 @@ api.action.onClicked.addListener(() => api.runtime.openOptionsPage());
 // Firefox's own copy of the list stopped it first. If the site's page then loads anyway, the note says
 // so: that means the blocking isn't working (no access to websites yet, for example).
 
-const BUILT_IN = api.runtime.getURL('rules/adult.json');
+const BUILT_IN = api.runtime.getURL('rules/domains.json'); // the built-in list as plain domains (npm run build)
 let domains = null; // Promise<Set<string>>: the built-in list plus the sites saved on the settings page.
 
 function listedDomains() {
   if (!domains) {
     domains = Promise.all([
       fetch(BUILT_IN).then((response) => response.json()),
-      api.declarativeNetRequest.getDynamicRules(),
-    ]).then((lists) => new Set(lists.flatMap(domainsOf)));
+      api.declarativeNetRequest.getDynamicRules().then(domainsOf),
+    ]).then(([builtIn, mine]) => new Set([...builtIn, ...mine]));
     // A read that fails (right after an install, say) must not be kept: try again on the next event.
     domains.catch(() => {
       domains = null;
