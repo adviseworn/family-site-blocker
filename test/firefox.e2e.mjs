@@ -106,8 +106,10 @@ describe('Firefox', { skip: findFirefox() ? false : 'no Firefox found (set FIREF
         const result = await browser.visit(url);
         assert.equal(result.outcome, 'site loaded', `${url} ended at ${result.finalUrl}`);
         assert.equal(new URL(result.finalUrl).searchParams.get(key), value, result.finalUrl);
-        const sent = stub.requests.filter((r) => r.path !== '/favicon.ico');
-        assert.equal(sent.length, 1, `one request, not a loop: ${JSON.stringify(sent.map((r) => r.host + r.path + r.search))}`);
+        // The page itself was asked for once, with the setting (Firefox may ask for other things, such as
+        // the site's icon, on its own).
+        const sent = stub.requests.filter((r) => r.path === new URL(url).pathname);
+        assert.equal(sent.length, 1, `one request for the page, not a loop: ${JSON.stringify(stub.requests.map((r) => r.host + r.path + r.search))}`);
         assert.equal(new URL(`http://${sent[0].host}${sent[0].path}${sent[0].search}`).searchParams.get(key), value);
       });
     }
@@ -117,7 +119,8 @@ describe('Firefox', { skip: findFirefox() ? false : 'no Firefox found (set FIREF
         stub.clear();
         const result = await browser.visit(url);
         assert.equal(result.finalUrl, url);
-        assert.equal(stub.requests.filter((r) => r.path !== '/favicon.ico').length, 1, url);
+        const sent = stub.requests.filter((r) => r.path === new URL(url).pathname);
+        assert.deepEqual(sent.map((r) => r.search), [new URL(url).search], `${url}: asked for once, unchanged`);
       }
     });
 
