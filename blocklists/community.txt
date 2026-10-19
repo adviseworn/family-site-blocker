@@ -1,6 +1,6 @@
 # Community list: StevenBlack/hosts, "porn" extension only (MIT), unchanged below this note.
 # From https://raw.githubusercontent.com/StevenBlack/hosts/master/alternates/porn-only/hosts
-# Fetched 2026-10-18; 64291 domains. Refresh with: npm run blocklist, then npm run build.
+# Fetched 2026-10-19; 64288 domains. Refresh with: npm run blocklist, then npm run build.
 # Firefox's own copy of the built-in list (the lock) takes starter.txt first, then this file, up to 1,000 sites.
 
 # Title: StevenBlack/hosts extension porn
