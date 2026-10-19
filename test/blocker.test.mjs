@@ -10,6 +10,8 @@ import { fileURLToPath } from 'node:url';
 
 import { LABELS, MAX_ATTEMPTS, bookmarksTo, byDay, bySite, hostOf, listedDomain, mergeVisits, outcome as whatHappened, record, toCsv } from '../extension/lib/attempts.js';
 import { normalizeDomain, parseDomainList } from '../extension/lib/domains.js';
+import { MAX_UNLISTED, looksAdult, siteOf, tallyUnlisted } from '../extension/lib/suspects.js';
+import { addToMyList, myList, saveMyList } from '../extension/lib/mylist.js';
 import { BLOCK_PAGE, CHUNK_SIZE, buildRules, domainsOf } from '../extension/lib/rules.js';
 import { BLOCKLIST_DIR, DOMAINS_PATH, MANIFEST_PATH, MAX_RULESET_BYTES, RULES_DIR, formatManifest, loadBlocklists, loadRules, renderDomains, renderRulesets, ruleResources } from '../scripts/build-rules.mjs';
 import { COMMUNITY_PATH, COMMUNITY_URL, communityList } from '../scripts/update-blocklist.mjs';
@@ -337,6 +339,71 @@ test('blocked attempts: the saved file is CSV, oldest first, with local times th
   const offset = lines[1].match(/([+-])(\d\d):(\d\d),/);
   const minutes = (Number(offset[2]) * 60 + Number(offset[3])) * (offset[1] === '-' ? -1 : 1);
   assert.equal(minutes, 0 - new Date(at).getTimezoneOffset() || 0, "the offset is this computer's");
+});
+
+test('sites that look adult by name are told from ordinary names, and ordinary words that hide the same letters are left alone', () => {
+  const adult = [
+    'sex.com', 'www.sexy-youtubers.com', 'nudesbox.com', 'erothots.to', 'xxxfiles.com', 'hentaihaven.xxx', 'site.porn', 'cam4.com',
+    'cams.com', 'stripchat.com', 'babes.com', 'fapello.com', 'thothub.to', 'javhd.com', 'nudify.online', 'undress.app', 'clothoff.io',
+    'nsfwlover.com', 'aigirlfriend.wtf', 'lustgf.ai', 'cumshots.xyz', 'kink.com', 'bbwchan.nl', 'rule34.paheal.net', 'm.xhamster2.desi',
+    'escort-ads.example', 'hookuptonight.example', 'playboy.com', 'NSFW.EXAMPLE',
+  ];
+  const ordinary = [
+    'essex.gov.uk', 'sussex.ac.uk', 'middlesex.edu', 'peacocktv.com', 'hancock.com', 'stripe.com', 'illustrator.adobe.com', 'cluster.io',
+    'camden.gov.uk', 'camera.com', 'cambridge.org', 'analytics.google.com', 'cumberland.edu', 'babel.io', 'java.com', 'javascript.info',
+    'javelin.com', 'youtube.com', 'titan.com', 'nakedwines.com', 'girlfriendcollective.com', 'webcams.travel', 'documentcloud.org',
+    'circumstance.com', 'exxon.com', 'muah.ai', 'ourdream.ai', 'swappz.com', 'candy.ai', 'classroom.google.com', 'assets.example',
+  ];
+  assert.deepEqual(adult.filter((host) => !looksAdult(host)), [], 'missed');
+  assert.deepEqual(ordinary.filter((host) => looksAdult(host)), [], 'false alarms');
+  assert.equal(looksAdult(null), false);
+  assert.deepEqual(['www.site.com', 'm.site.co.uk', 'a.b.site.com.au', 'site.ai', 'deep.sub.site.org', 'site.me', 'x.site.me', 'host.'].map(siteOf), [
+    'site.com', 'site.co.uk', 'site.com.au', 'site.ai', 'site.org', 'site.me', 'site.me', 'host',
+  ]);
+});
+
+test('the history scan sums adult-looking unlisted sites up by site, most visited first, leaving listed and ordinary sites out', () => {
+  const listed = new Set(['exampleadultsite.com']);
+  const items = [
+    { url: 'https://www.sex.example/a', visitCount: 3, lastVisitTime: 5 },
+    { url: 'https://m.sex.example/b', visitCount: 2, lastVisitTime: 9 },
+    { url: 'http://exampleadultsite.com/listed', visitCount: 50, lastVisitTime: 99 },
+    { url: 'https://nudesbox.example/', visitCount: 4, lastVisitTime: 1 },
+    { url: 'https://essex.gov.uk/', visitCount: 9, lastVisitTime: 99 },
+    { url: 'ftp://porn.example/', visitCount: 9 },
+    { url: 'https://hentai.example/no-count' },
+  ];
+  assert.deepEqual(tallyUnlisted(items, listed), [
+    { site: 'sex.example', visits: 5, last: 9 },
+    { site: 'nudesbox.example', visits: 4, last: 1 },
+    { site: 'hentai.example', visits: 1, last: 0 },
+  ]);
+  assert.deepEqual(tallyUnlisted([], listed), []);
+  assert.deepEqual(tallyUnlisted(undefined, listed), []);
+  const many = Array.from({ length: MAX_UNLISTED + 10 }, (_, i) => ({ url: `https://porn${i}.example/`, visitCount: i + 1 }));
+  const kept = tallyUnlisted(many, listed);
+  assert.equal(kept.length, MAX_UNLISTED);
+  assert.equal(kept[0].site, `porn${MAX_UNLISTED + 9}.example`, 'the most visited stay');
+});
+
+test("the person's own list is the dynamic rules: read back, replaced whole, added to once", async () => {
+  // A stand-in for the browser's rule store.
+  let rules = [];
+  const dnr = {
+    getDynamicRules: async () => rules,
+    updateDynamicRules: async ({ removeRuleIds = [], addRules = [] }) => {
+      rules = [...rules.filter((rule) => !removeRuleIds.includes(rule.id)), ...addRules];
+    },
+  };
+  assert.deepEqual(await myList(dnr), []);
+  await saveMyList(dnr, ['a.test', 'b.test']);
+  assert.deepEqual(await myList(dnr), ['a.test', 'b.test']);
+  assert.equal(await addToMyList(dnr, 'c.test'), true);
+  assert.equal(await addToMyList(dnr, 'b.test'), false, 'already there');
+  assert.deepEqual(await myList(dnr), ['a.test', 'b.test', 'c.test']);
+  await saveMyList(dnr, ['c.test']);
+  assert.deepEqual(await myList(dnr), ['c.test'], 'saving replaces the whole list');
+  assert.ok(rules.every((rule, i) => rules.findIndex((other) => other.id === rule.id) === i), 'rule ids stay unique');
 });
 
 test('normalizeDomain accepts what people paste and rejects what is not a domain', () => {
@@ -713,7 +780,7 @@ test('every file the pages reference exists', () => {
 });
 
 test('module imports resolve', () => {
-  for (const file of ['background.js', 'options.js', 'attempts.js', 'lockbox.js', 'lockbox-worker.js', 'lib/attempts.js', 'lib/domains.js', 'lib/rules.js', 'lib/timelock.js']) {
+  for (const file of ['background.js', 'options.js', 'attempts.js', 'lockbox.js', 'lockbox-worker.js', 'lib/attempts.js', 'lib/domains.js', 'lib/mylist.js', 'lib/rules.js', 'lib/suspects.js', 'lib/timelock.js']) {
     const source = readFileSync(join(EXT, file), 'utf8');
     for (const [, specifier] of source.matchAll(/from\s+'(\.{1,2}\/[^']+)'/g)) {
       assert.ok(existsSync(resolve(EXT, dirname(file), specifier)), `${file} imports missing ${specifier}`);
@@ -722,7 +789,7 @@ test('module imports resolve', () => {
 });
 
 test('extension scripts have no syntax errors', () => {
-  for (const file of ['background.js', 'blocked.js', 'options.js', 'attempts.js', 'lockbox.js', 'lockbox-worker.js', 'lib/attempts.js', 'lib/domains.js', 'lib/rules.js', 'lib/timelock.js']) {
+  for (const file of ['background.js', 'blocked.js', 'options.js', 'attempts.js', 'lockbox.js', 'lockbox-worker.js', 'lib/attempts.js', 'lib/domains.js', 'lib/mylist.js', 'lib/rules.js', 'lib/suspects.js', 'lib/timelock.js']) {
     const run = spawnSync(process.execPath, ['--check', join(EXT, file)], { encoding: 'utf8' });
     assert.equal(run.status, 0, `${file}: ${run.stderr}`);
   }

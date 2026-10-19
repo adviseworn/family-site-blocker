@@ -33,3 +33,30 @@ naughtyamerica.com
 
 # Sites found missing in use (not on the community list when added)
 swappz.com
+
+# Newer sites the community list doesn't have yet: AI "companion", image and
+# undress sites, and a few hookup, escort and image sites. Checked against the
+# community list in October 2026; most will drop out of here once it has them.
+muah.ai
+romantic.ai
+pephop.ai
+nastia.ai
+luvr.ai
+herahaven.ai
+aigirlfriend.wtf
+nsfwlover.com
+unstability.ai
+xpictures.ai
+dreamtavern.ai
+undress.app
+nudify.online
+clothoff.io
+undressher.app
+megapersonals.com
+megapersonals.eu
+xmatch.com
+kasidie.com
+imgsrc.ru
+nudesbox.com
+sexy-youtubers.com
+erothots.to

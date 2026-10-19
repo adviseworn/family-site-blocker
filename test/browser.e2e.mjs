@@ -667,6 +667,69 @@ describe('real browser', () => {
       }
     });
 
+    test('sites that look adult by name but are not listed are noted on the record page, where one click adds them to the list', async () => {
+      const page = await freshRecord();
+      const record = await browser.context.newPage();
+      record.errors = [];
+      record.on('pageerror', (error) => record.errors.push(error.message));
+      const unlistedRows = () =>
+        record.evaluate(() => [...document.querySelectorAll('#unlisted-table tbody tr')].map((row) => [...row.cells].map((cell) => cell.innerText)));
+      const listBefore = await page.evaluate(() => chrome.declarativeNetRequest.getDynamicRules());
+      try {
+        // Visits the extension never recorded: two pages of a site whose name gives it away, one of a site
+        // whose name only looks like it, and one of a listed site.
+        await page.evaluate(() =>
+          Promise.all([
+            chrome.history.addUrl({ url: 'http://www.nsfw-pictures.test/gallery' }),
+            chrome.history.addUrl({ url: 'http://nsfw-pictures.test/' }),
+            chrome.history.addUrl({ url: 'http://essex.test/council' }),
+            chrome.history.addUrl({ url: 'http://exampleadultsite.com/listed-already' }),
+          ]),
+        );
+        await page.click('#history-scan-now');
+        await page.waitForFunction(() => !document.getElementById('unlisted-note').hidden);
+        assert.equal(await page.locator('#unlisted-note').innerText(), "1 site in this browser's history looks adult but isn't on either list: see the record page.");
+        assert.equal(await page.locator('#unlisted-note a').getAttribute('href'), 'attempts.html#unlisted');
+
+        await record.goto(`chrome-extension://${browser.extensionId}/attempts.html#unlisted`);
+        await record.waitForFunction(() => document.querySelectorAll('#unlisted-table tbody tr').length === 1);
+        assert.match(await record.locator('#unlisted-summary').innerText(), /^1 site, as of .+\.$/);
+        const [row] = await unlistedRows();
+        assert.deepEqual(row.slice(0, 2), ['nsfw-pictures.test', '2'], 'both pages, one site');
+        assert.equal(row[3], 'Add to your list');
+        assert.equal((await visit(browser.context, 'http://nsfw-pictures.test/page')).outcome, 'site loaded', 'not blocked yet');
+
+        // Adding it: the settings page's box shows it, it is blocked from then on, its earlier visits join
+        // the record, and it leaves this table (the look through the history runs again by itself).
+        await record.click('#unlisted-table button');
+        await record.waitForFunction(() => document.getElementById('unlisted-summary').textContent.startsWith('None found'), null, { timeout: 15_000 });
+        assert.deepEqual(await unlistedRows(), []);
+        await page.waitForFunction(() => document.getElementById('custom').value === 'nsfw-pictures.test');
+        assert.match(await page.locator('#summary').innerText(), / 1 on yours\.$/);
+        await page.waitForFunction(() => document.getElementById('unlisted-note').hidden);
+        assert.equal((await visit(browser.context, 'http://nsfw-pictures.test/page')).outcome, 'blocked page');
+        const list = await stored(page);
+        assert.ok(list.some((entry) => entry.site === 'nsfw-pictures.test' && entry.from === 'history'), JSON.stringify(list));
+        assert.ok(list.some((entry) => entry.site === 'nsfw-pictures.test' && !entry.from), 'the try just made');
+        assert.deepEqual(record.errors, []);
+        assert.deepEqual(page.errors, []);
+      } finally {
+        await page.evaluate(() => chrome.storage.local.remove(['attempts', 'historyScan', 'unlisted', 'myListChanged'])).catch(() => {});
+        // The person's list as it was before this test.
+        await page
+          .evaluate(
+            (before) =>
+              chrome.declarativeNetRequest
+                .getDynamicRules()
+                .then((rules) => chrome.declarativeNetRequest.updateDynamicRules({ removeRuleIds: rules.map((r) => r.id), addRules: before })),
+            listBefore,
+          )
+          .catch(() => {});
+        await record.close();
+        await page.close();
+      }
+    });
+
     test('the record page says so when the record is empty', async () => {
       const page = await freshRecord();
       const record = await browser.context.newPage();

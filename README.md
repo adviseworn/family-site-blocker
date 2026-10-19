@@ -1,6 +1,6 @@
 # Family Site Blocker
 
-A browser extension for Chrome, Edge, Brave and Firefox that blocks websites on a list. Its built-in list is `exampleadultsite.com` (the test case), 20 large adult sites and a few found missing in use, and a community list of some 64,000 more (StevenBlack/hosts's adult list, MIT), and you can add your own. Each attempt to open a listed site is noted, with the time: the latest on its settings page, the whole record on a page of its own (see **Blocked attempts**).
+A browser extension for Chrome, Edge, Brave and Firefox that blocks websites on a list. Its built-in list is `exampleadultsite.com` (the test case), 20 large adult sites, some newer ones the community list doesn't have yet (AI "companion", image and undress sites, and a few hookup and image sites), and a community list of some 64,000 more (StevenBlack/hosts's adult list, MIT), and you can add your own. Each attempt to open a listed site is noted, with the time: the latest on its settings page, the whole record on a page of its own (see **Blocked attempts**).
 
 **Test case:** navigate to `exampleadultsite.com`. **Expected:** the website is blocked. With the extension loaded, you land on a "This site is blocked" page and nothing is fetched from the site. Under the Firefox lock, Firefox blocks it itself before the extension does, so you land on Firefox's own **Blocked Page** instead.
 
@@ -146,6 +146,8 @@ The record starts when the extension starts watching, but the browser's own hist
 
 The browser fills in addresses from its own history and bookmarks, blocked sites included: a blocked try still puts the typed address into the history, where typing its first letter brings it back. So once a try is in the record, the extension takes the site's pages out of the browser's history, and removes bookmarks to listed sites: the earlier visits the history scan found (the line under the summary says how many pages and bookmarks went), and each new try a moment after it is noted. The record keeps them all, with their times, so the record page is the place to look, not the browser's own history window. Sites pinned by hand on Firefox's new-tab page, and what Firefox suggests from the web rather than from this profile, aren't touched.
 
+No list is complete: new sites appear every week, and the community list lags behind on the newest kind. So the same look through the history also notes sites that aren't on either list but look adult from their names (`porn`, `hentai`, `nsfw`, `escort`, a `.xxx` address, and so on, judged with care so that `essex.gov.uk` and `peacocktv.com` are left alone). The settings page says how many there are, and the record page lists them under **Not on the list, but might belong there**, most visited first, with the number of visits and the last one. They are not blocked; **Add to your list** puts one on your list (the same list as the box on the settings page, which updates), blocks it from then on in that browser, and has the history looked through again, so its earlier visits join the record and it leaves the table. Only the name is judged: a plain name such as `swappz.com` passes unnoticed, which is why those still need adding by hand when you meet one.
+
 Nothing on either page clears the record, and the pages have no PIN, so anyone who opens them can read it. The record stays until the extension is removed (which the Firefox lock prevents) or the browser profile is deleted, and only the oldest notes go once there are more than 10,000 (1,000 before version 1.3.5). Like the sites you add, it is kept in the browser's own storage for the extension, so Firefox drops it when it quits if the add-on isn't signed, and it never leaves the computer: the add-on still collects no data in Mozilla's sense.
 
 What it doesn't see:
@@ -179,8 +181,8 @@ What it can't do:
 npm test                  # fast checks, no install needed
 npm install               # once, for the Chromium tests
 npx playwright install chromium    # once, if Playwright has no browser yet
-npm run test:browser      # 54 tests in a real Chromium
-npm run test:firefox      # 27 tests in the Firefox installed on this computer
+npm run test:browser      # 55 tests in a real Chromium
+npm run test:firefox      # 28 tests in the Firefox installed on this computer
 ```
 
 `npm run test:browser` loads the extension the way "Load unpacked" does and drives it like a person would. `npm run test:firefox` does the same in Firefox. It builds the zip that `npm run package:firefox` makes, loads it the way "Load Temporary Add-on…" does, and then checks that the `extension` folder itself loads too. It finds Firefox in its usual place on macOS, Windows or Linux, or uses the one in `FIREFOX`, and is skipped if there is none.
@@ -208,7 +210,7 @@ No real website is contacted: every request goes to a small local server instead
 | --- | --- |
 | `extension/` | The extension. Load this folder. |
 | `extension/rules/` | The built-in rules (`adult-1.json`, `adult-2.json`, …, each a ruleset the manifest lists) and the same domains as a plain list (`domains.json`), generated from `blocklists/`. Don't edit by hand. |
-| `extension/lib/` | Domain cleanup and rule building, shared with the build script; the record of blocked attempts (`attempts.js`), shared by `background.js` and both pages; and the time-lock puzzle (`timelock.js`). |
+| `extension/lib/` | Domain cleanup and rule building, shared with the build script; the record of blocked attempts (`attempts.js`), shared by `background.js` and both pages; the person's own list as the dynamic rules (`mylist.js`); the sites that look adult by name (`suspects.js`); and the time-lock puzzle (`timelock.js`). |
 | `extension/background.js` | Opens the settings page after install and from the toolbar button, notes blocked attempts from what the browser reports about page loads, and takes listed sites out of the browser's history and bookmarks. |
 | `extension/attempts.html`, `extension/attempts.js` | The record page: the whole record by site and by day, and the file to save. Shares `options.css` with the settings page. |
 | `extension/lockbox.js`, `extension/lockbox-worker.js` | The locked-away password on the settings page, and the worker that does the puzzle's squaring. |

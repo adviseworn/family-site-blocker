@@ -391,6 +391,21 @@ button:disabled {
   cursor: progress;
 }
 
+button.small {
+  padding: 0.35em 0.8em;
+  font-size: 0.9rem;
+  white-space: nowrap;
+}
+
+#unlisted-table td:first-child {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+#unlisted-summary {
+  color: var(--muted);
+}
+
 #lockbox progress {
   display: block;
   width: 100%;

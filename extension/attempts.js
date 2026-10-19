@@ -3,6 +3,8 @@
 // button that saves the lot as a CSV file. Like the settings page, this page only reads the record;
 // nothing here can clear it (see lib/attempts.js).
 import { ATTEMPTS, LABELS, bySite, byDay, outcome, toCsv } from './lib/attempts.js';
+import { MY_LIST_CHANGED, addToMyList } from './lib/mylist.js';
+import { UNLISTED } from './lib/suspects.js';
 
 const api = globalThis.browser ?? globalThis.chrome;
 const $ = (id) => document.getElementById(id);
@@ -94,8 +96,58 @@ function renderDays() {
   $('days').replaceChildren(days);
 }
 
+// --- Not on the list, but might belong there -------------------------------------------------------------
+// What the history scan found that looks adult by name but isn't listed (lib/suspects.js). Adding a site
+// here puts it on the person's own list, the same list as the box on the settings page; the background
+// script is then told to reread the lists and look through the history again, which records the site's
+// earlier visits and takes it off this table.
+const added = new Set(); // sites added from this page, kept marked until the next look through the history
+
+function renderUnlisted(unlisted) {
+  const section = $('unlisted');
+  if (!unlisted) {
+    section.hidden = true;
+    return;
+  }
+  section.hidden = false;
+  const rows = $('unlisted-table').querySelector('tbody');
+  rows.replaceChildren();
+  const sites = unlisted.sites ?? [];
+  $('unlisted-summary').textContent = sites.length
+    ? `${plural(sites.length, 'site')}, as of ${whenFormat.format(unlisted.at)}.`
+    : `None found when the history was last looked through, ${whenFormat.format(unlisted.at)}.`;
+  $('unlisted-table').hidden = sites.length === 0;
+  for (const { site, visits, last } of sites) {
+    const row = element('tr');
+    const action = element('td');
+    const button = element('button', added.has(site) ? 'Added' : 'Add to your list', { type: 'button', class: 'secondary small' });
+    button.disabled = added.has(site);
+    button.addEventListener('click', () => add(site, button));
+    action.append(button);
+    row.append(element('td', site), element('td', String(visits)), element('td', last ? whenFormat.format(last) : '—'), action);
+    rows.append(row);
+  }
+}
+
+async function add(site, button) {
+  button.disabled = true;
+  button.textContent = 'Adding…';
+  try {
+    await addToMyList(api.declarativeNetRequest, site);
+    added.add(site);
+    button.textContent = 'Added';
+    await api.storage.local.set({ [MY_LIST_CHANGED]: Date.now() });
+    await api.runtime.sendMessage({ type: 'list-changed' }).catch(() => {});
+    await api.runtime.sendMessage({ type: 'scan-history' }).catch(() => {});
+  } catch (error) {
+    button.disabled = false;
+    button.textContent = 'Add to your list';
+    $('unlisted-summary').textContent = `Couldn't add ${site}: ${error.message}`;
+  }
+}
+
 async function render() {
-  const stored = await api.storage.local.get(ATTEMPTS);
+  const stored = await api.storage.local.get([ATTEMPTS, UNLISTED]);
   attempts = Array.isArray(stored[ATTEMPTS]) ? stored[ATTEMPTS] : [];
   if (onlySite && !attempts.some((attempt) => attempt.site === onlySite)) onlySite = null;
   renderSummary();
@@ -104,6 +156,7 @@ async function render() {
   $('all').hidden = attempts.length === 0;
   renderSites();
   renderDays();
+  renderUnlisted(stored[UNLISTED]);
 }
 
 function saveFile() {
@@ -128,7 +181,9 @@ $('filter-clear').addEventListener('click', () => {
 });
 // Keep the record current while the page is open.
 api.storage.onChanged.addListener((changes, area) => {
-  if (area === 'local' && changes[ATTEMPTS]) render();
+  if (area !== 'local') return;
+  if (changes[UNLISTED]) added.clear(); // a fresh look: anything added is listed now, so it is gone from the table
+  if (changes[ATTEMPTS] || changes[UNLISTED]) render();
 });
 
 $('version').textContent = `Version ${api.runtime.getManifest().version}`;
