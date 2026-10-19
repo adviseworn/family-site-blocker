@@ -5,6 +5,7 @@
 // it as an event page. Both load it as a module (manifest.json: background.type).
 import { ATTEMPTS, HISTORY_SCAN, bookmarksTo, hostOf, listedDomain, mergeVisits, record } from './lib/attempts.js';
 import { domainsOf } from './lib/rules.js';
+import { UNLISTED, tallyUnlisted } from './lib/suspects.js';
 
 const api = globalThis.browser ?? globalThis.chrome;
 
@@ -65,13 +66,20 @@ function note(attempt) {
 // Looking through it for listed sites adds the visits from before the extension was installed, or before a
 // site was listed, marked as found in the history. Pages inside other pages (frames) are left out, as live.
 // Once they are in the record, those pages are taken out of the browser's history, and bookmarks to listed
-// sites are removed (see "The address bar" below); the scan's note says how many.
+// sites are removed (see "The address bar" below); the scan's note says how many. The same look notes the
+// sites that aren't listed but look adult from their names (lib/suspects.js), for the record page.
 let scanning = null;
+let scanAgain = false; // asked for while a scan was running (the record page asks right after adding a site)
 function scanHistory() {
-  scanning ??= (async () => {
+  if (scanning) {
+    scanAgain = true;
+    return scanning;
+  }
+  scanning = (async () => {
     const started = Date.now();
     const visits = [];
     const pages = [];
+    let unlisted = null;
     let error = null;
     try {
       const listed = await listedDomains();
@@ -84,6 +92,7 @@ function scanHistory() {
           if (!/subframe/.test(visit.transition ?? '')) visits.push({ at: visit.visitTime, site });
         }
       }
+      unlisted = { at: started, sites: tallyUnlisted(items, listed) };
     } catch (failure) {
       error = String(failure?.message ?? failure);
     }
@@ -93,11 +102,19 @@ function scanHistory() {
         const { attempts, found, added } = mergeVisits(stored, visits);
         const taken = error ? { removed: 0, bookmarks: 0 } : await takeOut(pages, await listedDomains().catch(() => new Set()));
         const scan = { at: started, found, added, ...taken, ...(error ? { error } : {}) };
-        await api.storage.local.set(added ? { [ATTEMPTS]: attempts, [HISTORY_SCAN]: scan } : { [HISTORY_SCAN]: scan });
+        await api.storage.local.set({
+          ...(added ? { [ATTEMPTS]: attempts } : {}),
+          ...(unlisted ? { [UNLISTED]: unlisted } : {}),
+          [HISTORY_SCAN]: scan,
+        });
       })
       .catch(() => {}));
   })().finally(() => {
     scanning = null;
+    if (scanAgain) {
+      scanAgain = false;
+      scanHistory();
+    }
   });
   return scanning;
 }
