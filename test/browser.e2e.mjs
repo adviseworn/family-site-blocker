@@ -535,12 +535,20 @@ describe('real browser', () => {
       }
     });
 
-    test("visits found in this browser's history are added once, marked as such, with their own time", async () => {
+    test("visits found in this browser's history are added once, marked as such, with their own time, then taken out of the history with any bookmarks", async () => {
       const page = await freshRecord();
+      // Pages of a site (or its subdomains) in the browser's history and bookmarks; look-alikes such as
+      // exampleadultsite.co, which earlier tests opened, are not its pages and stay.
+      const ofSite = (site) => (urls) => urls.filter((url) => new URL(url).hostname === site || new URL(url).hostname.endsWith(`.${site}`));
+      const inHistory = (site) =>
+        page.evaluate((t) => chrome.history.search({ text: t, startTime: 0, maxResults: 1000 }).then((items) => items.map((item) => item.url)), site).then(ofSite(site));
+      const bookmarked = (site) => page.evaluate((t) => chrome.bookmarks.search(t).then((items) => items.map((item) => item.url)), site).then(ofSite(site));
       try {
-        // A visit the extension never saw: put straight into the browser's history (Chrome dates it now).
+        // A visit the extension never saw and a bookmark: put straight into the browser (Chrome dates the visit now).
         await page.evaluate(() => chrome.history.addUrl({ url: 'http://exampleadultsite.com/from-before' }));
         await page.evaluate(() => chrome.history.addUrl({ url: 'http://allowed.test/not-listed' }));
+        await page.evaluate(() => chrome.bookmarks.create({ title: 'saved', url: 'https://www.exampleadultsite.com/saved' }));
+        await page.evaluate(() => chrome.bookmarks.create({ title: 'kept', url: 'http://allowed.test/kept' }));
         await page.click('#history-scan-now');
         await page.waitForFunction(() => /^Looked through this browser's history on .+: found \d+ visits? to listed sites/.test(document.getElementById('history-scan').textContent));
         const list = await stored(page);
@@ -553,13 +561,23 @@ describe('real browser', () => {
         assert.ok(rows.some((row) => row[1] === SITE && row[2] === 'Visited (browser history)'), JSON.stringify(rows.slice(0, 3)));
         assert.match(await page.locator('#attempts-summary').innerText(), / \d+ from this browser's history\.$/);
 
-        // Looking again adds nothing.
+        // Once in the record, listed pages are taken out of the browser's history, and bookmarks to listed
+        // sites removed, so the address bar has nothing to suggest; everything else is left alone.
+        const line = await page.locator('#history-scan').innerText();
+        assert.match(line, / Removed \d+ pages? from this browser's history and 1 bookmark\.$/, line);
+        assert.deepEqual(await inHistory(SITE), []);
+        assert.deepEqual(await bookmarked(SITE), []);
+        assert.ok((await inHistory('allowed.test')).includes('http://allowed.test/not-listed'));
+        assert.deepEqual(await bookmarked('allowed.test'), ['http://allowed.test/kept']);
+
+        // Looking again finds nothing left, and adds nothing.
         const before = (await stored(page)).length;
         await page.click('#history-scan-now');
-        await page.waitForFunction(() => /none new\.$/.test(document.getElementById('history-scan').textContent));
+        await page.waitForFunction(() => /found no visits to listed sites\.$/.test(document.getElementById('history-scan').textContent));
         assert.equal((await stored(page)).length, before);
         assert.deepEqual(page.errors, []);
       } finally {
+        await page.evaluate(() => chrome.bookmarks.search('allowed.test').then((items) => Promise.all(items.map((item) => chrome.bookmarks.remove(item.id))))).catch(() => {});
         await page.evaluate(() => chrome.storage.local.remove(['attempts', 'historyScan'])).catch(() => {});
         await page.close();
       }

@@ -239,7 +239,7 @@ describe('Firefox', { skip: findFirefox() ? false : 'no Firefox found (set FIREF
         await sleep(200);
         status = await browser.run("return document.getElementById('history-scan').textContent");
       }
-      assert.match(status, /found \d+ visits? to listed sites, (all|\d+) new\.$/, status);
+      assert.match(status, /found \d+ visits? to listed sites, (all|\d+) new\.( Removed .+\.)?$/, status);
       const rows = await browser.run(`return [...document.querySelectorAll('#attempts-table tbody tr')].map((row) => [...row.cells].map((cell) => cell.textContent))`);
       const fromHistory = rows.filter((row) => row[2] === 'Visited (browser history)');
       assert.ok(fromHistory.length >= 1, JSON.stringify(rows.slice(0, 5)));
@@ -247,6 +247,98 @@ describe('Firefox', { skip: findFirefox() ? false : 'no Firefox found (set FIREF
       const expected = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(threeDaysAgo);
       assert.ok(fromHistory.some((row) => row[0] === expected), `a row dated ${expected}: ${JSON.stringify(fromHistory)}`);
       assert.equal(rows.at(-1)[2], 'Visited (browser history)', 'the oldest entry is the one from three days ago');
+    });
+
+    test("listed sites are taken out of Firefox's history and bookmarks once they are in the record, so the address bar stops suggesting them", async () => {
+      const settings = tabsAfterInstall.find(({ url }) => url.endsWith('/options.html'));
+      // What the address bar fills in for some typed letters, once Firefox has worked out how often each
+      // site is used (it does that in idle moments; here it is asked to do it now).
+      const autofill = async (typed) => {
+        await browser.inFirefox(`const done = arguments[arguments.length - 1];
+          const recalculator = Cc['@mozilla.org/places/frecency-recalculator;1'].getService(Ci.nsIObserver).wrappedJSObject;
+          recalculator.recalculateAnyOutdatedFrecencies().then(() => recalculator.recalculateAnyOutdatedFrecencies()).then(() => done('ok'), (e) => done('error: ' + e));`);
+        return browser.inFirefox(
+          `const done = arguments[arguments.length - 1];
+          const win = Services.wm.getMostRecentWindow('navigator:browser');
+          win.gURLBar.focus();
+          win.gURLBar.value = '';
+          win.gURLBar.search(arguments[0]);
+          setTimeout(() => { const value = win.gURLBar.value; win.gURLBar.value = ''; win.gURLBar.view.close(); done(value); }, 1500);`,
+          typed,
+        );
+      };
+      // The site's own pages (and its subdomains') in Firefox's history and bookmarks; look-alikes such as
+      // notexampleadultsite.com, which earlier tests opened, are not its pages and stay.
+      const ofSite = (urls) => urls.filter((url) => new URL(url).hostname === SITE || new URL(url).hostname.endsWith(`.${SITE}`));
+      const inHistory = () =>
+        browser.fx
+          .send('WebDriver:ExecuteAsyncScript', {
+            script: `const done = arguments[arguments.length - 1];
+            browser.history.search({ text: arguments[0], startTime: 0, maxResults: 1000 }).then((items) => done(items.map((item) => item.url)), (e) => done('error: ' + e));`,
+            args: [SITE],
+          })
+          .then(ofSite);
+      const bookmarked = () =>
+        browser.fx
+          .send('WebDriver:ExecuteAsyncScript', {
+            script: `const done = arguments[arguments.length - 1];
+            browser.bookmarks.search(arguments[0]).then((items) => done(items.map((item) => item.url)), (e) => done('error: ' + e));`,
+            args: [SITE],
+          })
+          .then(ofSite);
+
+      // Before: a visit from last week and a bookmark, as a profile from before the add-on would have.
+      await browser.fx.send('WebDriver:SwitchToWindow', { handle: settings.handle });
+      const seeded = await browser.fx.send('WebDriver:ExecuteAsyncScript', {
+        script: `const done = arguments[arguments.length - 1];
+          Promise.all([
+            browser.history.addUrl({ url: 'http://exampleadultsite.com/last-week', visitTime: arguments[0] }),
+            browser.bookmarks.create({ title: 'saved', url: 'https://www.exampleadultsite.com/saved' }),
+          ]).then(() => done('ok'), (error) => done('error: ' + error));`,
+        args: [Date.now() - 7 * 86_400_000],
+      });
+      assert.equal(seeded, 'ok');
+      assert.deepEqual(await inHistory(), ['http://exampleadultsite.com/last-week']);
+      assert.deepEqual(await bookmarked(), ['https://www.exampleadultsite.com/saved']);
+      assert.equal(await autofill('exa'), 'exampleadultsite.com/', 'Firefox suggests the site from its history and bookmarks');
+
+      // The scan notes the visit, then takes the page and the bookmark away.
+      await browser.run("document.getElementById('history-scan-now').click()");
+      const until = Date.now() + 15_000;
+      let status = '';
+      while (!/Removed/.test(status) && Date.now() < until) {
+        await sleep(200);
+        status = await browser.run("return document.getElementById('history-scan').textContent");
+      }
+      assert.match(status, /: found 1 visit to listed sites, all new\. Removed 1 page from this browser's history and 1 bookmark\.$/, status);
+      assert.deepEqual(await inHistory(), []);
+      assert.deepEqual(await bookmarked(), []);
+      assert.equal(await autofill('exa'), 'exa', 'nothing left to suggest');
+      const rows = await browser.run(`return [...document.querySelectorAll('#attempts-table tbody tr')].map((row) => [...row.cells].map((cell) => cell.textContent))`);
+      assert.ok(rows.some((row) => row[1] === SITE && row[2] === 'Visited (browser history)'), 'the visit stays in the record');
+
+      // Live: the site typed into the address bar, as a person would. Firefox puts the typed address into
+      // its history as the block page takes over; a moment later the add-on has taken it out again.
+      await browser.newTab();
+      const landed = await browser.inFirefox(
+        `const done = arguments[arguments.length - 1];
+        const win = Services.wm.getMostRecentWindow('navigator:browser');
+        win.gURLBar.focus();
+        win.gURLBar.value = arguments[0];
+        win.gURLBar.handleCommand();
+        setTimeout(() => done(win.gBrowser.selectedBrowser.currentURI.spec), 2000);`,
+        SITE,
+      );
+      assert.match(landed, /^moz-extension:\/\/.+\/blocked\.html$/, `typing ${SITE} ended at ${landed}`);
+      await browser.fx.send('WebDriver:SwitchToWindow', { handle: settings.handle });
+      const swept = Date.now() + 15_000;
+      let left = await inHistory();
+      while (left.length > 0 && Date.now() < swept) {
+        await sleep(250);
+        left = await inHistory();
+      }
+      assert.deepEqual(left, [], 'the typed address is gone from the history');
+      assert.equal(await autofill('exa'), 'exa');
     });
 
     test('the whole record has a page of its own, opened from the settings page, with the record by site and a file to save', async () => {

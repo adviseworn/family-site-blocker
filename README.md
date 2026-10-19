@@ -57,7 +57,7 @@ By hand:
 
 For a later version, raise `version` in `extension/manifest.json`, then run **Sign with Mozilla** again, or run `npm run package:firefox`, upload the new zip on the same add-on's page and carry on from step 5.
 
-Version 1.3.0 asks for two permissions earlier versions didn't have, to note blocked attempts, and 1.3.4 for a third, to add earlier visits from the browser's history (see **Blocked attempts**). Installing it by hand over an older version, Firefox asks you to accept them; under the lock, Firefox grants them itself. In Chrome, Edge and Brave, click the reload button under Family Site Blocker on the extensions page after replacing the folder's files, and if the extension shows as switched off with a note about new permissions, accept them there.
+Version 1.3.0 asks for two permissions earlier versions didn't have, to note blocked attempts, 1.3.4 for a third, to add earlier visits from the browser's history, and 1.3.6 for a fourth, to remove bookmarks to listed sites (see **Blocked attempts**). Installing it by hand over an older version, Firefox asks you to accept them; under the lock, Firefox grants them itself. In Chrome, Edge and Brave, click the reload button under Family Site Blocker on the extensions page after replacing the folder's files, and if the extension shows as switched off with a note about new permissions, accept them there.
 
 **Let it update itself (Firefox)**
 
@@ -144,6 +144,8 @@ If a listed site's page loaded anyway, because the extension had no access to we
 
 The record starts when the extension starts watching, but the browser's own history goes back further: every page loaded in that browser profile, for months in Firefox and 90 days in Chrome, except in private windows and whatever someone deleted. From version 1.3.4, when the extension is installed or updated it looks through that history for visits to listed sites and adds them, with their original times, marked **Visited (browser history)**; the line under the summary says when it last looked and what it found, and a button looks again (after adding a site to your list, say). Those entries say the site was visited; whether something else blocked it at the time isn't known. The same visit is never added twice, and a try the extension saw as it happened isn't added again from the history. This is what makes the record an answer to "has this browser been used for such sites", not only from the day the extension arrived.
 
+The browser fills in addresses from its own history and bookmarks, blocked sites included: a blocked try still puts the typed address into the history, where typing its first letter brings it back. So once a try is in the record, the extension takes the site's pages out of the browser's history, and removes bookmarks to listed sites: the earlier visits the history scan found (the line under the summary says how many pages and bookmarks went), and each new try a moment after it is noted. The record keeps them all, with their times, so the record page is the place to look, not the browser's own history window. Sites pinned by hand on Firefox's new-tab page, and what Firefox suggests from the web rather than from this profile, aren't touched.
+
 Nothing on either page clears the record, and the pages have no PIN, so anyone who opens them can read it. The record stays until the extension is removed (which the Firefox lock prevents) or the browser profile is deleted, and only the oldest notes go once there are more than 10,000 (1,000 before version 1.3.5). Like the sites you add, it is kept in the browser's own storage for the extension, so Firefox drops it when it quits if the add-on isn't signed, and it never leaves the computer: the add-on still collects no data in Mozilla's sense.
 
 What it doesn't see:
@@ -153,7 +155,7 @@ What it doesn't see:
 - Private windows, unless the extension is allowed there (the settings page says whether it is). Under the Firefox lock there are none.
 - Tries while the extension was off, or sites that aren't on either list, unless the browser's history has them (see above).
 
-To note attempts, the extension asks the browser to tell it about page loads (the `webNavigation` and `webRequest` permissions), and to read its history (`history`). Firefox's add-on permission prompt calls those "Access browser activity during navigation" and "Access browsing history".
+To note attempts, the extension asks the browser to tell it about page loads (the `webNavigation` and `webRequest` permissions), to read and change its history (`history`), and to remove bookmarks (`bookmarks`). Firefox's add-on permission prompt calls those "Access browser activity during navigation", "Access browsing history" and "Read and modify bookmarks".
 
 ## Locked-away password
 
@@ -178,7 +180,7 @@ npm test                  # fast checks, no install needed
 npm install               # once, for the Chromium tests
 npx playwright install chromium    # once, if Playwright has no browser yet
 npm run test:browser      # 54 tests in a real Chromium
-npm run test:firefox      # 26 tests in the Firefox installed on this computer
+npm run test:firefox      # 27 tests in the Firefox installed on this computer
 ```
 
 `npm run test:browser` loads the extension the way "Load unpacked" does and drives it like a person would. `npm run test:firefox` does the same in Firefox. It builds the zip that `npm run package:firefox` makes, loads it the way "Load Temporary Add-on…" does, and then checks that the `extension` folder itself loads too. It finds Firefox in its usual place on macOS, Windows or Linux, or uses the one in `FIREFOX`, and is skipped if there is none.
@@ -207,7 +209,7 @@ No real website is contacted: every request goes to a small local server instead
 | `extension/` | The extension. Load this folder. |
 | `extension/rules/` | The built-in rules (`adult-1.json`, `adult-2.json`, …, each a ruleset the manifest lists) and the same domains as a plain list (`domains.json`), generated from `blocklists/`. Don't edit by hand. |
 | `extension/lib/` | Domain cleanup and rule building, shared with the build script; the record of blocked attempts (`attempts.js`), shared by `background.js` and both pages; and the time-lock puzzle (`timelock.js`). |
-| `extension/background.js` | Opens the settings page after install and from the toolbar button, and notes blocked attempts from what the browser reports about page loads. |
+| `extension/background.js` | Opens the settings page after install and from the toolbar button, notes blocked attempts from what the browser reports about page loads, and takes listed sites out of the browser's history and bookmarks. |
 | `extension/attempts.html`, `extension/attempts.js` | The record page: the whole record by site and by day, and the file to save. Shares `options.css` with the settings page. |
 | `extension/lockbox.js`, `extension/lockbox-worker.js` | The locked-away password on the settings page, and the worker that does the puzzle's squaring. |
 | `blocklists/` | The built-in list, as plain text: `starter.txt` (the test case and the large sites) and `community.txt` (the community list). |
