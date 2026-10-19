@@ -1,6 +1,7 @@
 import { ATTEMPTS, HISTORY_SCAN, LABELS, outcome } from './lib/attempts.js';
 import { parseDomainList } from './lib/domains.js';
 import { MY_LIST_CHANGED, myList, saveMyList } from './lib/mylist.js';
+import { ENGINES } from './lib/safesearch.js';
 import { UNLISTED } from './lib/suspects.js';
 
 // Firefox provides `browser`; Chrome, Edge and Brave provide `chrome`. Both return promises here.
@@ -237,6 +238,7 @@ $('save').addEventListener('click', save);
 // The version next to the title: when a new one is being installed account by account, it shows which
 // accounts still have the old one.
 $('version').textContent = `Version ${api.runtime.getManifest().version}`;
+$('engines').textContent = `${ENGINES.slice(0, -1).map(({ name }) => name).join(', ')} and ${ENGINES.at(-1).name}`;
 checkAccess();
 checkPrivateWindows();
 renderAttempts().catch((error) => {

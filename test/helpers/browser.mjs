@@ -34,8 +34,9 @@ export async function startStubInternet() {
   const server = createServer((req, res) => {
     const host = String(req.headers.host ?? '').toLowerCase();
     // Proxied requests carry the full address ("http://site/path"), direct ones only the path.
-    const path = new URL(req.url ?? '/', `http://${host || 'localhost'}`).pathname;
-    requests.push({ host, path });
+    const url = new URL(req.url ?? '/', `http://${host || 'localhost'}`);
+    const path = url.pathname;
+    requests.push({ host, path, search: url.search, headers: req.headers });
 
     const custom = pages.get(`${host}${path}`) ?? pages.get(path);
     if (custom) {
