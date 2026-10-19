@@ -3,7 +3,7 @@
 // person can see whether anything still needs switching on, and when the toolbar button is clicked) and
 // keeps the record of blocked attempts. Chrome, Edge and Brave run it as a service worker; Firefox runs
 // it as an event page. Both load it as a module (manifest.json: background.type).
-import { ATTEMPTS, HISTORY_SCAN, hostOf, listedDomain, mergeVisits, record } from './lib/attempts.js';
+import { ATTEMPTS, HISTORY_SCAN, bookmarksTo, hostOf, listedDomain, mergeVisits, record } from './lib/attempts.js';
 import { domainsOf } from './lib/rules.js';
 
 const api = globalThis.browser ?? globalThis.chrome;
@@ -64,11 +64,14 @@ function note(attempt) {
 // every page it loaded in this profile, for months (Firefox) or 90 days (Chrome), except in private windows.
 // Looking through it for listed sites adds the visits from before the extension was installed, or before a
 // site was listed, marked as found in the history. Pages inside other pages (frames) are left out, as live.
+// Once they are in the record, those pages are taken out of the browser's history, and bookmarks to listed
+// sites are removed (see "The address bar" below); the scan's note says how many.
 let scanning = null;
 function scanHistory() {
   scanning ??= (async () => {
     const started = Date.now();
     const visits = [];
+    const pages = [];
     let error = null;
     try {
       const listed = await listedDomains();
@@ -76,6 +79,7 @@ function scanHistory() {
       for (const item of items) {
         const site = listedDomain(hostOf(item.url), listed);
         if (!site) continue;
+        pages.push(item.url);
         for (const visit of await api.history.getVisits({ url: item.url })) {
           if (!/subframe/.test(visit.transition ?? '')) visits.push({ at: visit.visitTime, site });
         }
@@ -87,7 +91,8 @@ function scanHistory() {
       .then(async () => {
         const stored = (await api.storage.local.get(ATTEMPTS))[ATTEMPTS];
         const { attempts, found, added } = mergeVisits(stored, visits);
-        const scan = { at: started, found, added, ...(error ? { error } : {}) };
+        const taken = error ? { removed: 0, bookmarks: 0 } : await takeOut(pages, await listedDomains().catch(() => new Set()));
+        const scan = { at: started, found, added, ...taken, ...(error ? { error } : {}) };
         await api.storage.local.set(added ? { [ATTEMPTS]: attempts, [HISTORY_SCAN]: scan } : { [HISTORY_SCAN]: scan });
       })
       .catch(() => {}));
@@ -95,6 +100,53 @@ function scanHistory() {
     scanning = null;
   });
   return scanning;
+}
+
+// --- The address bar -------------------------------------------------------------------------------------
+// The browser fills in addresses from its history and its bookmarks, blocked sites included: a blocked try
+// still puts the typed address into the history, where typing its first letter brings it back. So once a
+// try is in the record, the site's pages are taken out of the browser's history, and bookmarks to listed
+// sites are removed; the record keeps them, with their times. A live try is swept a moment after it is
+// noted, because the browser writes the history entry while the page loads, not when the navigation starts.
+const SWEEP_AFTER_MS = 2500;
+const sweeps = new Map(); // site -> timer, so a burst of tries at one site is one sweep
+
+function sweepSoon(site) {
+  clearTimeout(sweeps.get(site));
+  sweeps.set(
+    site,
+    setTimeout(() => {
+      sweeps.delete(site);
+      sweep(site).catch(() => {});
+    }, SWEEP_AFTER_MS),
+  );
+}
+
+async function sweep(site) {
+  const listed = await listedDomains();
+  const pages = [];
+  for (const item of await api.history.search({ text: site, startTime: 0, maxResults: 100_000 })) {
+    if (listedDomain(hostOf(item.url), listed)) pages.push(item.url);
+  }
+  await takeOut(pages, listed);
+}
+
+/** Removes bookmarks to any listed site, then the given pages from the history; returns how many of each. */
+async function takeOut(pages, listed) {
+  let bookmarks = 0;
+  if (api.bookmarks && listed.size) {
+    const tree = await api.bookmarks.getTree().catch(() => []);
+    for (const bookmark of bookmarksTo(tree, listed)) {
+      await api.bookmarks.remove(bookmark.id).catch(() => {});
+      bookmarks += 1;
+    }
+  }
+  let removed = 0;
+  for (const url of new Set(pages)) {
+    await api.history.deleteUrl({ url }).catch(() => {});
+    removed += 1;
+  }
+  return { removed, bookmarks };
 }
 
 // Only pages in a tab (frameId 0), not frames inside other pages, and not pages Chrome prerenders by
@@ -107,14 +159,18 @@ async function listedSite({ frameId, url, documentLifecycle }) {
 
 async function tried(details) {
   const site = await listedSite(details);
-  if (site) await note({ at: details.timeStamp ?? Date.now(), site });
+  if (!site) return;
+  await note({ at: details.timeStamp ?? Date.now(), site });
+  sweepSoon(site);
 }
 
 // A listed site's page has loaded: the attempt got through. (A block page, Firefox's or the add-on's,
 // has its own address, so it never counts: Firefox reports its error pages under about:neterror.)
 async function opened(details) {
   const site = await listedSite(details);
-  if (site) await note({ at: details.timeStamp ?? Date.now(), site, opened: true });
+  if (!site) return;
+  await note({ at: details.timeStamp ?? Date.now(), site, opened: true });
+  sweepSoon(site);
 }
 
 // Two reports of each navigation, because each misses some. The browser's navigation events see every
