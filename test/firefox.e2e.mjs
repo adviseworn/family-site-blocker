@@ -401,6 +401,58 @@ describe('Firefox', { skip: findFirefox() ? false : 'no Firefox found (set FIREF
       await browser.fx.send('WebDriver:SwitchToWindow', { handle: settings.handle });
     });
 
+    test('a site that looks adult by name but is not listed is noted on the record page, and one click there adds it to the list', async () => {
+      const settings = tabsAfterInstall.find(({ url }) => url.endsWith('/options.html'));
+      await browser.fx.send('WebDriver:SwitchToWindow', { handle: settings.handle });
+      const seeded = await browser.fx.send('WebDriver:ExecuteAsyncScript', {
+        script: `const done = arguments[arguments.length - 1];
+          Promise.all([
+            browser.history.addUrl({ url: 'http://hentai-example.test/one', visitTime: arguments[0] }),
+            browser.history.addUrl({ url: 'http://m.hentai-example.test/two', visitTime: arguments[0] + 1000 }),
+            browser.history.addUrl({ url: 'http://sussex-example.test/', visitTime: arguments[0] }),
+          ]).then(() => done('ok'), (error) => done('error: ' + error));`,
+        args: [Date.now() - 2 * 86_400_000],
+      });
+      assert.equal(seeded, 'ok');
+      await browser.run("document.getElementById('history-scan-now').click()");
+      const until = Date.now() + 15_000;
+      let note = { hidden: true };
+      while (note.hidden && Date.now() < until) {
+        await sleep(200);
+        note = await browser.run(`const note = document.getElementById('unlisted-note'); return { hidden: note.hidden, text: note.textContent }`);
+      }
+      assert.equal(note.text, "1 site in this browser's history looks adult but isn't on either list: see the record page.");
+
+      const recordTab = (await browser.tabs()).find(({ url }) => url.endsWith('/attempts.html'));
+      await browser.fx.send('WebDriver:SwitchToWindow', { handle: recordTab.handle });
+      const rows = () =>
+        browser.run(`return [...document.querySelectorAll('#unlisted-table tbody tr')].map((row) => [...row.cells].map((cell) => cell.textContent))`);
+      let found = [];
+      for (let i = 0; i < 40 && found.length === 0; i++) {
+        if (i) await sleep(250);
+        found = await rows();
+      }
+      assert.deepEqual(found.map((row) => row.slice(0, 2)), [['hentai-example.test', '2']], JSON.stringify(found));
+      await browser.newTab();
+      assert.equal((await browser.visit('http://hentai-example.test/three')).outcome, 'site loaded', 'not blocked yet');
+
+      await browser.fx.send('WebDriver:SwitchToWindow', { handle: recordTab.handle });
+      await browser.run("document.querySelector('#unlisted-table button').click()");
+      const gone = Date.now() + 15_000;
+      let summary = '';
+      while (!summary.startsWith('None found') && Date.now() < gone) {
+        await sleep(250);
+        summary = await browser.run("return document.getElementById('unlisted-summary').textContent");
+      }
+      assert.match(summary, /^None found when the history was last looked through/, summary);
+      await browser.newTab();
+      await assertBlocked('http://hentai-example.test/three');
+      await browser.fx.send('WebDriver:SwitchToWindow', { handle: settings.handle });
+      assert.equal(await browser.run("return document.getElementById('custom').value"), 'hentai-example.test', "the settings page's box shows the addition");
+      const record = await browser.run(`return [...document.querySelectorAll('#attempts-table tbody tr')].map((row) => [...row.cells].map((cell) => cell.textContent))`);
+      assert.ok(record.some((row) => row[1] === 'hentai-example.test' && row[2] === 'Visited (browser history)'), JSON.stringify(record.slice(0, 4)));
+    });
+
     test('a password locked away with a short wait comes back after it, and is locked away again', async () => {
       const settings = tabsAfterInstall.find(({ url }) => url.endsWith('/options.html'));
       await browser.fx.send('WebDriver:SwitchToWindow', { handle: settings.handle });

@@ -1,6 +1,7 @@
 import { ATTEMPTS, HISTORY_SCAN, LABELS, outcome } from './lib/attempts.js';
 import { parseDomainList } from './lib/domains.js';
-import { buildRules, domainsOf } from './lib/rules.js';
+import { MY_LIST_CHANGED, myList, saveMyList } from './lib/mylist.js';
+import { UNLISTED } from './lib/suspects.js';
 
 // Firefox provides `browser`; Chrome, Edge and Brave provide `chrome`. Both return promises here.
 const api = globalThis.browser ?? globalThis.chrome;
@@ -26,9 +27,11 @@ async function builtInDomains() {
   return response.json();
 }
 
+let loaded = null; // the person's list as last shown in the box, to tell unsaved edits from the saved list
 async function refresh() {
-  const [builtIn, mine] = await Promise.all([builtInDomains(), dnr.getDynamicRules().then(domainsOf)]);
-  $('custom').value = mine.join('\n');
+  const [builtIn, mine] = await Promise.all([builtInDomains(), myList(dnr)]);
+  loaded = mine.join('\n');
+  $('custom').value = loaded;
   $('summary').textContent = `${sites(builtIn.length)} on the built-in list, ${mine.length} on yours.`;
 }
 
@@ -88,11 +91,7 @@ async function save() {
   const { domains, invalid } = parseDomainList($('custom').value);
   const status = $('status');
   try {
-    const existing = await dnr.getDynamicRules();
-    await dnr.updateDynamicRules({
-      removeRuleIds: existing.map((rule) => rule.id),
-      addRules: buildRules(domains),
-    });
+    await saveMyList(dnr, domains);
     // The background script keeps its own copy of the lists for noting blocked attempts.
     api.runtime.sendMessage({ type: 'list-changed' }).catch(() => {});
     await refresh();
@@ -163,10 +162,20 @@ function renderHistoryScan(scan) {
   line.textContent = `Looked through this browser's history on ${date}: ${found}${added}.` + (taken.length ? ` Removed ${taken.join(' and ')}.` : '');
 }
 
+// Sites the history scan found that aren't listed but look adult from their names (lib/suspects.js): a
+// pointer to the record page, where they can be added to the person's list.
+function renderUnlisted(unlisted) {
+  const note = $('unlisted-note');
+  const count = unlisted?.sites?.length ?? 0;
+  note.hidden = count === 0;
+  if (count) note.firstChild.textContent = `${sites(count)} in this browser's history look${count === 1 ? 's' : ''} adult but ${count === 1 ? "isn't" : "aren't"} on either list: `;
+}
+
 async function renderAttempts() {
-  const stored = await api.storage.local.get([ATTEMPTS, HISTORY_SCAN]);
+  const stored = await api.storage.local.get([ATTEMPTS, HISTORY_SCAN, UNLISTED]);
   const attempts = Array.isArray(stored[ATTEMPTS]) ? [...stored[ATTEMPTS]].reverse() : [];
   renderHistoryScan(stored[HISTORY_SCAN]);
+  renderUnlisted(stored[UNLISTED]);
   const table = $('attempts-table');
   const all = $('attempts-all');
   const rows = table.querySelector('tbody');
@@ -206,9 +215,12 @@ $('history-scan-now').addEventListener('click', () => {
   $('history-scan').textContent = "Looking through this browser's history…";
   api.runtime.sendMessage({ type: 'scan-history' }).catch(() => {});
 });
-// Keep the record current while the page is open.
+// Keep the record current while the page is open, and the box with the person's list when the record
+// page adds to it (unless the box holds unsaved edits, which must not be thrown away).
 api.storage.onChanged.addListener((changes, area) => {
-  if (area === 'local' && (changes[ATTEMPTS] || changes[HISTORY_SCAN])) renderAttempts();
+  if (area !== 'local') return;
+  if (changes[ATTEMPTS] || changes[HISTORY_SCAN] || changes[UNLISTED]) renderAttempts();
+  if (changes[MY_LIST_CHANGED] && $('custom').value === loaded) refresh().catch(() => {});
 });
 
 $('access-allow').addEventListener('click', () => {

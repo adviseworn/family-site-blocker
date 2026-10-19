@@ -35,6 +35,18 @@
       <p id="filter" hidden>Only <strong id="filter-site"></strong>. <button id="filter-clear" type="button" class="link">Show every site</button></p>
       <div id="days"></div>
     </section>
+
+    <section id="unlisted" aria-labelledby="unlisted-heading" hidden>
+      <h2 id="unlisted-heading">Not on the list, but might belong there</h2>
+      <p>Sites in this browser’s history whose names look adult but that aren’t on either list, most visited first, from the last look through the history. They are not blocked. <strong>Add to your list</strong> blocks one from then on, in this browser; its earlier visits then join the record above. Only the name is judged, so a plain name passes unnoticed and the odd innocent one may turn up here.</p>
+      <p id="unlisted-summary" aria-live="polite"></p>
+      <table id="unlisted-table" class="attempts" hidden>
+        <thead>
+          <tr><th scope="col">Site</th><th scope="col">Visits</th><th scope="col">Last visit</th><th scope="col"><span class="visually-hidden">Action</span></th></tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </section>
   </main>
   <script type="module" src="attempts.js"></script>
 </body>
