@@ -8,7 +8,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { LABELS, MAX_ATTEMPTS, byDay, bySite, hostOf, listedDomain, mergeVisits, outcome as whatHappened, record, toCsv } from '../extension/lib/attempts.js';
+import { LABELS, MAX_ATTEMPTS, bookmarksTo, byDay, bySite, hostOf, listedDomain, mergeVisits, outcome as whatHappened, record, toCsv } from '../extension/lib/attempts.js';
 import { normalizeDomain, parseDomainList } from '../extension/lib/domains.js';
 import { BLOCK_PAGE, CHUNK_SIZE, buildRules, domainsOf } from '../extension/lib/rules.js';
 import { BLOCKLIST_DIR, DOMAINS_PATH, MANIFEST_PATH, MAX_RULESET_BYTES, RULES_DIR, formatManifest, loadBlocklists, loadRules, renderDomains, renderRulesets, ruleResources } from '../scripts/build-rules.mjs';
@@ -299,6 +299,27 @@ test('blocked attempts: the record page sums the record up by site, most tries f
   assert.deepEqual(Object.keys(LABELS).sort(), ['blocked', 'history', 'opened']);
 });
 
+test('blocked attempts: the bookmarks to listed sites are picked out of the bookmark tree, folders and all', () => {
+  const listed = new Set(['exampleadultsite.com', 'custom.test']);
+  const tree = [
+    {
+      id: 'root',
+      children: [
+        { id: 'toolbar', title: 'Toolbar', children: [{ id: '1', title: 'saved', url: 'https://www.exampleadultsite.com/page' }, { id: '2', url: 'http://allowed.test/' }] },
+        { id: 'menu', children: [{ id: 'sep', type: 'separator' }, { id: 'deep', children: [{ id: '3', url: 'http://m.custom.test/x?y' }, { id: '4', url: 'http://notexampleadultsite.com/' }] }] },
+        { id: '5', url: 'place:folder=TOOLBAR' },
+        { id: '6', url: 'ftp://exampleadultsite.com/' },
+      ],
+    },
+  ];
+  assert.deepEqual(bookmarksTo(tree, listed), [
+    { id: '1', url: 'https://www.exampleadultsite.com/page', site: 'exampleadultsite.com' },
+    { id: '3', url: 'http://m.custom.test/x?y', site: 'custom.test' },
+  ]);
+  assert.deepEqual(bookmarksTo([], listed), []);
+  assert.deepEqual(bookmarksTo(undefined, listed), []);
+});
+
 test('blocked attempts: the saved file is CSV, oldest first, with local times that say their time zone', () => {
   const at = new Date(2026, 9, 18, 15, 12, 3).getTime();
   const csv = toCsv([
@@ -357,6 +378,7 @@ test('manifest points at files that exist', () => {
   assert.ok(manifest.permissions.includes('storage'), 'the lists and the record of attempts are stored');
   assert.ok(manifest.permissions.includes('webNavigation') && manifest.permissions.includes('webRequest'), 'noting blocked attempts needs to see page loads');
   assert.ok(manifest.permissions.includes('history'), "adding earlier visits needs the browser's history");
+  assert.ok(manifest.permissions.includes('bookmarks'), 'removing bookmarks to listed sites, so the address bar stops suggesting them');
   assert.ok(manifest.host_permissions.includes('<all_urls>'), 'redirect rules need host access');
   for (const { path } of manifest.declarative_net_request.rule_resources) {
     assert.ok(existsSync(join(EXT, path)), path);
