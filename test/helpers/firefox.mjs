@@ -118,6 +118,9 @@ export async function launchFirefox(stub, { extension = true, extensionDir = EXT
     'marionette.port': marionettePort,
     'dom.security.https_first': false,
     'dom.security.https_only_mode': false,
+    // Big sites (bing.com, yahoo.com, youtube.com) are on Firefox's built-in HTTPS-only list; the stand-in
+    // internet speaks plain http, so that list is switched off for the tests.
+    'network.stricttransportsecurity.preloadlist': false,
     'browser.shell.checkDefaultBrowser': false,
     'browser.startup.page': 0,
     'browser.startup.homepage_override.mstone': 'ignore',

@@ -271,6 +271,79 @@ describe('real browser', () => {
     });
   });
 
+  describe('safe search', () => {
+    // Each search goes out once, with the engine's strict setting added; the engine's other pages are left alone.
+    const searches = [
+      ['http://www.google.com/search?q=test', 'safe', 'active'],
+      ['http://www.google.co.uk/search?q=test&safe=off', 'safe', 'active'],
+      ['http://www.bing.com/images/search?q=test', 'adlt', 'strict'],
+      ['http://duckduckgo.com/?q=test&ia=web', 'kp', '1'],
+      ['http://html.duckduckgo.com/html/?q=test', 'kp', '1'],
+      ['http://search.yahoo.com/search?p=test', 'vm', 'r'],
+      ['http://images.search.yahoo.com/search/images?p=test', 'vm', 'r'],
+      ['http://search.brave.com/search?q=test', 'safesearch', 'strict'],
+    ];
+    for (const [url, key, value] of searches) {
+      test(`${url} goes out with ${key}=${value}`, async () => {
+        const page = await browser.context.newPage();
+        try {
+          stub.clear();
+          await page.goto(url, { waitUntil: 'domcontentloaded' });
+          const final = new URL(page.url());
+          assert.equal(final.searchParams.get(key), value, `ended at ${page.url()}`);
+          assert.equal(final.searchParams.get(new URL(url).searchParams.has('q') ? 'q' : 'p'), 'test', 'the search itself is kept');
+          const sent = stub.requests.filter((r) => r.path !== '/favicon.ico');
+          assert.equal(sent.length, 1, `one request, not a loop: ${JSON.stringify(sent.map((r) => r.host + r.path + r.search))}`);
+          assert.equal(new URL(`http://${sent[0].host}${sent[0].path}${sent[0].search}`).searchParams.get(key), value, 'the engine sees the setting');
+        } finally {
+          await page.close();
+        }
+      });
+    }
+
+    test('a search already made strict, and pages that are not searches, are not redirected', async () => {
+      const page = await browser.context.newPage();
+      try {
+        for (const url of ['http://www.google.com/search?q=test&safe=active', 'http://www.google.com/', 'http://www.google.com/maps?q=test', 'http://duckduckgo.com/', 'http://example.com/search?q=test']) {
+          stub.clear();
+          await page.goto(url, { waitUntil: 'domcontentloaded' });
+          assert.equal(page.url(), url);
+          assert.equal(stub.requests.filter((r) => r.path !== '/favicon.ico').length, 1, url);
+        }
+      } finally {
+        await page.close();
+      }
+    });
+
+    test('every request to YouTube carries the header that keeps it in Restricted Mode; other sites get no such header', async () => {
+      const page = await browser.context.newPage();
+      try {
+        stub.clear();
+        stub.page('www.youtube.com/results', '<img src="http://i.ytimg.com/x.gif"><script>fetch("http://www.youtube.com/youtubei/v1/search").catch(() => {})</script>');
+        await page.goto('http://www.youtube.com/results?search_query=test', { waitUntil: 'load' });
+        await new Promise((done) => setTimeout(done, 500));
+        const toYouTube = stub.requests.filter((r) => r.host === 'www.youtube.com');
+        assert.ok(toYouTube.length >= 2, JSON.stringify(stub.requests.map((r) => r.host + r.path)));
+        assert.ok(toYouTube.every((r) => r.headers['youtube-restrict'] === 'Strict'), JSON.stringify(toYouTube.map((r) => [r.path, r.headers['youtube-restrict']])));
+        stub.clear();
+        await page.goto('http://allowed.test/', { waitUntil: 'domcontentloaded' });
+        assert.equal(stub.requests.find((r) => r.host === 'allowed.test').headers['youtube-restrict'], undefined);
+      } finally {
+        await page.close();
+      }
+    });
+
+    test('the settings page names the engines and offers a Google search to try', async () => {
+      const page = await openSettings();
+      try {
+        assert.equal(await page.locator('#engines').innerText(), 'Google, Bing, DuckDuckGo, Yahoo and Brave Search');
+        assert.equal(await page.locator('#safe-search a.button').getAttribute('href'), 'https://www.google.com/search?q=test');
+      } finally {
+        await page.close();
+      }
+    });
+  });
+
   describe('settings page', () => {
     test('opens by itself right after the extension is installed', () => {
       assert.equal(openedOnInstall, true);
