@@ -93,6 +93,48 @@ describe('Firefox', { skip: findFirefox() ? false : 'no Firefox found (set FIREF
     }
   });
 
+  describe('safe search', () => {
+    for (const [url, key, value] of [
+      ['http://www.google.com/search?q=test', 'safe', 'active'],
+      ['http://www.bing.com/images/search?q=test&adlt=off', 'adlt', 'strict'],
+      ['http://duckduckgo.com/?q=test&ia=web', 'kp', '1'],
+      ['http://search.yahoo.com/search?p=test', 'vm', 'r'],
+      ['http://search.brave.com/search?q=test', 'safesearch', 'strict'],
+    ]) {
+      test(`${url} goes out once, with ${key}=${value}`, async () => {
+        stub.clear();
+        const result = await browser.visit(url);
+        assert.equal(result.outcome, 'site loaded', `${url} ended at ${result.finalUrl}`);
+        assert.equal(new URL(result.finalUrl).searchParams.get(key), value, result.finalUrl);
+        const sent = stub.requests.filter((r) => r.path !== '/favicon.ico');
+        assert.equal(sent.length, 1, `one request, not a loop: ${JSON.stringify(sent.map((r) => r.host + r.path + r.search))}`);
+        assert.equal(new URL(`http://${sent[0].host}${sent[0].path}${sent[0].search}`).searchParams.get(key), value);
+      });
+    }
+
+    test('a search already made strict, and pages that are not searches, are left alone', async () => {
+      for (const url of ['http://www.google.com/search?q=test&safe=active', 'http://www.google.com/', 'http://www.google.com/maps?q=test', 'http://example.com/search?q=test']) {
+        stub.clear();
+        const result = await browser.visit(url);
+        assert.equal(result.finalUrl, url);
+        assert.equal(stub.requests.filter((r) => r.path !== '/favicon.ico').length, 1, url);
+      }
+    });
+
+    test('requests to YouTube carry the Restricted Mode header; others do not', async () => {
+      stub.clear();
+      stub.page('www.youtube.com/results', '<script>fetch("http://www.youtube.com/youtubei/v1/search").catch(() => {})</script>');
+      await browser.visit('http://www.youtube.com/results?search_query=test');
+      await sleep(500);
+      const toYouTube = stub.requests.filter((r) => r.host === 'www.youtube.com');
+      assert.ok(toYouTube.length >= 2, JSON.stringify(stub.requests.map((r) => r.host + r.path)));
+      assert.ok(toYouTube.every((r) => r.headers['youtube-restrict'] === 'Strict'), JSON.stringify(toYouTube.map((r) => [r.path, r.headers['youtube-restrict']])));
+      stub.clear();
+      await browser.visit('http://allowed.test/');
+      assert.equal(stub.requests.find((r) => r.host === 'allowed.test')?.headers['youtube-restrict'], undefined);
+    });
+  });
+
   describe('the site is blocked when other pages lead to it', () => {
     test('clicking a link', async () => {
       await browser.visit('http://allowed.test/links');

@@ -10,6 +10,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { parseDomainList } from '../extension/lib/domains.js';
 import { buildRules } from '../extension/lib/rules.js';
+import { safeSearchRules } from '../extension/lib/safesearch.js';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 export const BLOCKLIST_DIR = join(ROOT, 'blocklists');
@@ -17,6 +18,8 @@ export const EXTENSION_DIR = join(ROOT, 'extension');
 export const MANIFEST_PATH = join(EXTENSION_DIR, 'manifest.json');
 export const RULES_DIR = join(EXTENSION_DIR, 'rules');
 export const DOMAINS_PATH = join(RULES_DIR, 'domains.json');
+export const SAFE_SEARCH_FILE = 'safe-search.json'; // the safe-search ruleset (lib/safesearch.js), next to the adult ones
+export const SAFE_SEARCH_PATH = join(RULES_DIR, SAFE_SEARCH_FILE);
 export const MAX_RULESET_BYTES = 3 * 1024 * 1024;
 const RULESET = /^adult-\d+\.json$/;
 
@@ -62,8 +65,14 @@ export function renderDomains(domains) {
   return `[\n${domains.map((domain) => `  ${JSON.stringify(domain)}`).join(',\n')}\n]\n`;
 }
 
-/** manifest.json's rule_resources for these files. */
-export const ruleResources = (files) => files.map(({ id, file }) => ({ id, enabled: true, path: `rules/${file}` }));
+/** manifest.json's rule_resources: the adult rulesets in these files, then the safe-search ruleset. */
+export const ruleResources = (files) => [
+  ...files.map(({ id, file }) => ({ id, enabled: true, path: `rules/${file}` })),
+  { id: 'safe-search', enabled: true, path: `rules/${SAFE_SEARCH_FILE}` },
+];
+
+/** The safe-search ruleset as written to rules/safe-search.json. */
+export const renderSafeSearch = () => `${JSON.stringify(safeSearchRules(), null, 2)}\n`;
 
 /** manifest.json as it is kept: two-space JSON, with short lists of strings on one line. */
 export function formatManifest(manifest) {
@@ -91,6 +100,7 @@ function main() {
   for (const name of readdirSync(RULES_DIR)) if (RULESET.test(name) || name === 'adult.json') rmSync(join(RULES_DIR, name));
   for (const { file, text } of rulesets) writeFileSync(join(RULES_DIR, file), text);
   writeFileSync(DOMAINS_PATH, renderDomains(domains));
+  writeFileSync(SAFE_SEARCH_PATH, renderSafeSearch());
   const manifest = JSON.parse(readFileSync(MANIFEST_PATH, 'utf8'));
   manifest.declarative_net_request.rule_resources = ruleResources(rulesets);
   writeFileSync(MANIFEST_PATH, formatManifest(manifest));

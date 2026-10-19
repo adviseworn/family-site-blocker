@@ -117,7 +117,7 @@ What can still get round it:
 
 ### Settings page
 
-To open it later, click the puzzle-piece **Extensions** button in the toolbar and choose **Family Site Blocker** (in Chrome you can pin it there to keep its icon in view). The version installed is shown next to the title: when a new version is going in account by account, that shows which accounts still have the old one. In Chrome, Edge and Brave it also checks six addresses against the browser's own rule matcher and shows Passed or Failed for each. Firefox doesn't let extensions run that check, so use the **Open exampleadultsite.com** button there instead. Its **Blocked attempts** section shows the latest tries at listed sites, with a link to the whole record (see below).
+To open it later, click the puzzle-piece **Extensions** button in the toolbar and choose **Family Site Blocker** (in Chrome you can pin it there to keep its icon in view). The version installed is shown next to the title: when a new version is going in account by account, that shows which accounts still have the old one. Its **Safe search** section says which search engines are kept on their strict filter (see **Safe search** below). In Chrome, Edge and Brave it also checks six addresses against the browser's own rule matcher and shows Passed or Failed for each. Firefox doesn't let extensions run that check, so use the **Open exampleadultsite.com** button there instead. Its **Blocked attempts** section shows the latest tries at listed sites, with a link to the whole record (see below).
 
 ## What it blocks
 
@@ -127,6 +127,10 @@ To open it later, click the puzzle-piece **Extensions** button in the toolbar an
 - Lookalikes are left alone: `notexampleadultsite.com`, `exampleadultsite.com.example.org`, `exampleadultsite.co`.
 
 It blocks by domain. It can't block one page of a site, and it doesn't read page content, so an adult site that isn't on the list isn't blocked.
+
+### Safe search
+
+A list can't filter search results, and Google Images, Bing and the rest show explicit results with their own filter off. From version 1.4.0 the extension keeps those filters on: a search on Google, Bing, DuckDuckGo, Yahoo or Brave Search goes out with the engine's strict setting added to its address (`safe=active`, `adlt=strict`, `kp=1`, `vm=r`, `safesearch=strict`), whatever the engine's own settings say and whichever way the search was typed, and every request to YouTube carries the `YouTube-Restrict: Strict` header, which keeps it in Restricted Mode. The browser does this itself from rules the extension gives it (`extension/rules/safe-search.json`, written by `npm run build` from `extension/lib/safesearch.js`), before the request goes out, so there is no moment when the unfiltered page loads; a search whose address already has the setting is left as it is, and so are the engines' other pages. The settings page's **Safe search** section has a Google search to try: the address gains `safe=active`. Other search engines, and sites with a search of their own, aren't covered, and the filters are the engines' own, with their misses. Under the Firefox lock this needs the add-on running, so it doesn't apply in Troubleshoot Mode.
 
 ## Adding sites
 
@@ -181,8 +185,8 @@ What it can't do:
 npm test                  # fast checks, no install needed
 npm install               # once, for the Chromium tests
 npx playwright install chromium    # once, if Playwright has no browser yet
-npm run test:browser      # 55 tests in a real Chromium
-npm run test:firefox      # 28 tests in the Firefox installed on this computer
+npm run test:browser      # 66 tests in a real Chromium
+npm run test:firefox      # 35 tests in the Firefox installed on this computer
 ```
 
 `npm run test:browser` loads the extension the way "Load unpacked" does and drives it like a person would. `npm run test:firefox` does the same in Firefox. It builds the zip that `npm run package:firefox` makes, loads it the way "Load Temporary Add-on…" does, and then checks that the `extension` folder itself loads too. It finds Firefox in its usual place on macOS, Windows or Linux, or uses the one in `FIREFOX`, and is skipped if there is none.
@@ -203,19 +207,20 @@ No real website is contacted: every request goes to a small local server instead
 - Firefox takes each of its settings from one place. The lock leaves out the one other blockers use for their own add-ons (`ExtensionSettings`), so theirs keep working, and its other settings are the same as Plucky's, apart from `WebsiteFilter` (Firefox's own copy of the built-in list). If another program sets `Preferences` differently, Firefox uses the lock's (which keeps add-ons' blocking switched on) instead of that program's. If another program also sets `WebsiteFilter`, Firefox uses the lock's list and drops that program's. To check before installing the lock on a Mac with another blocker, look for `WebsiteFilter` on `about:policies`.
 - Firefox's own copy of the built-in list takes at most 1,000 sites, stops pages and frames but not images, scripts or other things an allowed page loads, and shows Firefox's **Blocked Page** rather than the add-on's. While the add-on runs, it covers the rest.
 - Reaching a site by its IP address, through a proxy or VPN, or through a translation or cache service is not covered unless that address is on the list too.
+- Safe search covers five search engines and YouTube, with the filters those sites provide. Reddit, X, Discord, Telegram and other platforms carry adult content under their own domains, which a list can't separate from the rest.
 
 ## Files
 
 | Path | What it is |
 | --- | --- |
 | `extension/` | The extension. Load this folder. |
-| `extension/rules/` | The built-in rules (`adult-1.json`, `adult-2.json`, …, each a ruleset the manifest lists) and the same domains as a plain list (`domains.json`), generated from `blocklists/`. Don't edit by hand. |
-| `extension/lib/` | Domain cleanup and rule building, shared with the build script; the record of blocked attempts (`attempts.js`), shared by `background.js` and both pages; the person's own list as the dynamic rules (`mylist.js`); the sites that look adult by name (`suspects.js`); and the time-lock puzzle (`timelock.js`). |
+| `extension/rules/` | The built-in rules (`adult-1.json`, `adult-2.json`, …, each a ruleset the manifest lists), the same domains as a plain list (`domains.json`), and the safe-search rules (`safe-search.json`), all written by `npm run build`. Don't edit by hand. |
+| `extension/lib/` | Domain cleanup and rule building, shared with the build script; the record of blocked attempts (`attempts.js`), shared by `background.js` and both pages; the person's own list as the dynamic rules (`mylist.js`); the sites that look adult by name (`suspects.js`); the safe-search rules (`safesearch.js`); and the time-lock puzzle (`timelock.js`). |
 | `extension/background.js` | Opens the settings page after install and from the toolbar button, notes blocked attempts from what the browser reports about page loads, and takes listed sites out of the browser's history and bookmarks. |
 | `extension/attempts.html`, `extension/attempts.js` | The record page: the whole record by site and by day, and the file to save. Shares `options.css` with the settings page. |
 | `extension/lockbox.js`, `extension/lockbox-worker.js` | The locked-away password on the settings page, and the worker that does the puzzle's squaring. |
 | `blocklists/` | The built-in list, as plain text: `starter.txt` (the test case and the large sites) and `community.txt` (the community list). |
-| `scripts/build-rules.mjs` | Turns `blocklists/` into the files in `extension/rules/` and lists the rule files in `manifest.json`. `npm run build` runs it, then `scripts/firefox-lock.mjs`, so the lock's profile carries the same list. |
+| `scripts/build-rules.mjs` | Turns `blocklists/` into the files in `extension/rules/`, writes the safe-search rules next to them, and lists the rule files in `manifest.json`. `npm run build` runs it, then `scripts/firefox-lock.mjs`, so the lock's profile carries the same list. |
 | `scripts/update-blocklist.mjs` | `npm run blocklist`: fetches the latest copy of the community list into `blocklists/community.txt`. |
 | `scripts/package-firefox.mjs` | `npm run package:firefox`: makes the zip to upload to Mozilla, with Firefox's copy of `manifest.json`. |
 | `scripts/package-signed.mjs` | `npm run package:signed`: puts the signed `.xpi` from Mozilla in a zip that gives it a clear name and the gate icon in Finder. |

@@ -250,8 +250,16 @@ textarea {
   color: var(--muted);
 }
 
-#history-scan {
+#history-scan,
+#safe-search-note {
   color: var(--muted);
+}
+
+code {
+  padding: 0.1em 0.35em;
+  border-radius: 4px;
+  background: var(--surface);
+  font: 0.9em ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 
 /* The record page */

@@ -13,7 +13,8 @@ import { normalizeDomain, parseDomainList } from '../extension/lib/domains.js';
 import { MAX_UNLISTED, looksAdult, siteOf, tallyUnlisted } from '../extension/lib/suspects.js';
 import { addToMyList, myList, saveMyList } from '../extension/lib/mylist.js';
 import { BLOCK_PAGE, CHUNK_SIZE, buildRules, domainsOf } from '../extension/lib/rules.js';
-import { BLOCKLIST_DIR, DOMAINS_PATH, MANIFEST_PATH, MAX_RULESET_BYTES, RULES_DIR, formatManifest, loadBlocklists, loadRules, renderDomains, renderRulesets, ruleResources } from '../scripts/build-rules.mjs';
+import { BLOCKLIST_DIR, DOMAINS_PATH, MANIFEST_PATH, MAX_RULESET_BYTES, RULES_DIR, SAFE_SEARCH_PATH, formatManifest, loadBlocklists, loadRules, renderDomains, renderRulesets, renderSafeSearch, ruleResources } from '../scripts/build-rules.mjs';
+import { ENGINES, FIRST_ID, YOUTUBE, safeSearchAddress, safeSearchRules } from '../extension/lib/safesearch.js';
 import { COMMUNITY_PATH, COMMUNITY_URL, communityList } from '../scripts/update-blocklist.mjs';
 import { firefoxManifest, packageFirefox } from '../scripts/package-firefox.mjs';
 import { FILTER_LIMIT, PROFILE_PATH, XPI_URL, filterPattern, filterSites, firefoxPolicies, mobileconfig } from '../scripts/firefox-lock.mjs';
@@ -23,7 +24,8 @@ import { LATEST_NAME, LATEST_URL, SITE_URL, UPDATES_URL, buildSite, compareVersi
 
 const EXT = resolve(dirname(fileURLToPath(import.meta.url)), '..', 'extension');
 const manifest = JSON.parse(readFileSync(join(EXT, 'manifest.json'), 'utf8'));
-const rules = loadRules();
+const ALL_RULES = loadRules();
+const rules = ALL_RULES.filter((rule) => rule.id < FIRST_ID); // the adult rulesets; the safe-search rules have their own tests
 
 // A stand-in for the browser's matcher that follows the documented behaviour of requestDomains:
 // the request's host is the listed domain or one of its subdomains, whatever the scheme, port or path.
@@ -84,10 +86,10 @@ test('blocked page loads get redirected somewhere that exists and is web accessi
 });
 
 test('rules follow the declarativeNetRequest constraints', () => {
-  const ids = rules.map((rule) => rule.id);
+  const ids = ALL_RULES.map((rule) => rule.id);
   assert.equal(new Set(ids).size, ids.length, 'rule ids are unique');
   assert.ok(ids.every((id) => Number.isInteger(id) && id >= 1), 'rule ids are positive integers');
-  assert.ok(rules.length <= 30000, 'within the guaranteed static rule limit');
+  assert.ok(ALL_RULES.length <= 30000, 'within the guaranteed static rule limit');
   for (const rule of rules) {
     const { requestDomains } = rule.condition;
     assert.ok(requestDomains.length > 0 && requestDomains.length <= CHUNK_SIZE * 2);
@@ -165,7 +167,11 @@ test('renderRulesets packs whole rules into files under the size limit, in order
   assert.deepEqual(all, buildRules(many), 'every rule, once, in order');
   for (const { file, text } of small) assert.ok(Buffer.byteLength(text) <= 60_000 || JSON.parse(text).length === 1, file);
   assert.deepEqual(small.map(({ id }) => id), small.map((_, i) => `adult-${i + 1}`));
-  assert.deepEqual(ruleResources(small.slice(0, 2)), [{ id: 'adult-1', enabled: true, path: 'rules/adult-1.json' }, { id: 'adult-2', enabled: true, path: 'rules/adult-2.json' }]);
+  assert.deepEqual(ruleResources(small.slice(0, 2)), [
+    { id: 'adult-1', enabled: true, path: 'rules/adult-1.json' },
+    { id: 'adult-2', enabled: true, path: 'rules/adult-2.json' },
+    { id: 'safe-search', enabled: true, path: 'rules/safe-search.json' },
+  ]);
   assert.equal(renderRulesets(['one.example']).length, 1);
 });
 
@@ -181,6 +187,60 @@ test('domainsOf reads back the domains a set of rules was built from, each once'
   assert.deepEqual(domainsOf(buildRules(many)), many);
   assert.deepEqual(domainsOf([]), []);
   assert.ok(domainsOf(rules).includes('exampleadultsite.com'));
+});
+
+test('safe search: each engine gets an allow rule for addresses already strict and a redirect that adds the setting; YouTube gets its header', () => {
+  const safe = safeSearchRules();
+  assert.deepEqual(readFileSync(SAFE_SEARCH_PATH, 'utf8'), renderSafeSearch(), 'rules/safe-search.json is up to date (run npm run build)');
+  assert.deepEqual(ALL_RULES.filter((rule) => rule.id >= FIRST_ID), safe, 'the manifest loads exactly these');
+  assert.equal(safe.length, ENGINES.length * 2 + 1);
+  ENGINES.forEach((engine, i) => {
+    const [allow, redirect] = safe.slice(i * 2, i * 2 + 2);
+    assert.equal(allow.action.type, 'allow');
+    assert.equal(redirect.action.type, 'redirect');
+    assert.ok(allow.priority > redirect.priority, `${engine.name}: the allow rule wins, so a strict address is not redirected again`);
+    assert.deepEqual(redirect.action.redirect.transform.queryTransform.addOrReplaceParams, [{ key: engine.key, value: engine.value }]);
+    assert.equal(redirect.condition.regexFilter, engine.pattern);
+    assert.ok(allow.condition.regexFilter.startsWith(engine.pattern));
+    for (const rule of [allow, redirect]) {
+      assert.doesNotMatch(rule.condition.regexFilter, /\(\?[=!<]|\\[1-9]/, `${engine.name}: no lookaround or backreference, which RE2 (Chrome) refuses`);
+      assert.ok(rule.condition.regexFilter.length < 2000, 'within the regex length limit');
+      assert.ok(rule.condition.regexFilter.split('').every((c) => c.charCodeAt(0) < 128), 'ASCII only');
+      new RegExp(rule.condition.regexFilter); // compiles
+      assert.deepEqual(rule.condition.resourceTypes, ['main_frame', 'sub_frame']);
+    }
+    // The example search page is matched; the engine's home page and other pages are not.
+    assert.match(engine.example, new RegExp(engine.pattern), engine.name);
+    const home = new URL(engine.example).origin + '/';
+    assert.doesNotMatch(home, new RegExp(engine.pattern), `${engine.name}: home page left alone`);
+    const strict = safeSearchAddress(engine.example);
+    assert.equal(new URL(strict).searchParams.get(engine.key), engine.value);
+    assert.match(strict, new RegExp(allow.condition.regexFilter), `${engine.name}: the address with the setting is let through as it is`);
+    assert.doesNotMatch(engine.example, new RegExp(allow.condition.regexFilter));
+  });
+  // Address forms people meet.
+  for (const [url, key] of [
+    ['https://www.google.co.uk/search?q=test&safe=off', 'safe'],
+    ['https://google.com/search?client=firefox-b-d&q=test', 'safe'],
+    ['https://www.google.com.au/webhp?q=test', 'safe'],
+    ['https://www.bing.com/images/search?q=test&form=HDRSC2', 'adlt'],
+    ['https://html.duckduckgo.com/html/?q=test', 'kp'],
+    ['https://duckduckgo.com/?t=h_&q=test&ia=web', 'kp'],
+    ['https://images.search.yahoo.com/search/images?p=test', 'vm'],
+    ['https://uk.search.yahoo.com/search?p=test', 'vm'],
+    ['https://search.brave.com/images?q=test', 'safesearch'],
+  ]) {
+    assert.notEqual(safeSearchAddress(url), url, url);
+    assert.ok(new URL(safeSearchAddress(url)).searchParams.has(key), url);
+  }
+  for (const url of ['https://www.google.com/', 'https://www.google.com/maps?q=test', 'https://mail.google.com/mail/?q=test', 'https://duckduckgo.com/', 'https://www.bing.com/', 'https://www.youtube.com/results?search_query=test', 'https://example.com/search?q=test', 'https://notgoogle.com/search?q=test']) {
+    assert.equal(safeSearchAddress(url), url, `${url} is left alone`);
+  }
+  const header = safe.at(-1);
+  assert.deepEqual(header.action, { type: 'modifyHeaders', requestHeaders: [{ header: 'YouTube-Restrict', operation: 'set', value: 'Strict' }] });
+  assert.deepEqual(header.condition.requestDomains, YOUTUBE.domains);
+  assert.ok(header.condition.resourceTypes.includes('main_frame') && header.condition.resourceTypes.includes('xmlhttprequest'), 'page loads and the calls pages make');
+  assert.deepEqual(manifest.declarative_net_request.rule_resources.at(-1), { id: 'safe-search', enabled: true, path: 'rules/safe-search.json' });
 });
 
 test('blocked attempts: the host of an address, and the listed domain that covers it', () => {
@@ -780,7 +840,7 @@ test('every file the pages reference exists', () => {
 });
 
 test('module imports resolve', () => {
-  for (const file of ['background.js', 'options.js', 'attempts.js', 'lockbox.js', 'lockbox-worker.js', 'lib/attempts.js', 'lib/domains.js', 'lib/mylist.js', 'lib/rules.js', 'lib/suspects.js', 'lib/timelock.js']) {
+  for (const file of ['background.js', 'options.js', 'attempts.js', 'lockbox.js', 'lockbox-worker.js', 'lib/attempts.js', 'lib/domains.js', 'lib/mylist.js', 'lib/rules.js', 'lib/safesearch.js', 'lib/suspects.js', 'lib/timelock.js']) {
     const source = readFileSync(join(EXT, file), 'utf8');
     for (const [, specifier] of source.matchAll(/from\s+'(\.{1,2}\/[^']+)'/g)) {
       assert.ok(existsSync(resolve(EXT, dirname(file), specifier)), `${file} imports missing ${specifier}`);
@@ -789,7 +849,7 @@ test('module imports resolve', () => {
 });
 
 test('extension scripts have no syntax errors', () => {
-  for (const file of ['background.js', 'blocked.js', 'options.js', 'attempts.js', 'lockbox.js', 'lockbox-worker.js', 'lib/attempts.js', 'lib/domains.js', 'lib/mylist.js', 'lib/rules.js', 'lib/suspects.js', 'lib/timelock.js']) {
+  for (const file of ['background.js', 'blocked.js', 'options.js', 'attempts.js', 'lockbox.js', 'lockbox-worker.js', 'lib/attempts.js', 'lib/domains.js', 'lib/mylist.js', 'lib/rules.js', 'lib/safesearch.js', 'lib/suspects.js', 'lib/timelock.js']) {
     const run = spawnSync(process.execPath, ['--check', join(EXT, file)], { encoding: 'utf8' });
     assert.equal(run.status, 0, `${file}: ${run.stderr}`);
   }
