@@ -1,6 +1,6 @@
 # Family Site Blocker
 
-A browser extension for Chrome, Edge, Brave and Firefox that blocks websites on a list. Its built-in list is `exampleadultsite.com` (the test case), 20 large adult sites, and a community list of some 64,000 more (StevenBlack/hosts's adult list, MIT), and you can add your own. Each attempt to open a listed site is noted, with the time: the latest on its settings page, the whole record on a page of its own (see **Blocked attempts**).
+A browser extension for Chrome, Edge, Brave and Firefox that blocks websites on a list. Its built-in list is `exampleadultsite.com` (the test case), 20 large adult sites and a few found missing in use, and a community list of some 64,000 more (StevenBlack/hosts's adult list, MIT), and you can add your own. Each attempt to open a listed site is noted, with the time: the latest on its settings page, the whole record on a page of its own (see **Blocked attempts**).
 
 **Test case:** navigate to `exampleadultsite.com`. **Expected:** the website is blocked. With the extension loaded, you land on a "This site is blocked" page and nothing is fetched from the site. Under the Firefox lock, Firefox blocks it itself before the extension does, so you land on Firefox's own **Blocked Page** instead.
 
