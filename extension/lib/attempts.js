@@ -37,6 +37,25 @@ export function hostOf(url) {
   return host || null;
 }
 
+/**
+ * The bookmarks in a bookmark tree (bookmarks.getTree) that point at listed sites: { id, url, site } each,
+ * in tree order. Folders, separators and bookmarks to anything but http(s) pages are left out.
+ */
+export function bookmarksTo(tree, domains) {
+  const found = [];
+  const walk = (node) => {
+    if (!node) return;
+    if (Array.isArray(node)) return node.forEach(walk);
+    if (node.url) {
+      const site = listedDomain(hostOf(node.url), domains);
+      if (site) found.push({ id: node.id, url: node.url, site });
+    }
+    walk(node.children);
+  };
+  walk(tree);
+  return found;
+}
+
 /** The listed domain that covers `host` (the host itself or a parent domain), or null if none does. */
 export function listedDomain(host, domains) {
   if (!host) return null;

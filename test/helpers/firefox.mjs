@@ -179,6 +179,19 @@ export async function launchFirefox(stub, { extension = true, extensionDir = EXT
     addonId,
     run,
     currentUrl,
+    /**
+     * Runs a script inside Firefox itself (chrome context: Services, Cc/Ci, the browser window), for what no
+     * page can see, such as the address bar. The script gets its arguments as `arguments` and must call
+     * the last one, `done(result)`, when finished.
+     */
+    async inFirefox(script, ...args) {
+      await fx.send('Marionette:SetContext', { value: 'chrome' });
+      try {
+        return await fx.send('WebDriver:ExecuteAsyncScript', { script, args });
+      } finally {
+        await fx.send('Marionette:SetContext', { value: 'content' });
+      }
+    },
     /** What Firefox granted the add-on: website access patterns and whether it runs in private windows. */
     async grants() {
       await fx.send('Marionette:SetContext', { value: 'chrome' });
