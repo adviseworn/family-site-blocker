@@ -292,8 +292,10 @@ describe('real browser', () => {
           const final = new URL(page.url());
           assert.equal(final.searchParams.get(key), value, `ended at ${page.url()}`);
           assert.equal(final.searchParams.get(new URL(url).searchParams.has('q') ? 'q' : 'p'), 'test', 'the search itself is kept');
-          const sent = stub.requests.filter((r) => r.path !== '/favicon.ico');
-          assert.equal(sent.length, 1, `one request, not a loop: ${JSON.stringify(sent.map((r) => r.host + r.path + r.search))}`);
+          // The page itself was asked for once, with the setting (the browser may ask for other things, such
+          // as the site's icon, on its own).
+          const sent = stub.requests.filter((r) => r.path === new URL(url).pathname);
+          assert.equal(sent.length, 1, `one request for the page, not a loop: ${JSON.stringify(stub.requests.map((r) => r.host + r.path + r.search))}`);
           assert.equal(new URL(`http://${sent[0].host}${sent[0].path}${sent[0].search}`).searchParams.get(key), value, 'the engine sees the setting');
         } finally {
           await page.close();
@@ -308,7 +310,8 @@ describe('real browser', () => {
           stub.clear();
           await page.goto(url, { waitUntil: 'domcontentloaded' });
           assert.equal(page.url(), url);
-          assert.equal(stub.requests.filter((r) => r.path !== '/favicon.ico').length, 1, url);
+          const sent = stub.requests.filter((r) => r.path === new URL(url).pathname);
+          assert.deepEqual(sent.map((r) => r.search), [new URL(url).search], `${url}: asked for once, unchanged`);
         }
       } finally {
         await page.close();
