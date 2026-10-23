@@ -1,0 +1,82 @@
+# Runs every test suite on a GitHub-hosted Linux machine: the fast checks, the extension in Chromium and
+# the extension in Firefox (Mozilla's own build, fetched and kept in the cache). The same suites as
+# "Tests on macOS", for when GitHub's Macs are scarce (their queue often is), and as a second platform.
+# Runs on every push, or start it by hand from the Actions tab.
+name: Tests on Linux
+
+on:
+  push:
+    paths-ignore:
+      - '**.md'
+  workflow_dispatch:
+
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+
+      - name: Keep Firefox between runs
+        id: firefox-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/firefox
+          key: firefox-linux-${{ runner.arch }}-latest-${{ github.run_id }}
+          restore-keys: firefox-linux-${{ runner.arch }}-latest-
+
+      - name: Get Firefox from Mozilla
+        if: steps.firefox-cache.outputs.cache-hit != 'true'
+        run: |
+          curl -fsSL --retry 3 -o firefox.tar "https://download.mozilla.org/?product=firefox-latest-ssl&os=linux64&lang=en-US"
+          mkdir -p ~/firefox && tar -xf firefox.tar -C ~/firefox --strip-components=1
+
+      - name: Show the machine and browser versions
+        run: |
+          cat /etc/os-release | grep PRETTY_NAME
+          ~/firefox/firefox --version
+
+      - name: Install Playwright and its Chromium
+        run: |
+          npm install
+          npx playwright install --with-deps chromium
+
+      - name: Fast checks
+        shell: bash
+        run: npm test 2>&1 | tee fast.tap
+
+      - name: Chromium tests
+        shell: bash
+        run: npm run test:browser 2>&1 | tee chromium.tap
+
+      - name: Firefox tests
+        shell: bash
+        env:
+          FIREFOX: /home/runner/firefox/firefox
+        run: npm run test:firefox 2>&1 | tee firefox.tap
+
+      # Posts what ran as annotations on the run, and fails if a suite was skipped or ran nothing. One fast
+      # check needs a Mac (the Finder icon on the .xpi) and is skipped here by design.
+      - name: Report what ran
+        if: always()
+        shell: bash
+        run: |
+          chromium=$(node -e "import('playwright').then(async ({ chromium }) => { const b = await chromium.launch(); console.log(b.version()); await b.close(); })")
+          firefox=$(~/firefox/firefox --version)
+          echo "::notice title=Machine::$(grep PRETTY_NAME /etc/os-release | cut -d= -f2 | tr -d '\"') on $(uname -m); Chromium $chromium; $firefox"
+          status=0
+          for suite in fast chromium firefox; do
+            if [ ! -f "$suite.tap" ]; then echo "::error title=$suite tests::did not run"; status=1; continue; fi
+            count() { grep -E "^# $1 [0-9]+" "$suite.tap" | tail -1 | awk '{print $3}'; }
+            tests=$(count tests); pass=$(count pass); fail=$(count fail); skipped=$(count skipped)
+            echo "::notice title=$suite tests::$tests tests, $pass passed, $fail failed, $skipped skipped"
+            allowed_skips=0; [ "$suite" = fast ] && allowed_skips=1
+            if [ "${tests:-0}" = 0 ] || [ "${skipped:-1}" -gt "$allowed_skips" ] || [ "${fail:-1}" != 0 ]; then
+              echo "::error title=$suite tests::not every test ran and passed"; status=1
+            fi
+          done
+          exit $status
