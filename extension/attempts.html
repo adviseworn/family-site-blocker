@@ -14,6 +14,7 @@
       <p id="summary" aria-live="polite">Loading…</p>
       <p>Every time a listed site was opened in a tab, with the time. Visits found in this browser’s own history, from before the extension was watching or before the site was listed, are marked as from there. Nothing on this page can clear the record.</p>
       <div class="actions">
+        <a id="every-try" class="button secondary" href="tries.html" hidden>See every try</a>
         <button id="save-file" type="button" class="secondary" hidden>Save as a file</button>
         <span id="save-status" role="status"></span>
       </div>
@@ -21,19 +22,13 @@
 
     <section id="sites" aria-labelledby="sites-heading" hidden>
       <h2 id="sites-heading">By site</h2>
-      <p>Most tries first. Choose a site to see only its tries below.</p>
+      <p>Most tries first. Choose a site to see its tries, one by one, grouped by day.</p>
       <table id="sites-table" class="attempts">
         <thead>
           <tr><th scope="col">Site</th><th scope="col">Tries</th><th scope="col">First</th><th scope="col">Latest</th></tr>
         </thead>
         <tbody></tbody>
       </table>
-    </section>
-
-    <section id="all" aria-labelledby="all-heading" hidden>
-      <h2 id="all-heading">Every try</h2>
-      <p id="filter" hidden>Only <strong id="filter-site"></strong>. <button id="filter-clear" type="button" class="link">Show every site</button></p>
-      <div id="days"></div>
     </section>
 
     <section id="hidden-pictures" aria-labelledby="hidden-pictures-heading">
