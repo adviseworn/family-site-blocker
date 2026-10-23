@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Family Site Blocker record: every try</title>
+  <link rel="stylesheet" href="options.css">
+</head>
+<body class="record">
+  <main>
+    <header>
+      <p class="eyebrow"><a href="options.html">Family Site Blocker</a> › <a href="attempts.html">Blocked attempts</a> <span id="version" class="version"></span></p>
+      <h1>Every try</h1>
+      <p id="summary" aria-live="polite">Loading…</p>
+      <p id="filter" hidden>Only <strong id="filter-site"></strong>. <a id="filter-clear" href="tries.html">Show every site</a></p>
+      <div class="actions">
+        <button id="save-file" type="button" class="secondary" hidden>Save as a file</button>
+        <span id="save-status" role="status"></span>
+      </div>
+    </header>
+
+    <section id="all" aria-labelledby="all-heading" hidden>
+      <h2 id="all-heading" class="visually-hidden">By day</h2>
+      <div id="days"></div>
+    </section>
+  </main>
+  <script type="module" src="tries.js"></script>
+</body>
+</html>
