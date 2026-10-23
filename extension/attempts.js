@@ -4,6 +4,7 @@
 // nothing here can clear it (see lib/attempts.js).
 import { ATTEMPTS, LABELS, bySite, byDay, outcome, toCsv } from './lib/attempts.js';
 import { MY_LIST_CHANGED, addToMyList } from './lib/mylist.js';
+import { PICTURES, hiddenBySite } from './lib/pictures.js';
 import { UNLISTED } from './lib/suspects.js';
 
 const api = globalThis.browser ?? globalThis.chrome;
@@ -146,8 +147,49 @@ async function add(site, button) {
   }
 }
 
+// --- Pictures hidden ---------------------------------------------------------------------------------------
+const SHOWN_PICTURES = 50;
+const REASONS = { nudity: 'Nudity', suggestive: 'Suggestive' };
+
+function renderHiddenPictures(record) {
+  const list = Array.isArray(record) ? [...record].reverse() : [];
+  const sites = $('hidden-sites-table');
+  const table = $('hidden-pictures-table');
+  sites.hidden = list.length === 0;
+  table.hidden = list.length === 0;
+  if (list.length === 0) {
+    $('hidden-pictures-summary').textContent = 'No picture hidden so far.';
+    return;
+  }
+  const bySiteRows = hiddenBySite(list);
+  $('hidden-pictures-summary').textContent = `${plural(list.length, 'picture')} hidden on ${plural(bySiteRows.length, 'site')}, the latest at ${whenFormat.format(list[0].at)}.`;
+  const siteRows = sites.querySelector('tbody');
+  siteRows.replaceChildren();
+  for (const row of bySiteRows) {
+    const tr = element('tr');
+    tr.append(element('td', row.site), element('td', String(row.pictures)), element('td', whenFormat.format(row.last)));
+    siteRows.append(tr);
+  }
+  table.caption.textContent = list.length > SHOWN_PICTURES ? `The latest ${SHOWN_PICTURES}` : '';
+  const rows = table.querySelector('tbody');
+  rows.replaceChildren();
+  for (const entry of list.slice(0, SHOWN_PICTURES)) {
+    const tr = element('tr');
+    const nudity = (entry.scores?.porn ?? 0) + (entry.scores?.hentai ?? 0);
+    tr.append(
+      element('td', whenFormat.format(entry.at)),
+      element('td', entry.site),
+      element('td', entry.url, { class: 'picture-url', title: entry.url }),
+      element('td', REASONS[entry.reason] ?? entry.reason ?? ''),
+      element('td', nudity.toFixed(2)),
+      element('td', (entry.scores?.sexy ?? 0).toFixed(2)),
+    );
+    rows.append(tr);
+  }
+}
+
 async function render() {
-  const stored = await api.storage.local.get([ATTEMPTS, UNLISTED]);
+  const stored = await api.storage.local.get([ATTEMPTS, UNLISTED, PICTURES]);
   attempts = Array.isArray(stored[ATTEMPTS]) ? stored[ATTEMPTS] : [];
   if (onlySite && !attempts.some((attempt) => attempt.site === onlySite)) onlySite = null;
   renderSummary();
@@ -157,6 +199,7 @@ async function render() {
   renderSites();
   renderDays();
   renderUnlisted(stored[UNLISTED]);
+  renderHiddenPictures(stored[PICTURES]);
 }
 
 function saveFile() {
@@ -183,7 +226,7 @@ $('filter-clear').addEventListener('click', () => {
 api.storage.onChanged.addListener((changes, area) => {
   if (area !== 'local') return;
   if (changes[UNLISTED]) added.clear(); // a fresh look: anything added is listed now, so it is gone from the table
-  if (changes[ATTEMPTS] || changes[UNLISTED]) render();
+  if (changes[ATTEMPTS] || changes[UNLISTED] || changes[PICTURES]) render();
 });
 
 $('version').textContent = `Version ${api.runtime.getManifest().version}`;

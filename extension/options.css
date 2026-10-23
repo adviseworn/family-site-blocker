@@ -410,8 +410,40 @@ button.small {
   overflow-wrap: anywhere;
 }
 
-#unlisted-summary {
+#unlisted-summary,
+#hidden-pictures-summary,
+#picture-status {
   color: var(--muted);
+}
+
+#picture-strictness {
+  display: block;
+  max-width: 100%;
+  margin: 0.35rem 0 1rem;
+  padding: 0.5rem 0.7rem;
+  border: 1px solid var(--edge);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+}
+
+#pictures label {
+  display: block;
+  margin-top: 1rem;
+  font-weight: 600;
+}
+
+#hidden-pictures-table td.picture-url {
+  max-width: 18rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.85rem;
+}
+
+#hidden-pictures-table td:first-child {
+  white-space: nowrap;
 }
 
 #lockbox progress {

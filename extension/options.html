@@ -52,6 +52,15 @@
       <p id="safe-search-note">The address should gain <code>safe=active</code>, which makes Google leave explicit results out. An ordinary search like this one shows nothing more; for an explicit search, Google Images also says above the results: “SafeSearch is locked to filter by safety settings applied to this browser.” Google’s own SafeSearch settings show the account’s setting, which this extension leaves alone, so they may still say Blur or Off.</p>
     </section>
 
+    <section id="pictures" aria-labelledby="pictures-heading">
+      <h2 id="pictures-heading">Pictures</h2>
+      <p>A list of sites can’t touch one picture on an ordinary site, so every picture a page shows is also judged on this computer, before it’s shown, and kept hidden when it shows nudity or, under the first setting below, anything suggestive. Nothing leaves the computer.</p>
+      <label for="picture-strictness">Hide pictures that show</label>
+      <select id="picture-strictness"></select>
+      <p id="picture-status" aria-live="polite"></p>
+      <p>The judging is a machine’s: it misses some pictures, and hides the odd harmless one, such as swimwear, art or a medical page, more so under the first setting. Hidden pictures are listed on the record page with their scores. Pictures set as page backgrounds, and video, aren’t judged, and in Firefox’s Troubleshoot Mode nothing is.</p>
+    </section>
+
     <section id="attempts" aria-labelledby="attempts-heading">
       <h2 id="attempts-heading">Blocked attempts</h2>
       <p>Each time a site on either list is opened in a tab, it’s noted with the time. If the site got through instead of being blocked, the note says so: then something above still needs switching on. Visits from before the extension was watching, or before a site was listed, are added from this browser’s own history when the extension is installed or updated, marked as found there. The latest few are below; the whole record, summed up by site and day, has a page of its own. Nothing on either page can clear the record.</p>
