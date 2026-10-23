@@ -10,8 +10,19 @@
 // checks DisableSafeMode at that point on Windows, and no add-on runs there. So the lock also gives Firefox
 // its own copy of the built-in list (WebsiteFilter). That filter is part of Firefox, not an add-on, so the
 // built-in sites stay blocked with add-ons off. It is made from blocklists/*.txt, like the add-on's rules,
-// and `npm run build` writes both. Firefox's filter takes at most 1,000 sites and stops pages and frames but
-// not images or scripts, so it backs the add-on up rather than replacing it.
+// and `npm run build` writes both. Firefox's filter takes at most 1,000 entries and stops pages and frames
+// but not images or scripts, so it backs the add-on up rather than replacing it. The entries are match
+// patterns, so one entry can take a whole top-level domain: the adult-only ones (.xxx, .porn, .sex, .adult)
+// and .sexy go in first as one entry each, which covers over a thousand of the list's sites and every site
+// on those domains that no list has yet. The rest of the room goes to starter.txt (the test case and the
+// largest sites), then popular.txt (the built-in sites people visit most, in order; npm run blocklist
+// writes it), then the other lists in name order; never.txt's sites are left out, as everywhere.
+//
+// Firefox checks the Option key before it reads any policy, but not when the environment variable
+// MOZ_DISABLE_SAFE_MODE_KEY is set (toolkit/xre/SafeMode.h). mac/ also gets a launch agent that sets it
+// for every account at login; installed by an administrator next to the profile, it closes the Option key,
+// leaving Troubleshoot Mode to the Terminal (open -a Firefox --args --safe-mode), which Screen Time can keep
+// out like any app. An account can switch the agent off under Login Items, so it is a hurdle, not a lock.
 //
 // It has to work next to other programs that set Firefox policies, such as other blockers. Firefox takes
 // each policy, by name, from one place only: when a profile and another program both set one, the profile's
@@ -30,11 +41,11 @@
 // included, with nobody at the screen. From version 1.3.2 the add-on then updates itself
 // (scripts/updates-manifest.mjs), and the lock keeps automatic add-on updates switched on (ExtensionUpdate).
 // The lock still lets anyone install a newer signed version over it by hand.
-import { mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, relative } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { parseDomainList } from '../extension/lib/domains.js';
-import { BLOCKLIST_DIR } from './build-rules.mjs';
+import { BLOCKLIST_DIR, listFiles, loadNever } from './build-rules.mjs';
 import { LATEST_URL } from './updates-site.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -43,34 +54,50 @@ export const PROFILE_PATH = join(ROOT, 'mac', 'family-site-blocker-firefox.mobil
 // The newest signed version, on the public update site; the Mac has to be online when Firefox first starts.
 export const XPI_URL = LATEST_URL;
 
-// Firefox's own filter reads at most this many sites and ignores the rest without saying so.
+// Firefox's own filter reads at most this many entries and ignores the rest without saying so.
 export const FILTER_LIMIT = 1000;
-const STARTER = 'starter.txt';
-
-/**
- * The built-in sites for Firefox's own filter: every domain in blocklists/*.txt, starter.txt first (it has the
- * test case and the largest sites), then the other lists in name order, up to Firefox's limit. Returns the
- * sites it takes and the ones left over.
- */
-export function filterSites(dir = BLOCKLIST_DIR) {
-  const files = readdirSync(dir).filter((name) => name.endsWith('.txt')).sort();
-  const ordered = [...files.filter((name) => name === STARTER), ...files.filter((name) => name !== STARTER)];
-  const domains = new Set();
-  for (const file of ordered) {
-    for (const domain of parseDomainList(readFileSync(join(dir, file), 'utf8')).domains) domains.add(domain);
-  }
-  const all = [...domains];
-  return { sites: all.slice(0, FILTER_LIMIT), leftOut: all.slice(FILTER_LIMIT) };
-}
+// Top-level domains taken whole, one entry each: the adult-only ones (ICM Registry's) and .sexy.
+export const WHOLE_DOMAINS = ['xxx', 'porn', 'sex', 'adult', 'sexy'];
+const FIRST = ['starter.txt', 'popular.txt']; // the lists that fill the filter first, in this order
 
 /** A site and all its subdomains, over http and https on any port, as Firefox's filter writes it (a match pattern). */
 export const filterPattern = (domain) => `*://*.${domain}/*`;
+
+/** Whether a site is on one of the top-level domains the filter takes whole. */
+export const onWholeDomain = (domain) => WHOLE_DOMAINS.includes(domain.slice(domain.lastIndexOf('.') + 1));
+
+/**
+ * The built-in sites for Firefox's own filter: every domain in blocklists/*.txt but never.txt's, starter.txt
+ * first (the test case and the largest sites), then popular.txt (the most visited, in order), then the other
+ * lists in name order, leaving out the sites on the top-level domains taken whole, up to the room Firefox's
+ * limit leaves after those domains. Returns the sites it takes, the ones left over, and how many the whole
+ * domains cover.
+ */
+export function filterSites(dir = BLOCKLIST_DIR) {
+  const files = listFiles(dir);
+  const ordered = [...FIRST.filter((name) => files.includes(name)), ...files.filter((name) => !FIRST.includes(name))];
+  const never = loadNever(dir);
+  const domains = new Set();
+  const covered = new Set();
+  for (const file of ordered) {
+    for (const domain of parseDomainList(readFileSync(join(dir, file), 'utf8')).domains) {
+      if (never.has(domain)) continue;
+      (onWholeDomain(domain) ? covered : domains).add(domain);
+    }
+  }
+  const all = [...domains];
+  const room = FILTER_LIMIT - WHOLE_DOMAINS.length;
+  return { sites: all.slice(0, room), leftOut: all.slice(room), covered: covered.size };
+}
+
+/** The filter's entries: the whole top-level domains, then the sites, as match patterns. */
+export const filterEntries = (dir = BLOCKLIST_DIR) => [...WHOLE_DOMAINS.map((tld) => filterPattern(tld)), ...filterSites(dir).sites.map(filterPattern)];
 
 /**
  * The policies, in the form Firefox reads them (policies.json, or the org.mozilla.firefox settings on a Mac).
  * `xpiSource` is the address or file path Firefox installs the add-on from.
  */
-export function firefoxPolicies(xpiSource = XPI_URL, sites = filterSites().sites) {
+export function firefoxPolicies(xpiSource = XPI_URL, entries = filterEntries()) {
   return {
     Extensions: { Install: [xpiSource], Locked: [ADDON_ID] },
     ExtensionUpdate: true,
@@ -81,7 +108,7 @@ export function firefoxPolicies(xpiSource = XPI_URL, sites = filterSites().sites
     Preferences: {
       'extensions.dnr.enabled': { Value: true, Status: 'locked' },
     },
-    WebsiteFilter: { Block: sites.map(filterPattern) },
+    WebsiteFilter: { Block: entries },
   };
 }
 
@@ -128,7 +155,7 @@ export function mobileconfig(settings = macSettings()) {
     PayloadDescription:
       'Keeps the Family Site Blocker add-on installed and switched on in Firefox, for every account on this Mac. ' +
       `Firefox installs the newest signed version from ${XPI_URL}, keeps it up to date, and nobody can turn it off or remove it there. ` +
-      'Firefox also gets its own copy of the add-on\u2019s built-in list of sites, which keeps blocking them when add-ons don\u2019t run, as in Troubleshoot Mode. ' +
+      'Firefox also gets its own copy of the add-on\u2019s built-in list of sites (whole adult domains such as .porn and .xxx, and the sites people visit most), which keeps blocking them when add-ons don\u2019t run, as in Troubleshoot Mode. ' +
       'Private windows, Troubleshoot Mode from Firefox\u2019s menus, about:config and Refresh Firefox, which could get round it, are turned off. ' +
       'Settings that other programs, such as another blocker, give Firefox for their own add-ons stay in force. ' +
       'Only an administrator can remove this profile.',
@@ -142,14 +169,35 @@ export function mobileconfig(settings = macSettings()) {
   });
 }
 
+// --- The launch agent that closes the Option key ---------------------------------------------------------
+export const AGENT_LABEL = 'local.parental-controls.family-site-blocker.firefox-troubleshoot-key';
+export const AGENT_PATH = join(ROOT, 'mac', `${AGENT_LABEL}.plist`);
+export const SAFE_MODE_KEY_VARIABLE = 'MOZ_DISABLE_SAFE_MODE_KEY';
+
+/**
+ * A launch agent for /Library/LaunchAgents: at each account's login, it sets the variable that makes
+ * Firefox ignore the Option key, in the environment that apps opened from the Dock, Finder and Spotlight get.
+ */
+export function launchAgent() {
+  return plist({
+    Label: AGENT_LABEL,
+    ProgramArguments: ['/bin/launchctl', 'setenv', SAFE_MODE_KEY_VARIABLE, '1'],
+    RunAtLoad: true,
+  });
+}
+
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  const { sites, leftOut } = filterSites();
+  const { sites, leftOut, covered } = filterSites();
   mkdirSync(dirname(PROFILE_PATH), { recursive: true });
   writeFileSync(PROFILE_PATH, mobileconfig());
-  console.log(`Wrote ${relative(process.cwd(), PROFILE_PATH)}, with ${sites.length} built-in sites in Firefox's own filter`);
+  writeFileSync(AGENT_PATH, launchAgent());
+  console.log(
+    `Wrote ${relative(process.cwd(), PROFILE_PATH)}, with ${WHOLE_DOMAINS.length} whole domains (${WHOLE_DOMAINS.map((tld) => `.${tld}`).join(', ')}, ` +
+      `covering ${covered} built-in sites) and ${sites.length} built-in sites in Firefox's own filter, and ${relative(process.cwd(), AGENT_PATH)}`,
+  );
   if (leftOut.length > 0) {
     console.log(
-      `Firefox's own filter takes at most ${FILTER_LIMIT} sites, so ${leftOut.length} were left out of it, ` +
+      `Firefox's own filter takes at most ${FILTER_LIMIT} entries, so ${leftOut.length} sites were left out of it, ` +
         `for example ${leftOut.slice(0, 3).join(', ')}. The add-on still blocks them while it runs, but not in Troubleshoot Mode.`,
     );
   }
