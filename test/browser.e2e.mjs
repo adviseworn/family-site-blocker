@@ -345,6 +345,8 @@ describe('real browser', () => {
         const note = await page.locator('#safe-search-note').innerText();
         assert.match(note, /^The address should gain safe=active, /);
         assert.doesNotMatch(note, /should say SafeSearch is on/);
+        // Google's own words above filtered Google Images results, as seen on the test account (#46).
+        assert.match(note, /“SafeSearch is locked to filter by safety settings applied to this browser\.”/);
       } finally {
         await page.close();
       }
