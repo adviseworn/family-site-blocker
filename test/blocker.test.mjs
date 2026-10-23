@@ -15,7 +15,7 @@ import { addToMyList, myList, saveMyList } from '../extension/lib/mylist.js';
 import { BLOCK_PAGE, CHUNK_SIZE, buildRules, domainsOf } from '../extension/lib/rules.js';
 import { BLOCKLIST_DIR, DOMAINS_PATH, MANIFEST_PATH, MAX_RULESET_BYTES, NEVER_FILE, RULES_DIR, SAFE_SEARCH_PATH, formatManifest, listFiles, loadBlocklists, loadNever, loadRules, renderDomains, renderRulesets, renderSafeSearch, ruleResources } from '../scripts/build-rules.mjs';
 import { ENGINES, FIRST_ID, YOUTUBE, safeSearchAddress, safeSearchRules } from '../extension/lib/safesearch.js';
-import { BANDS, COMMUNITY_PATH, COMMUNITY_URL, POPULAR_PATH, POPULAR_SIZE, POPULAR_URL, communityList, looksAdult as nameLooksAdult, popularList, rankSites, worthALook } from '../scripts/update-blocklist.mjs';
+import { BANDS, COMMUNITY_PATH, COMMUNITY_URL, LINKS_URL, POPULAR_PATH, POPULAR_SIZE, POPULAR_URL, communityList, inOrder, linkRanks, looksAdult as nameLooksAdult, popularList, rankSites, worthALook } from '../scripts/update-blocklist.mjs';
 import { firefoxManifest, packageFirefox } from '../scripts/package-firefox.mjs';
 import { AGENT_LABEL, AGENT_PATH, FILTER_LIMIT, PROFILE_PATH, SAFE_MODE_KEY_VARIABLE, WHOLE_DOMAINS, XPI_URL, filterEntries, filterPattern, filterSites, firefoxPolicies, launchAgent, mobileconfig, onWholeDomain } from '../scripts/firefox-lock.mjs';
 import { AGENT_INSTALLED_PATH, PKG_IDENTIFIER, TITLE, VERSION as INSTALLER_VERSION, buildInstaller, conclusion, distribution, pkgName, postinstall, welcome } from '../scripts/mac-installer.mjs';
@@ -209,16 +209,33 @@ test("rankSites gives each listed site the best band of the ranked origins on or
   const ranks = rankSites(csv, listed);
   assert.deepEqual([...ranks], [['pornhub.com', 1000], ['tik.porn', 5000], ['only-sub.example.net', 10_000], ['plain.test', 100_000]]);
   assert.deepEqual(BANDS, [1000, 5000, 10_000, 50_000, 100_000, 500_000, 1_000_000]);
-  // popularList() is what npm run blocklist writes: a note with the source, then the sites in order with their bands.
+  // Within a band, the Majestic Million decides (linkRanks, credited the same way), unranked sites last.
+  const majestic = [
+    'GlobalRank,TldRank,Domain,TLD,RefSubNets,RefIPs,IDN_Domain,IDN_TLD,PrevGlobalRank,PrevTldRank,PrevRefSubNets,PrevRefIPs',
+    '2980,2400,pornhub.com,com,1,1,pornhub.com,com,1,1,1,1',
+    '563058,229228,toppornsites.com,com,254,277,toppornsites.com,com,-1,-1,-1,-1',
+    '700,600,google.com,com,1,1,google.com,com,1,1,1,1',
+    '9000,100,es.pornhub.com,com,1,1,es.pornhub.com,com,1,1,1,1', // counts for pornhub.com, which already has better
+    '12,1,deep.only-sub.example.net,net,1,1,x,net,1,1,1,1',
+    'bad line',
+    '',
+  ].join('\n');
+  const links = linkRanks(majestic, new Set([...listed, 'toppornsites.com']));
+  assert.deepEqual([...links], [['pornhub.com', 2980], ['toppornsites.com', 563_058], ['only-sub.example.net', 12]]);
+  const band = new Map([['zzz.test', 50_000], ['toppornsites.com', 50_000], ['aaa.test', 50_000], ['pornhub.com', 1000], ['bbb.test', 100_000]]);
+  assert.deepEqual(inOrder(band, links).map(([domain]) => domain), ['pornhub.com', 'toppornsites.com', 'aaa.test', 'zzz.test', 'bbb.test'], 'band, then links, then the alphabet');
+  assert.deepEqual(inOrder(band).map(([domain]) => domain), ['pornhub.com', 'aaa.test', 'toppornsites.com', 'zzz.test', 'bbb.test'], 'with no link ranks, the alphabet');
+  // popularList() is what npm run blocklist writes: a note with the sources, then the sites in order with their bands.
   const many = new Map(Array.from({ length: 150 }, (_, i) => [`site${String(i).padStart(3, '0')}.test`, BANDS[i % BANDS.length]]));
-  const written = popularList(many, new Date('2026-10-23T12:00:00Z'), 10);
+  const written = popularList(many, new Map([['site063.test', 777]]), new Date('2026-10-23T12:00:00Z'), 10);
   assert.match(written, /^# Popular sites: .*\n# Made by npm run blocklist from the Chrome UX Report/);
-  assert.ok(written.includes(POPULAR_URL));
-  assert.match(written, /^# Alphabetical within a band\. Fetched 2026-10-23; 10 of the 150 built-in sites it ranks\.$/m);
+  assert.ok(written.includes(POPULAR_URL) && written.includes(LINKS_URL));
+  assert.match(written, /^# Fetched 2026-10-23; 10 of the 150 built-in sites Chrome ranks, 1 of them in the Majestic Million\.$/m);
   const lines = written.trimEnd().split('\n').filter((line) => !line.startsWith('#') && line);
   assert.equal(lines.length, 10);
-  assert.match(lines[0], /^site000\.test\s+# top 1,000$/);
-  assert.match(lines[9], /^site063\.test\s+# top 1,000$/, 'the ten in the first band, alphabetical');
+  assert.match(lines[0], /^site063\.test\s+# top 1,000; links 777$/, 'the one with a link rank leads its band');
+  assert.match(lines[1], /^site000\.test\s+# top 1,000$/);
+  assert.match(lines[9], /^site056\.test\s+# top 1,000$/, 'the ten in the first band');
   assert.deepEqual(parseDomainList(written).domains, lines.map((line) => line.split(/\s/)[0]));
   assert.throws(() => popularList(new Map([['a.test', 1000]])), /Only 1 built-in sites/);
   // worthALook: the sites in the top bands with nothing adult in their names, never.txt's aside.
@@ -233,7 +250,7 @@ test("rankSites gives each listed site the best band of the ranked origins on or
 test('blocklists/popular.txt orders built-in sites by how much they are visited, for the lock, and adds none', () => {
   const file = readFileSync(POPULAR_PATH, 'utf8');
   assert.match(file, /^# Popular sites: /);
-  assert.match(file, /^# Alphabetical within a band\. Fetched \d{4}-\d{2}-\d{2}; \d+ of the \d+ built-in sites it ranks\.$/m);
+  assert.match(file, /^# Fetched \d{4}-\d{2}-\d{2}; \d+ of the \d+ built-in sites Chrome ranks, \d+ of them in the Majestic Million\.$/m);
   const popular = parseDomainList(file).domains;
   assert.ok(popular.length > 1000 && popular.length <= POPULAR_SIZE, `${popular.length} sites`);
   const starter = new Set(parseDomainList(readFileSync(join(BLOCKLIST_DIR, 'starter.txt'), 'utf8')).domains);
@@ -244,10 +261,17 @@ test('blocklists/popular.txt orders built-in sites by how much they are visited,
     assert.ok(!never.has(site), `${site} is not in never.txt`);
   }
   assert.ok(popular.includes('pornhub.com') && popular.includes('xvideos.com') && popular.includes('tik.porn'));
-  const bands = file.match(/# top ([\d,]+)$/gm).map((note) => Number(note.replace(/\D/g, '')));
-  assert.equal(bands.length, popular.length, 'each site has its band');
-  for (let i = 1; i < bands.length; i++) assert.ok(bands[i] >= bands[i - 1], 'best band first');
+  const notes = file.match(/# top ([\d,]+)(?:; links ([\d,]+))?$/gm);
+  assert.equal(notes.length, popular.length, 'each site has its band');
+  const bands = notes.map((note) => Number(note.match(/top ([\d,]+)/)[1].replace(/,/g, '')));
+  const linkRank = (note) => (note.includes('links') ? Number(note.match(/links ([\d,]+)/)[1].replace(/,/g, '')) : Infinity);
+  for (let i = 1; i < bands.length; i++) {
+    assert.ok(bands[i] >= bands[i - 1], 'best band first');
+    if (bands[i] === bands[i - 1]) assert.ok(linkRank(notes[i]) >= linkRank(notes[i - 1]), `within a band, best link rank first (${notes[i - 1]} / ${notes[i]})`);
+  }
   assert.equal(bands[0], 1000);
+  // #64: a site in the last band that fits owes its place to its link rank, not the alphabet.
+  assert.ok(filterSites().sites.includes('toppornsites.com'), "toppornsites.com is in Firefox's copy");
 });
 
 test('renderRulesets packs whole rules into files under the size limit, in order, with ids the manifest lists', () => {
