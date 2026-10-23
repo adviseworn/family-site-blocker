@@ -40,6 +40,20 @@ export function verdict(scores, strictness = DEFAULT_STRICTNESS) {
   return { hide: false, reason: null };
 }
 
+/** A hidden picture whose deciding score was under this is marked borderline: the likelier mistake. */
+export const BORDERLINE = 0.6;
+
+/**
+ * Whether a hidden picture's verdict was a close one: the score that decided it (porn and hentai together
+ * for nudity; with sexy added for suggestive) was under BORDERLINE. A harmless picture hidden by mistake
+ * usually sits here.
+ */
+export function borderline({ reason, scores }) {
+  const score = (name) => Math.max(0, Number(scores?.[name]) || 0);
+  const deciding = reason === 'suggestive' ? score('porn') + score('hentai') + score('sexy') : score('porn') + score('hentai');
+  return deciding < BORDERLINE;
+}
+
 /** The setting as stored, or the default when nothing valid is stored. */
 export function strictnessOf(stored) {
   return STRICTNESS_CHOICES.some((choice) => choice.value === stored) ? stored : DEFAULT_STRICTNESS;

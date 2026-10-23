@@ -12,7 +12,8 @@
       <p class="eyebrow"><a href="options.html">Family Site Blocker</a> › <a href="attempts.html">Blocked attempts</a> <span id="version" class="version"></span></p>
       <h1>Pictures hidden</h1>
       <p id="summary" aria-live="polite">Loading…</p>
-      <p>Pictures the extension judged and kept hidden, wherever they were (see <strong>Pictures</strong> on the settings page). The scores are the judge’s: how sure it was, from 0 to 1, that the picture showed nudity (porn and hentai together) or was suggestive (“sexy”). A harmless picture hidden by mistake shows up here with low scores. Nothing on this page can clear the record.</p>
+      <p>Pictures the extension judged and kept hidden, wherever they were (see <strong>Pictures</strong> on the settings page). The scores are the judge’s: how sure it was, from 0 to 1, that the picture showed nudity (porn and hentai together) or was suggestive (“sexy”). A picture is hidden from 0.4; one hidden on a score under 0.6 is marked <strong>borderline</strong>, and that is where a harmless picture hidden by mistake will be. Nothing on this page can clear the record.</p>
+      <p>To look at a picture, copy its address and open it in a browser without the extension: in this one it would be judged again and hidden again, and the pictures aren’t shown here because anyone can open this page. If a harmless picture was hidden, the <strong>Nudity only</strong> setting hides fewer.</p>
     </header>
 
     <section id="hidden-sites" aria-labelledby="hidden-sites-heading" hidden>
@@ -27,10 +28,11 @@
 
     <section id="hidden-pictures" aria-labelledby="hidden-pictures-heading" hidden>
       <h2 id="hidden-pictures-heading">Every picture</h2>
+      <p id="copy-status" role="status"></p>
       <table id="hidden-pictures-table" class="attempts">
         <caption></caption>
         <thead>
-          <tr><th scope="col">When</th><th scope="col">Site</th><th scope="col">Picture</th><th scope="col">Why</th><th scope="col">Nudity</th><th scope="col">Suggestive</th></tr>
+          <tr><th scope="col">When</th><th scope="col">Site</th><th scope="col">Picture</th><th scope="col">Why</th><th scope="col">Nudity</th><th scope="col">Suggestive</th><th scope="col"><span class="visually-hidden">Action</span></th></tr>
         </thead>
         <tbody></tbody>
       </table>
