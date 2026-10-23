@@ -1,0 +1,32 @@
+# Sites the build keeps OFF the built-in list, one per line, each with its reason. The community list
+# sweeps the odd ordinary site up (see below), and a site on the built-in list can't be allowed again
+# from the settings page, so this file takes such sites out: `npm run build` leaves them out of the
+# rules, of domains.json and of Firefox's own copy of the list, and the fast checks make sure they stay
+# out (test/blocker.test.mjs, NEVER_LISTED). A line here takes out that one domain only: a host listed
+# under it on its own (xxx.startpagina.nl, javpub.b-cdn.net) stays blocked. `npm run blocklist` prints
+# the most visited sites on the list whose names don't look adult, as candidates for this file.
+#
+# Shared hosts. The community list has "www.b-cdn.net"; the parser drops the "www." (a bare domain blocks
+# the whole site, which is what the list means for an adult site), which here would block all of Bunny
+# CDN, a network that ordinary sites load pictures, scripts and styles from.
+b-cdn.net
+
+# Ordinary sites the community list carries, found by ranking the list by how much Chrome users load
+# each site (October 2026).
+refinery29.com          # lifestyle magazine
+kinopoisk.ru            # film database
+rating.kinopoisk.ru
+yandex.by               # search engine
+startpagina.nl          # portal
+postimage.org           # image host
+radikal.ru              # image host
+btc.com                 # bitcoin
+findicons.com           # icons
+xyzprinting.com         # 3D printers
+w2018.xyzprinting.com
+aquoid.com              # WordPress themes
+gmpg.org                # the XFN specification
+rtalabel.org            # the RTA label, which adult sites carry
+icmregistry.com         # the registry of .xxx domains
+extremetracking.com     # visitor counters
+extreme-dm.com
