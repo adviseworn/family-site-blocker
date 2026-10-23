@@ -393,10 +393,14 @@ button.small {
   overflow-wrap: anywhere;
 }
 
-#unlisted-summary,
-#hidden-pictures-summary,
-#picture-status {
+#picture-status,
+#elsewhere p {
   color: var(--muted);
+}
+
+#elsewhere a {
+  color: var(--gate);
+  font-weight: 600;
 }
 
 #picture-strictness {

@@ -783,12 +783,16 @@ describe('real browser', () => {
         );
         await page.click('#history-scan-now');
         await page.waitForFunction(() => !document.getElementById('unlisted-note').hidden);
-        assert.equal(await page.locator('#unlisted-note').innerText(), "1 site in this browser's history looks adult but isn't on either list: see the record page.");
-        assert.equal(await page.locator('#unlisted-note a').getAttribute('href'), 'attempts.html#unlisted');
+        assert.equal(await page.locator('#unlisted-note').innerText(), "1 site in this browser's history looks adult but isn't on either list: see which.");
+        assert.equal(await page.locator('#unlisted-note a').getAttribute('href'), 'unlisted.html');
 
-        await record.goto(`chrome-extension://${browser.extensionId}/attempts.html#unlisted`);
+        // The record page sums them up in a line; the unlisted page lists them (#54).
+        await record.goto(`chrome-extension://${browser.extensionId}/attempts.html`);
+        await record.waitForFunction(() => /^1 site in this browser's history looks adult but isn't on either list\./.test(document.querySelector('#unlisted-line span').textContent));
+        assert.equal(await record.locator('#unlisted-line a').getAttribute('href'), 'unlisted.html');
+        await record.goto(`chrome-extension://${browser.extensionId}/unlisted.html`);
         await record.waitForFunction(() => document.querySelectorAll('#unlisted-table tbody tr').length === 1);
-        assert.match(await record.locator('#unlisted-summary').innerText(), /^1 site, as of .+\.$/);
+        assert.match(await record.locator('#summary').innerText(), /^1 site, as of .+\.$/);
         const [row] = await unlistedRows();
         assert.deepEqual(row.slice(0, 2), ['nsfw-pictures.test', '2'], 'both pages, one site');
         assert.equal(row[3], 'Add to your list');
@@ -797,7 +801,7 @@ describe('real browser', () => {
         // Adding it: the settings page's box shows it, it is blocked from then on, its earlier visits join
         // the record, and it leaves this table (the look through the history runs again by itself).
         await record.click('#unlisted-table button');
-        await record.waitForFunction(() => document.getElementById('unlisted-summary').textContent.startsWith('None found'), null, { timeout: 15_000 });
+        await record.waitForFunction(() => document.getElementById('summary').textContent.startsWith('None found'), null, { timeout: 15_000 });
         assert.deepEqual(await unlistedRows(), []);
         await page.waitForFunction(() => document.getElementById('custom').value === 'nsfw-pictures.test');
         assert.match(await page.locator('#summary').innerText(), / 1 on yours\.$/);
@@ -832,8 +836,13 @@ describe('real browser', () => {
         await record.goto(`chrome-extension://${browser.extensionId}/attempts.html`);
         await record.waitForFunction(() => document.getElementById('summary').textContent === 'No attempts so far.');
         assert.equal(await record.locator('#save-file').isVisible(), false);
+        assert.equal(await record.locator('#every-try').isVisible(), false);
         assert.equal(await record.locator('#sites').isVisible(), false);
-        assert.equal(await record.locator('#all').isVisible(), false);
+        assert.equal(await record.locator('#pictures-line span').innerText(), 'No picture hidden so far.');
+        for (const [name, text] of [['pictures.html', 'No picture hidden so far.'], ['tries.html', 'No attempts so far.']]) {
+          await record.goto(`chrome-extension://${browser.extensionId}/${name}`);
+          await record.waitForFunction((want) => document.getElementById('summary').textContent === want, text);
+        }
       } finally {
         await record.close();
         await page.close();
@@ -917,9 +926,14 @@ describe('real browser', () => {
         assert.equal(byUrl['drawn.jpg'].reason, 'nudity', 'hentai counts as nudity');
         assert.equal(byUrl['photo.jpg'], undefined, 'shown pictures are not recorded');
 
+        // The record page sums them up in a line; the pictures page lists them (#54).
         await record.goto(`chrome-extension://${judge.extensionId}/attempts.html`);
+        await record.waitForFunction(() => /^\d+ pictures hidden on \d+ sites?, the latest at /.test(document.querySelector('#pictures-line span').textContent));
+        assert.equal(await record.locator('#pictures-line a').getAttribute('href'), 'pictures.html');
+        assert.equal(await record.locator('#hidden-pictures-table').count(), 0, 'no picture tables on the record page');
+        await record.goto(`chrome-extension://${judge.extensionId}/pictures.html`);
         await record.waitForFunction(() => document.querySelectorAll('#hidden-pictures-table tbody tr').length >= 3);
-        assert.match(await record.locator('#hidden-pictures-summary').innerText(), /^\d+ pictures hidden on \d+ sites?, the latest at /);
+        assert.match(await record.locator('#summary').innerText(), /^\d+ pictures hidden on \d+ sites?, the latest at /);
         const sites = await record.evaluate(() => [...document.querySelectorAll('#hidden-sites-table tbody tr')].map((row) => [...row.cells].map((cell) => cell.textContent)));
         assert.ok(sites.some((row) => row[0] === 'allowed.test' && Number(row[1]) >= 3), JSON.stringify(sites));
         const rows = await record.evaluate(() => [...document.querySelectorAll('#hidden-pictures-table tbody tr')].map((row) => [...row.cells].map((cell) => cell.textContent)));
