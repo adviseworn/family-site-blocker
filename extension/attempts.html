@@ -31,35 +31,10 @@
       </table>
     </section>
 
-    <section id="hidden-pictures" aria-labelledby="hidden-pictures-heading">
-      <h2 id="hidden-pictures-heading">Pictures hidden</h2>
-      <p>Pictures the extension judged and kept hidden, wherever they were (see <strong>Pictures</strong> on the settings page). The scores are the judge’s: how sure it was, from 0 to 1, that the picture showed nudity (porn and hentai together) or was suggestive (“sexy”). A harmless picture hidden by mistake shows up here with low scores.</p>
-      <p id="hidden-pictures-summary" aria-live="polite"></p>
-      <table id="hidden-sites-table" class="attempts" hidden>
-        <thead>
-          <tr><th scope="col">Site</th><th scope="col">Pictures</th><th scope="col">Latest</th></tr>
-        </thead>
-        <tbody></tbody>
-      </table>
-      <table id="hidden-pictures-table" class="attempts" hidden>
-        <caption></caption>
-        <thead>
-          <tr><th scope="col">When</th><th scope="col">Site</th><th scope="col">Picture</th><th scope="col">Why</th><th scope="col">Nudity</th><th scope="col">Suggestive</th></tr>
-        </thead>
-        <tbody></tbody>
-      </table>
-    </section>
-
-    <section id="unlisted" aria-labelledby="unlisted-heading" hidden>
-      <h2 id="unlisted-heading">Not on the list, but might belong there</h2>
-      <p>Sites in this browser’s history whose names look adult but that aren’t on either list, most visited first, from the last look through the history. They are not blocked. <strong>Add to your list</strong> blocks one from then on, in this browser; its earlier visits then join the record above. Only the name is judged, so a plain name passes unnoticed and the odd innocent one may turn up here.</p>
-      <p id="unlisted-summary" aria-live="polite"></p>
-      <table id="unlisted-table" class="attempts" hidden>
-        <thead>
-          <tr><th scope="col">Site</th><th scope="col">Visits</th><th scope="col">Last visit</th><th scope="col"><span class="visually-hidden">Action</span></th></tr>
-        </thead>
-        <tbody></tbody>
-      </table>
+    <section id="elsewhere" aria-labelledby="elsewhere-heading">
+      <h2 id="elsewhere-heading">Also in the record</h2>
+      <p id="pictures-line" aria-live="polite"><span></span> <a href="pictures.html">See the pictures hidden</a>.</p>
+      <p id="unlisted-line" aria-live="polite"><span></span> <a href="unlisted.html">See them</a>.</p>
     </section>
   </main>
   <script type="module" src="attempts.js"></script>

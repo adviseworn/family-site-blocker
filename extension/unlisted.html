@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Family Site Blocker: not on the list, but might belong there</title>
+  <link rel="stylesheet" href="options.css">
+</head>
+<body class="record">
+  <main>
+    <header>
+      <p class="eyebrow"><a href="options.html">Family Site Blocker</a> › <a href="attempts.html">Blocked attempts</a> <span id="version" class="version"></span></p>
+      <h1>Not on the list, but might belong there</h1>
+      <p id="summary" aria-live="polite">Loading…</p>
+      <p>Sites in this browser’s history whose names look adult but that aren’t on either list, most visited first, from the last look through the history. They are not blocked. <strong>Add to your list</strong> blocks one from then on, in this browser; its earlier visits then join the record. Only the name is judged, so a plain name passes unnoticed and the odd innocent one may turn up here.</p>
+    </header>
+
+    <section id="unlisted" aria-labelledby="unlisted-heading" hidden>
+      <h2 id="unlisted-heading" class="visually-hidden">Sites</h2>
+      <table id="unlisted-table" class="attempts">
+        <thead>
+          <tr><th scope="col">Site</th><th scope="col">Visits</th><th scope="col">Last visit</th><th scope="col"><span class="visually-hidden">Action</span></th></tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </section>
+  </main>
+  <script type="module" src="unlisted.js"></script>
+</body>
+</html>
