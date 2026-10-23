@@ -1,0 +1,64 @@
+# Builds the installer package for the launch agent that closes Firefox's Option key on a GitHub-hosted Mac
+# (scripts/mac-installer.mjs) and attaches it, with the lock's profile, to the release of a version, so the
+# Mac files are on the release page next to the signed add-on. Sign with Mozilla runs it after each release;
+# start it by hand from the Actions tab to add the files to a release that doesn't have them, giving the
+# version (or leaving it blank for the one in extension/manifest.json).
+name: Mac files for a release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version whose release gets the files (blank: the one in extension/manifest.json)'
+        required: false
+        default: ''
+  workflow_call:
+    inputs:
+      version:
+        required: true
+        type: string
+
+permissions:
+  contents: write # to add files to the release
+
+jobs:
+  mac-files:
+    runs-on: macos-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+
+      - name: Build the installer package
+        id: build
+        run: |
+          version="${{ inputs.version }}"
+          [ -n "$version" ] || version=$(node -p "require('./extension/manifest.json').version")
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          npm run mac-installer
+          ls -la dist/mac
+
+      - name: Add the Mac files to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.build.outputs.version }}
+        run: |
+          if ! gh release view "v$VERSION" >/dev/null 2>&1; then
+            echo "::error title=No release::There is no release v$VERSION to add the files to. Run Sign with Mozilla first."
+            exit 1
+          fi
+          pkg=$(ls dist/mac/*.pkg)
+          gh release upload "v$VERSION" "$pkg" mac/family-site-blocker-firefox.mobileconfig --clobber
+          gh release view "v$VERSION" --json body --jq .body > notes.md
+          if ! grep -q "Option key" notes.md; then
+            cat >> notes.md <<EOF
+
+          - **The Firefox lock for a Mac:** \`family-site-blocker-firefox.mobileconfig\`, Firefox's settings with its own copy of the built-in list (README: "Lock it, so nobody can switch it off"). Install it again when it changes.
+          - **Close Firefox's Option key on a Mac (optional):** \`$(basename "$pkg")\`, an installer package for the launch agent (README: "Close the Option key, too"). Unsigned, so macOS asks once, under Privacy & Security, to open it anyway.
+          EOF
+            gh release edit "v$VERSION" --notes-file notes.md
+          fi
+          echo "::notice title=Mac files added::$(gh release view "v$VERSION" --json url --jq .url)"

@@ -3,7 +3,7 @@
 # (npm run package:signed). Start it from the Actions tab with "Run workflow". If Mozilla already has the
 # version, it downloads that signed file instead of uploading again. Then it publishes the update files
 # that let installed copies update themselves (.github/workflows/publish-updates.yml), when the deploy key
-# for that is saved.
+# for that is saved, and adds the Mac files to the release (.github/workflows/mac-installer.yml).
 #
 # It needs two repository secrets (Settings → Secrets and variables → Actions), the two parts of an API key
 # from https://addons.mozilla.org/developers/addon/api/key/ : AMO_JWT_ISSUER (the "JWT issuer") and
@@ -25,6 +25,7 @@ jobs:
     timeout-minutes: 30
     outputs:
       publish: ${{ steps.key.outputs.publish }}
+      version: ${{ steps.build.outputs.version }}
     steps:
       - uses: actions/checkout@v5
 
@@ -118,3 +119,12 @@ jobs:
     if: needs.sign.outputs.publish == 'yes'
     uses: ./.github/workflows/publish-updates.yml
     secrets: inherit
+
+  # The Mac files (the lock's profile and the installer package that closes Firefox's Option key) are built
+  # on a Mac and added to the release. GitHub's Macs are sometimes scarce; if this job can't get one, start
+  # "Mac files for a release" by hand later.
+  mac-files:
+    needs: sign
+    uses: ./.github/workflows/mac-installer.yml
+    with:
+      version: ${{ needs.sign.outputs.version }}

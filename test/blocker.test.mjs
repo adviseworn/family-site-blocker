@@ -18,6 +18,7 @@ import { ENGINES, FIRST_ID, YOUTUBE, safeSearchAddress, safeSearchRules } from '
 import { BANDS, COMMUNITY_PATH, COMMUNITY_URL, POPULAR_PATH, POPULAR_SIZE, POPULAR_URL, communityList, looksAdult as nameLooksAdult, popularList, rankSites, worthALook } from '../scripts/update-blocklist.mjs';
 import { firefoxManifest, packageFirefox } from '../scripts/package-firefox.mjs';
 import { AGENT_LABEL, AGENT_PATH, FILTER_LIMIT, PROFILE_PATH, SAFE_MODE_KEY_VARIABLE, WHOLE_DOMAINS, XPI_URL, filterEntries, filterPattern, filterSites, firefoxPolicies, launchAgent, mobileconfig, onWholeDomain } from '../scripts/firefox-lock.mjs';
+import { AGENT_INSTALLED_PATH, PKG_IDENTIFIER, TITLE, VERSION as INSTALLER_VERSION, buildInstaller, conclusion, distribution, pkgName, postinstall, welcome } from '../scripts/mac-installer.mjs';
 import { ICNS_PATH, packageSigned } from '../scripts/package-signed.mjs';
 import { readZip } from '../scripts/read-zip.mjs';
 import { LATEST_NAME, LATEST_URL, SITE_URL, UPDATES_URL, buildSite, compareVersions, describeXpi, updatesManifest } from '../scripts/updates-manifest.mjs';
@@ -954,6 +955,31 @@ test('the launch agent that closes the Option key is up to date and sets the var
     const check = spawnSync('plutil', ['-lint', AGENT_PATH], { encoding: 'utf8' });
     assert.equal(check.status, 0, check.stdout + check.stderr);
   }
+});
+
+test("the installer package for the launch agent: what pkgbuild and productbuild are given", () => {
+  assert.equal(INSTALLER_VERSION, manifest.version, 'the package carries the add-on version');
+  assert.equal(pkgName('1.5.4'), 'family-site-blocker-firefox-troubleshoot-key-1.5.4.pkg');
+  assert.equal(PKG_IDENTIFIER, AGENT_LABEL, "the receipt is named after the agent's label");
+  assert.equal(AGENT_INSTALLED_PATH, `/Library/LaunchAgents/${AGENT_LABEL}.plist`);
+  const xml = distribution('1.5.4');
+  assert.match(xml, /^<\?xml version="1.0" encoding="utf-8"\?>\n<installer-gui-script minSpecVersion="2">/);
+  assert.ok(xml.includes(`<title>${TITLE}</title>`));
+  assert.match(xml, /<options customize="never" rootVolumeOnly="true" hostArchitectures="x86_64,arm64"\/>/, 'one choice, Intel and Apple silicon');
+  assert.match(xml, /<domains enable_localSystem="true"\/>/, 'installs for every account');
+  assert.ok(xml.includes(`<pkg-ref id="${PKG_IDENTIFIER}" version="1.5.4" onConclusion="none">component.pkg</pkg-ref>`));
+  assert.match(xml, /<welcome file="welcome.txt" mime-type="text\/plain"\/>\s*<conclusion file="conclusion.txt" mime-type="text\/plain"\/>/);
+  const script = postinstall();
+  assert.ok(script.startsWith('#!/bin/sh\n'));
+  assert.ok(script.includes(`PLIST="${AGENT_INSTALLED_PATH}"`));
+  assert.ok(script.includes('chown root:wheel "$PLIST"') && script.includes('chmod 644 "$PLIST"'));
+  assert.ok(script.includes('launchctl bootstrap "gui/$uid" "$PLIST"'), 'loads the agent for each account logged in');
+  assert.ok(script.includes(`launchctl setenv ${SAFE_MODE_KEY_VARIABLE} 1`), 'and closes the key at once');
+  assert.ok(script.includes('dscl . -list /Users UniqueID') && script.includes('launchctl print "gui/$uid" >/dev/null 2>&1 || continue'), 'only the accounts logged in');
+  assert.ok(script.trimEnd().endsWith('exit 0'), 'nothing in it fails the install');
+  for (const text of [welcome(), conclusion()]) assert.ok(/^[\x20-\x7e\n]+$/.test(text), 'plain ASCII, for Installer');
+  assert.ok(welcome().includes(SAFE_MODE_KEY_VARIABLE) && welcome().includes(AGENT_INSTALLED_PATH) && welcome().includes('--safe-mode'));
+  if (process.platform !== 'darwin') assert.throws(() => buildInstaller({ out: join(tmpdir(), 'family-site-blocker-pkg') }), /needs a Mac/);
 });
 
 test('every file the pages reference exists', () => {
