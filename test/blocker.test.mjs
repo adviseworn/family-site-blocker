@@ -13,11 +13,11 @@ import { normalizeDomain, parseDomainList } from '../extension/lib/domains.js';
 import { MAX_UNLISTED, looksAdult, siteOf, tallyUnlisted } from '../extension/lib/suspects.js';
 import { addToMyList, myList, saveMyList } from '../extension/lib/mylist.js';
 import { BLOCK_PAGE, CHUNK_SIZE, buildRules, domainsOf } from '../extension/lib/rules.js';
-import { BLOCKLIST_DIR, DOMAINS_PATH, MANIFEST_PATH, MAX_RULESET_BYTES, RULES_DIR, SAFE_SEARCH_PATH, formatManifest, loadBlocklists, loadRules, renderDomains, renderRulesets, renderSafeSearch, ruleResources } from '../scripts/build-rules.mjs';
+import { BLOCKLIST_DIR, DOMAINS_PATH, MANIFEST_PATH, MAX_RULESET_BYTES, NEVER_FILE, RULES_DIR, SAFE_SEARCH_PATH, formatManifest, listFiles, loadBlocklists, loadNever, loadRules, renderDomains, renderRulesets, renderSafeSearch, ruleResources } from '../scripts/build-rules.mjs';
 import { ENGINES, FIRST_ID, YOUTUBE, safeSearchAddress, safeSearchRules } from '../extension/lib/safesearch.js';
-import { COMMUNITY_PATH, COMMUNITY_URL, communityList } from '../scripts/update-blocklist.mjs';
+import { BANDS, COMMUNITY_PATH, COMMUNITY_URL, POPULAR_PATH, POPULAR_SIZE, POPULAR_URL, communityList, looksAdult as nameLooksAdult, popularList, rankSites, worthALook } from '../scripts/update-blocklist.mjs';
 import { firefoxManifest, packageFirefox } from '../scripts/package-firefox.mjs';
-import { FILTER_LIMIT, PROFILE_PATH, XPI_URL, filterPattern, filterSites, firefoxPolicies, mobileconfig } from '../scripts/firefox-lock.mjs';
+import { AGENT_LABEL, AGENT_PATH, FILTER_LIMIT, PROFILE_PATH, SAFE_MODE_KEY_VARIABLE, WHOLE_DOMAINS, XPI_URL, filterEntries, filterPattern, filterSites, firefoxPolicies, launchAgent, mobileconfig, onWholeDomain } from '../scripts/firefox-lock.mjs';
 import { ICNS_PATH, packageSigned } from '../scripts/package-signed.mjs';
 import { readZip } from '../scripts/read-zip.mjs';
 import { LATEST_NAME, LATEST_URL, SITE_URL, UPDATES_URL, buildSite, compareVersions, describeXpi, updatesManifest } from '../scripts/updates-manifest.mjs';
@@ -131,14 +131,17 @@ test('extension/rules/*.json and manifest.json are up to date with blocklists/ (
 
 // The community list widens the built-in list by tens of thousands of sites. A site on the built-in list
 // can't be allowed again from the settings page, so a well-known site swept up by mistake would be a real
-// nuisance: these must never appear. Add to this list when a mistake turns up, and pick a different list if
-// the maintainers don't fix it.
+// nuisance: these must never appear, nor the sites blocklists/never.txt names, which the build takes out
+// (ordinary sites the list does carry). Add to one or the other when a mistake turns up, and pick a
+// different list if the maintainers don't fix it.
 const NEVER_LISTED = [
   'wikipedia.org', 'google.com', 'bing.com', 'duckduckgo.com', 'youtube.com', 'reddit.com', 'tumblr.com', 'twitter.com', 'x.com',
   'imgur.com', 'flickr.com', 'deviantart.com', 'instagram.com', 'tiktok.com', 'pinterest.com', 'vimeo.com', 'dailymotion.com',
   'discord.com', 'telegram.org', 'archive.org', 'github.com', 'stackoverflow.com', 'medium.com', 'substack.com', 'patreon.com',
   'fandom.com', 'quora.com', 'wattpad.com', 'twitch.tv', 'spotify.com', 'netflix.com', 'amazon.com', 'ebay.com', 'etsy.com', 'apple.com',
   'plannedparenthood.org', 'webmd.com', 'mayoclinic.org', 'healthline.com', 'scarleteen.com', 'mozilla.org', 'example.com', 'allowed.test',
+  'b-cdn.net', 'cloudfront.net', 'akamaihd.net', 'googleusercontent.com', 'blogspot.com', 'wordpress.com', 'github.io',
+  ...loadNever(),
 ];
 
 test('blocklists/community.txt is the community list as fetched, with a note of its source, and sweeps up none of the well-known sites', () => {
@@ -157,6 +160,93 @@ test('blocklists/community.txt is the community list as fetched, with a note of 
   assert.match(written, /^# Community list: StevenBlack\/hosts.*\n# From https:.*\n# Fetched 2026-10-18; 12001 domains\./);
   assert.ok(written.endsWith('0.0.0.0 site11999.test\n'));
   assert.throws(() => communityList('0.0.0.0 a.test\n'), /Only 1 domains/);
+});
+
+test('blocklists/never.txt takes its sites out of the built-in list, each one alone, and is not a list of sites to block', () => {
+  const never = loadNever();
+  assert.ok(never.has('b-cdn.net'), 'the content network the community list sweeps up as www.b-cdn.net');
+  assert.ok(never.has('refinery29.com'));
+  assert.ok(!listFiles().includes(NEVER_FILE), 'never.txt is not read as a blocklist');
+  const { domains, never: takenOut } = loadBlocklists();
+  for (const site of never) assert.ok(!domains.includes(site), `${site} is off the list`);
+  assert.ok(takenOut.includes('b-cdn.net'), 'reported as taken out');
+  assert.ok(domains.includes('javpub.b-cdn.net'), 'a host listed under it on its own stays blocked');
+  assert.ok(domains.includes('xxx.startpagina.nl'));
+  assert.equal(outcome('https://cdn.example-shop.b-cdn.net/style.css', 'stylesheet'), 'allow', 'Bunny CDN loads');
+  assert.equal(outcome('https://javpub.b-cdn.net/x.jpg', 'image'), 'block');
+  assert.equal(outcome('https://www.refinery29.com/'), 'allow');
+  assert.equal(outcome('https://xxx.startpagina.nl/'), 'redirect');
+  // A folder with no never.txt, and one whose never.txt names a site no list has.
+  const dir = mkdtempSync(join(tmpdir(), 'family-site-blocker-never-'));
+  try {
+    writeFileSync(join(dir, 'a.txt'), 'one.test\ntwo.test\nwww.cdn.test\nporn.cdn.test\n');
+    assert.deepEqual(loadBlocklists(dir), { files: ['a.txt'], domains: ['cdn.test', 'one.test', 'porn.cdn.test', 'two.test'], invalid: [], never: [] });
+    writeFileSync(join(dir, NEVER_FILE), '# why\ncdn.test  # a content network\nnot-listed.test\n');
+    assert.deepEqual(loadBlocklists(dir), { files: ['a.txt'], domains: ['one.test', 'porn.cdn.test', 'two.test'], invalid: [], never: ['cdn.test'] });
+    assert.deepEqual([...loadNever(dir)], ['cdn.test', 'not-listed.test']);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("rankSites gives each listed site the best band of the ranked origins on or under it, credited to the shortest listed domain", () => {
+  const csv = [
+    'origin,rank',
+    'https://www.google.com,1000',
+    'https://es.pornhub.com,1000', // counts for pornhub.com, which blocks it too
+    'https://pornhub.com,5000',
+    'https://tik.porn,5000',
+    'https://only-sub.example.net,10000', // only the subdomain is listed
+    'https://deep.only-sub.example.net,50000',
+    'http://plain.test,100000',
+    'https://unlisted.test,1000',
+    'not an origin,1000',
+    'https://odd.test,42', // not a band
+    '',
+  ].join('\n');
+  const listed = new Set(['pornhub.com', 'es.pornhub.com', 'tik.porn', 'only-sub.example.net', 'plain.test', 'quiet.test']);
+  const ranks = rankSites(csv, listed);
+  assert.deepEqual([...ranks], [['pornhub.com', 1000], ['tik.porn', 5000], ['only-sub.example.net', 10_000], ['plain.test', 100_000]]);
+  assert.deepEqual(BANDS, [1000, 5000, 10_000, 50_000, 100_000, 500_000, 1_000_000]);
+  // popularList() is what npm run blocklist writes: a note with the source, then the sites in order with their bands.
+  const many = new Map(Array.from({ length: 150 }, (_, i) => [`site${String(i).padStart(3, '0')}.test`, BANDS[i % BANDS.length]]));
+  const written = popularList(many, new Date('2026-10-23T12:00:00Z'), 10);
+  assert.match(written, /^# Popular sites: .*\n# Made by npm run blocklist from the Chrome UX Report/);
+  assert.ok(written.includes(POPULAR_URL));
+  assert.match(written, /^# Alphabetical within a band\. Fetched 2026-10-23; 10 of the 150 built-in sites it ranks\.$/m);
+  const lines = written.trimEnd().split('\n').filter((line) => !line.startsWith('#') && line);
+  assert.equal(lines.length, 10);
+  assert.match(lines[0], /^site000\.test\s+# top 1,000$/);
+  assert.match(lines[9], /^site063\.test\s+# top 1,000$/, 'the ten in the first band, alphabetical');
+  assert.deepEqual(parseDomainList(written).domains, lines.map((line) => line.split(/\s/)[0]));
+  assert.throws(() => popularList(new Map([['a.test', 1000]])), /Only 1 built-in sites/);
+  // worthALook: the sites in the top bands with nothing adult in their names, never.txt's aside.
+  const ranked = new Map([['refinery29.com', 1000], ['pornhub.com', 1000], ['kinopoisk.ru', 5000], ['xhamster.com', 1000], ['plain.test', 50_000], ['dmm.co.jp', 10_000]]);
+  assert.deepEqual(worthALook(ranked, new Set(['kinopoisk.ru'])), ['refinery29.com', 'dmm.co.jp']);
+  for (const name of ['refinery29.com', 'kinopoisk.ru', 'yandex.by', 'startpagina.nl', 'postimage.org', 'btc.com', 'findicons.com', 'xyzprinting.com', 'aquoid.com', 'gmpg.org', 'b-cdn.net']) {
+    assert.equal(nameLooksAdult(name), false, `${name} would be shown`);
+  }
+  for (const name of ['pornhub.com', 'xvideos.com', 'chaturbate.com', 'spankbang.com', 'tik.porn', 'sex.com', 'x-art.com']) assert.equal(nameLooksAdult(name), true, name);
+});
+
+test('blocklists/popular.txt orders built-in sites by how much they are visited, for the lock, and adds none', () => {
+  const file = readFileSync(POPULAR_PATH, 'utf8');
+  assert.match(file, /^# Popular sites: /);
+  assert.match(file, /^# Alphabetical within a band\. Fetched \d{4}-\d{2}-\d{2}; \d+ of the \d+ built-in sites it ranks\.$/m);
+  const popular = parseDomainList(file).domains;
+  assert.ok(popular.length > 1000 && popular.length <= POPULAR_SIZE, `${popular.length} sites`);
+  const starter = new Set(parseDomainList(readFileSync(join(BLOCKLIST_DIR, 'starter.txt'), 'utf8')).domains);
+  const community = new Set(parseDomainList(readFileSync(COMMUNITY_PATH, 'utf8')).domains);
+  const never = loadNever();
+  for (const site of popular) {
+    assert.ok(starter.has(site) || community.has(site), `${site} is on a list already`);
+    assert.ok(!never.has(site), `${site} is not in never.txt`);
+  }
+  assert.ok(popular.includes('pornhub.com') && popular.includes('xvideos.com') && popular.includes('tik.porn'));
+  const bands = file.match(/# top ([\d,]+)$/gm).map((note) => Number(note.replace(/\D/g, '')));
+  assert.equal(bands.length, popular.length, 'each site has its band');
+  for (let i = 1; i < bands.length; i++) assert.ok(bands[i] >= bands[i - 1], 'best band first');
+  assert.equal(bands[0], 1000);
 });
 
 test('renderRulesets packs whole rules into files under the size limit, in order, with ids the manifest lists', () => {
@@ -796,25 +886,46 @@ test("the Firefox lock gives Firefox its own copy of the built-in list, which bl
   const { WebsiteFilter } = firefoxPolicies();
   const { domains } = loadBlocklists();
   const starter = parseDomainList(readFileSync(join(BLOCKLIST_DIR, 'starter.txt'), 'utf8')).domains;
+  const popular = parseDomainList(readFileSync(POPULAR_PATH, 'utf8')).domains;
   assert.deepEqual(Object.keys(WebsiteFilter), ['Block'], 'no exceptions');
-  assert.equal(WebsiteFilter.Block[0], '*://*.exampleadultsite.com/*', 'the test case comes first');
-  assert.deepEqual(WebsiteFilter.Block.slice(0, starter.length), starter.map(filterPattern), 'then the rest of starter.txt');
-  assert.equal(WebsiteFilter.Block.length, Math.min(domains.length, FILTER_LIMIT));
+  assert.deepEqual(WebsiteFilter.Block, filterEntries());
+  assert.equal(WebsiteFilter.Block.length, FILTER_LIMIT, 'full');
+  assert.equal(new Set(WebsiteFilter.Block).size, FILTER_LIMIT, 'each entry once');
+  // Whole adult domains first, one entry each; then the test case and the rest of starter.txt.
+  assert.deepEqual(WHOLE_DOMAINS, ['xxx', 'porn', 'sex', 'adult', 'sexy']);
+  assert.deepEqual(WebsiteFilter.Block.slice(0, 5), ['*://*.xxx/*', '*://*.porn/*', '*://*.sex/*', '*://*.adult/*', '*://*.sexy/*']);
+  assert.equal(WebsiteFilter.Block[5], '*://*.exampleadultsite.com/*', 'the test case comes first among the sites');
+  const starterSites = starter.filter((site) => !onWholeDomain(site));
+  assert.deepEqual(WebsiteFilter.Block.slice(5, 5 + starterSites.length), starterSites.map(filterPattern), 'then the rest of starter.txt');
+  // Then popular.txt, in its order, leaving out the sites the whole domains cover (tik.porn is one).
+  const rest = WebsiteFilter.Block.slice(5 + starterSites.length);
+  const expected = popular.filter((site) => !starter.includes(site) && !onWholeDomain(site)).slice(0, rest.length).map(filterPattern);
+  assert.deepEqual(rest, expected, 'then popular.txt in order');
+  assert.ok(rest.length > 900, `${rest.length} from popular.txt`);
+  assert.ok(popular.includes('tik.porn') && !WebsiteFilter.Block.includes('*://*.tik.porn/*'), 'covered by *.porn');
   const builtIn = new Set(domains.map(filterPattern));
-  for (const pattern of WebsiteFilter.Block) assert.ok(builtIn.has(pattern), `${pattern} is a built-in site`);
+  for (const pattern of WebsiteFilter.Block.slice(5)) assert.ok(builtIn.has(pattern), `${pattern} is a built-in site`);
+  assert.ok(!builtIn.has(filterPattern('b-cdn.net')) && !WebsiteFilter.Block.includes(filterPattern('refinery29.com')), "never.txt's sites are out");
+  assert.ok(onWholeDomain('tik.porn') && onWholeDomain('a.b.xxx') && !onWholeDomain('xxx.com') && !onWholeDomain('porn.example.com'));
 });
 
-test("Firefox's own copy takes starter.txt first, then the other lists, and stops at Firefox's limit of 1,000", () => {
+test("Firefox's own copy takes the whole domains, then starter.txt, popular.txt and the other lists, and stops at Firefox's limit of 1,000", () => {
   const dir = mkdtempSync(join(tmpdir(), 'family-site-blocker-lists-'));
   try {
-    writeFileSync(join(dir, 'a-community.txt'), Array.from({ length: 1200 }, (_, i) => `0.0.0.0 site${i}.com`).join('\n'));
-    writeFileSync(join(dir, 'starter.txt'), '# mine\nexampleadultsite.com\nwww.second.com\nsite5.com\n');
-    const { sites, leftOut } = filterSites(dir);
-    assert.deepEqual(sites.slice(0, 4), ['exampleadultsite.com', 'second.com', 'site5.com', 'site0.com']);
-    assert.equal(sites.length, FILTER_LIMIT);
-    assert.equal(new Set(sites).size, FILTER_LIMIT, 'each site once');
-    assert.equal(sites.length + leftOut.length, 1202, 'site5.com counted once');
-    assert.equal(leftOut.length, 202);
+    writeFileSync(join(dir, 'a-community.txt'), Array.from({ length: 1200 }, (_, i) => `0.0.0.0 site${i}.com`).join('\n') + '\n0.0.0.0 tik.porn\n0.0.0.0 ordinary.com\n');
+    writeFileSync(join(dir, 'starter.txt'), '# mine\nexampleadultsite.com\nwww.second.com\nsite5.com\nfirst.xxx\n');
+    writeFileSync(join(dir, 'popular.txt'), '# most visited\nsite9.com  # top 1,000\nsite8.com  # top 5,000\nsite5.com\nalso.porn\n');
+    writeFileSync(join(dir, NEVER_FILE), 'ordinary.com\n');
+    const { sites, leftOut, covered } = filterSites(dir);
+    assert.deepEqual(sites.slice(0, 6), ['exampleadultsite.com', 'second.com', 'site5.com', 'site9.com', 'site8.com', 'site0.com']);
+    assert.equal(sites.length, FILTER_LIMIT - WHOLE_DOMAINS.length, 'room for the whole domains');
+    assert.equal(new Set(sites).size, sites.length, 'each site once');
+    assert.equal(sites.length + leftOut.length, 1202, 'site5.com counted once, the covered and never.txt sites not at all');
+    assert.equal(covered, 3, 'first.xxx, also.porn, tik.porn');
+    assert.ok(!sites.includes('ordinary.com') && !leftOut.includes('ordinary.com'));
+    const entries = filterEntries(dir);
+    assert.equal(entries.length, FILTER_LIMIT);
+    assert.deepEqual(entries.slice(0, 6), ['*://*.xxx/*', '*://*.porn/*', '*://*.sex/*', '*://*.adult/*', '*://*.sexy/*', '*://*.exampleadultsite.com/*']);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -825,7 +936,24 @@ test('mac/family-site-blocker-firefox.mobileconfig is up to date with blocklists
   assert.equal(profile, mobileconfig());
   assert.match(profile, /<key>PayloadScope<\/key>\s*<string>System<\/string>/, 'applies to every account');
   assert.match(profile, /<key>EnterprisePoliciesEnabled<\/key>\s*<true\/>/, 'Firefox only reads its Mac settings with this');
-  assert.match(profile, /<key>WebsiteFilter<\/key>\s*<dict>\s*<key>Block<\/key>\s*<array>\s*<string>\*:\/\/\*\.exampleadultsite\.com\/\*<\/string>/);
+  assert.match(profile, /<key>WebsiteFilter<\/key>\s*<dict>\s*<key>Block<\/key>\s*<array>\s*<string>\*:\/\/\*\.xxx\/\*<\/string>\s*<string>\*:\/\/\*\.porn\/\*<\/string>/);
+  assert.ok(profile.includes('<string>*://*.exampleadultsite.com/*</string>'));
+  assert.ok(profile.includes('whole adult domains such as .porn and .xxx'), 'the description says what the copy holds');
+});
+
+test('the launch agent that closes the Option key is up to date and sets the variable Firefox checks (run npm run build)', () => {
+  const agent = readFileSync(AGENT_PATH, 'utf8');
+  assert.equal(agent, launchAgent());
+  assert.equal(AGENT_PATH.split(sep).slice(-2).join('/'), `mac/${AGENT_LABEL}.plist`, 'named after its label, as launch agents are');
+  assert.equal(SAFE_MODE_KEY_VARIABLE, 'MOZ_DISABLE_SAFE_MODE_KEY', 'the variable toolkit/xre/SafeMode.h checks');
+  assert.match(agent, /<key>Label<\/key>\s*<string>local\.parental-controls\.family-site-blocker\.firefox-troubleshoot-key<\/string>/);
+  assert.match(agent, /<key>ProgramArguments<\/key>\s*<array>\s*<string>\/bin\/launchctl<\/string>\s*<string>setenv<\/string>\s*<string>MOZ_DISABLE_SAFE_MODE_KEY<\/string>\s*<string>1<\/string>\s*<\/array>/);
+  assert.match(agent, /<key>RunAtLoad<\/key>\s*<true\/>/);
+  assert.ok(!agent.includes('<key>KeepAlive</key>'), 'runs once at login');
+  if (process.platform === 'darwin') {
+    const check = spawnSync('plutil', ['-lint', AGENT_PATH], { encoding: 'utf8' });
+    assert.equal(check.status, 0, check.stdout + check.stderr);
+  }
 });
 
 test('every file the pages reference exists', () => {

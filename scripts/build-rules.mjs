@@ -1,11 +1,13 @@
 #!/usr/bin/env node
-// Builds the blocking rules from every .txt file in blocklists/: extension/rules/adult-1.json,
+// Builds the blocking rules from every .txt file in blocklists/ but never.txt: extension/rules/adult-1.json,
 // adult-2.json, … (each a ruleset of its own, listed in manifest.json, which this script keeps up to
 // date), and extension/rules/domains.json, the same domains as a plain list, which the background script
-// and the settings page read. The rules repeat each domain four times (two rules, with and without a
-// trailing dot), so they are split into files of at most MAX_RULESET_BYTES: Mozilla's add-on linter, which
-// runs before Mozilla signs a version, won't read a file over 4 MB.
-import { mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+// and the settings page read. never.txt names the sites to leave out (ordinary sites the community list
+// sweeps up); a line there takes out that one domain, not the hosts listed under it. The rules repeat each
+// domain four times (two rules, with and without a trailing dot), so they are split into files of at most
+// MAX_RULESET_BYTES: Mozilla's add-on linter, which runs before Mozilla signs a version, won't read a file
+// over 4 MB.
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { parseDomainList } from '../extension/lib/domains.js';
@@ -21,10 +23,24 @@ export const DOMAINS_PATH = join(RULES_DIR, 'domains.json');
 export const SAFE_SEARCH_FILE = 'safe-search.json'; // the safe-search ruleset (lib/safesearch.js), next to the adult ones
 export const SAFE_SEARCH_PATH = join(RULES_DIR, SAFE_SEARCH_FILE);
 export const MAX_RULESET_BYTES = 3 * 1024 * 1024;
+export const NEVER_FILE = 'never.txt'; // the sites to leave out of the built-in list, with their reasons
 const RULESET = /^adult-\d+\.json$/;
 
+/** The .txt files in blocklists/ that are lists of sites to block, in name order: all but never.txt. */
+export const listFiles = (dir = BLOCKLIST_DIR) => readdirSync(dir).filter((name) => name.endsWith('.txt') && name !== NEVER_FILE).sort();
+
+/** The domains never.txt names, as a Set (empty when there is no such file). */
+export function loadNever(dir = BLOCKLIST_DIR) {
+  const path = join(dir, NEVER_FILE);
+  return new Set(existsSync(path) ? parseDomainList(readFileSync(path, 'utf8')).domains : []);
+}
+
+/**
+ * Every domain in the lists, sorted, without those never.txt names: { files, domains, invalid, never },
+ * `never` being the domains taken out (those named that a list had).
+ */
 export function loadBlocklists(dir = BLOCKLIST_DIR) {
-  const files = readdirSync(dir).filter((name) => name.endsWith('.txt')).sort();
+  const files = listFiles(dir);
   const domains = new Set();
   const invalid = [];
   for (const file of files) {
@@ -32,7 +48,8 @@ export function loadBlocklists(dir = BLOCKLIST_DIR) {
     parsed.domains.forEach((domain) => domains.add(domain));
     parsed.invalid.forEach((entry) => invalid.push({ file, entry }));
   }
-  return { files, domains: [...domains].sort(), invalid };
+  const never = [...loadNever(dir)].filter((domain) => domains.delete(domain));
+  return { files, domains: [...domains].sort(), invalid, never };
 }
 
 /**
@@ -90,7 +107,7 @@ export function loadRules(manifestPath = MANIFEST_PATH) {
 }
 
 function main() {
-  const { files, domains, invalid } = loadBlocklists();
+  const { files, domains, invalid, never } = loadBlocklists();
   if (domains.length === 0) {
     console.error('No domains found in blocklists/*.txt');
     process.exit(1);
@@ -104,7 +121,7 @@ function main() {
   const manifest = JSON.parse(readFileSync(MANIFEST_PATH, 'utf8'));
   manifest.declarative_net_request.rule_resources = ruleResources(rulesets);
   writeFileSync(MANIFEST_PATH, formatManifest(manifest));
-  console.log(`Read ${files.join(', ')}`);
+  console.log(`Read ${files.join(', ')}${never.length ? `; left out the ${never.length} sites ${NEVER_FILE} names` : ''}`);
   console.log(`Wrote ${domains.length} domains to ${rulesets.map(({ file }) => file).join(', ')} and domains.json in ${RULES_DIR}`);
   if (invalid.length > 0) {
     console.log(`Skipped ${invalid.length} entries that are not domain names, for example:`);

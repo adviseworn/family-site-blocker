@@ -8,8 +8,13 @@
 // server (set as its proxy), so a request that never reaches that server was stopped by the browser.
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { spawnSync } from 'node:child_process';
+import { accessSync, constants, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { dirname, join } from 'node:path';
+import { parseDomainList } from '../extension/lib/domains.js';
+import { BLOCKLIST_DIR } from '../scripts/build-rules.mjs';
+import { filterEntries, filterSites } from '../scripts/firefox-lock.mjs';
 import { EXTENSION_DIR, startStubInternet } from './helpers/browser.mjs';
 import { findFirefox, launchFirefox } from './helpers/firefox.mjs';
 import { MARKS, extensionWithStandInClassifier, galleryPage, servePictures } from './helpers/pictures.mjs';
@@ -25,6 +30,49 @@ const sleep = (ms) => new Promise((done) => setTimeout(done, ms));
 // tests with ALLOW_OLD_FIREFOX=1, so that one warning is let through there.
 const unexpected = (warnings, version) =>
   warnings.filter((warning) => !(parseFloat(version) < 140 && warning.includes('data_collection_permissions')));
+
+// Where Firefox reads its own policies.json: next to the program on Linux and Windows, inside the app on a
+// Mac. The last group below writes the lock's filter there; it is skipped where that can't be written, where
+// Firefox would read /etc/firefox/policies/policies.json instead, and on a Mac outside CI, where writing
+// inside Firefox.app needs an administrator (the lock tests cover it there).
+const MAC = process.platform === 'darwin';
+const FIREFOX = findFirefox();
+const POLICIES_PATH = !FIREFOX ? '' : MAC ? join(dirname(dirname(FIREFOX)), 'Resources', 'distribution', 'policies.json') : join(dirname(FIREFOX), 'distribution', 'policies.json');
+function whyNoPolicies() {
+  if (!POLICIES_PATH) return 'no Firefox found';
+  if (!MAC && existsSync('/etc/firefox/policies/policies.json')) return 'Firefox would read /etc/firefox/policies/policies.json instead';
+  if (existsSync(POLICIES_PATH)) return `${POLICIES_PATH} exists already`;
+  if (MAC) {
+    if (!process.env.CI) return 'on a Mac this writes inside Firefox.app, so it only runs in CI (the lock tests cover it)';
+    return spawnSync('sudo', ['-n', 'true']).status === 0 ? false : 'needs sudo without a password';
+  }
+  try {
+    const folder = dirname(POLICIES_PATH);
+    accessSync(existsSync(folder) ? folder : dirname(folder), constants.W_OK);
+    return false;
+  } catch {
+    return `can't write ${POLICIES_PATH}`;
+  }
+}
+const sudo = (...args) => assert.equal(spawnSync('sudo', ['-n', ...args], { stdio: 'inherit' }).status, 0, args.join(' '));
+
+/** Writes the policies file (as root on a Mac) and returns a function that takes it away again. */
+function writePolicies(policies) {
+  const folder = dirname(POLICIES_PATH);
+  const madeFolder = !existsSync(folder);
+  const text = JSON.stringify({ policies });
+  if (MAC) {
+    const staged = join(tmpdir(), `family-site-blocker-policies-${process.pid}.json`);
+    writeFileSync(staged, text);
+    sudo('mkdir', '-p', folder);
+    sudo('cp', staged, POLICIES_PATH);
+    rmSync(staged, { force: true });
+    return () => sudo('rm', '-rf', madeFolder ? folder : POLICIES_PATH);
+  }
+  mkdirSync(folder, { recursive: true });
+  writeFileSync(POLICIES_PATH, text);
+  return () => rmSync(madeFolder ? folder : POLICIES_PATH, { recursive: true, force: true });
+}
 
 describe('Firefox', { skip: findFirefox() ? false : 'no Firefox found (set FIREFOX=/path/to/firefox)' }, () => {
   let stub;
@@ -668,6 +716,66 @@ describe('Firefox', { skip: findFirefox() ? false : 'no Firefox found (set FIREF
       assert.deepEqual({ warnings: unexpected(warnings, folder.version), errors }, { warnings: [], errors: [] });
       assert.match(background.service_worker, /\/background\.js$/, 'the folder keeps the line for Chrome, Edge and Brave');
       assert.match(background.scripts[0], /\/background\.js$/);
+    });
+  });
+
+  // Firefox's own copy of the built-in list is a Firefox policy (WebsiteFilter), which the lock installs on a
+  // Mac and which blocks with no add-on running, as in Troubleshoot Mode. Here it goes into Firefox's own
+  // policies.json (see writePolicies above), with no add-on loaded.
+  describe("Firefox's own copy of the list (the lock's filter) blocks with no add-on running", { skip: whyNoPolicies() }, () => {
+    let plain;
+    let removePolicies = () => {};
+
+    before(async () => {
+      removePolicies = writePolicies({ WebsiteFilter: { Block: filterEntries() } });
+      plain = await launchFirefox(stub, { extension: false });
+      await plain.newTab();
+    });
+
+    after(async () => {
+      await plain?.close();
+      removePolicies();
+    });
+
+    async function assertFirefoxBlocks(url, site) {
+      stub.clear();
+      const result = await plain.visit(url);
+      assert.equal(result.outcome, 'blocked by Firefox', `${url} ended at ${result.documentUri || result.finalUrl}`);
+      assert.equal(stub.reached(site), false, `${url}: a request reached ${site}`);
+    }
+
+    test('Firefox takes all 1,000 entries, the whole domains included, as valid patterns', async () => {
+      // Firefox logs an invalid pattern and drops it; a dropped one would leave a site open without a word.
+      const state = await plain.inFirefox(`
+        const done = arguments[arguments.length - 1];
+        try {
+          const { WebsiteFilter } = ChromeUtils.importESModule("resource:///modules/policies/WebsiteFilter.sys.mjs");
+          done({ patterns: WebsiteFilter._blockPatterns.patterns.map((pattern) => pattern.pattern) });
+        } catch (error) {
+          done({ error: String(error) });
+        }`);
+      assert.deepEqual(state.patterns, filterEntries(), state.error);
+    });
+
+    test('the test case, and the sites that fill the copy, are blocked by Firefox itself', async () => {
+      const { sites } = filterSites();
+      const starter = parseDomainList(readFileSync(join(BLOCKLIST_DIR, 'starter.txt'), 'utf8')).domains;
+      const sample = ['exampleadultsite.com', ...sites.filter((site, i) => !starter.includes(site) && i % 100 === 0), sites[sites.length - 1]];
+      for (const site of sample) await assertFirefoxBlocks(`http://${site}/`, site);
+    });
+
+    test('a site on an adult top-level domain is blocked whether or not a list has it', async () => {
+      for (const site of ['tik.porn', 'www.tik.porn', 'brand-new-site.porn', 'a.xxx', 'b.sex', 'c.adult', 'd.sexy']) {
+        await assertFirefoxBlocks(`http://${site}/`, site);
+        await assertFirefoxBlocks(`https://${site}/video/1?x=y`, site);
+      }
+    });
+
+    test("a name that only ends like one, and never.txt's sites, load", async () => {
+      for (const url of ['http://allowed.test/', 'http://notporn.com/', 'http://porn.allowed.test/', 'http://tik.porn.allowed.test/', 'http://www.refinery29.com/', 'http://cdn-of-a-shop.b-cdn.net/']) {
+        const result = await plain.visit(url);
+        assert.equal(result.outcome, 'site loaded', `${url} ended at ${result.documentUri || result.finalUrl}`);
+      }
     });
   });
 });

@@ -539,6 +539,16 @@ describe('Firefox lock in Troubleshoot Mode', { skip: SKIP }, () => {
     for (const site of sample) await firefox.assertBlocked(`http://${site}/`, site);
   });
 
+  test('a site on an adult top-level domain is blocked whether or not a list has it, and a name that only ends like one loads', async () => {
+    for (const site of ['tik.porn', 'www.tik.porn', 'brand-new-site.porn', 'a.xxx', 'b.sex', 'c.adult', 'd.sexy']) {
+      await firefox.assertBlocked(`http://${site}/`, site);
+    }
+    for (const url of ['http://notporn.com/', 'http://porn.allowed.test/', 'http://tik.porn.allowed.test/']) {
+      const result = await firefox.visit(url);
+      assert.equal(result.outcome, 'site loaded', `${url} ended at ${result.documentUri || result.finalUrl}`);
+    }
+  });
+
   test('a link, a redirect and a frame on another site lead nowhere', async () => {
     await firefox.visit('http://allowed.test/links');
     stub.clear();
