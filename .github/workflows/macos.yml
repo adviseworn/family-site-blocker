@@ -45,6 +45,12 @@ jobs:
         shell: bash
         run: npm run test:firefox 2>&1 | tee firefox.tap
 
+      # The installer package for the launch agent that closes Firefox's Option key: built here, installed
+      # on this Mac with sudo, checked and taken away again.
+      - name: Installer package tests
+        shell: bash
+        run: npm run mac-installer && npm run test:mac-installer 2>&1 | tee installer.tap
+
       # Posts what ran as annotations on the run, and fails if a suite was skipped or ran nothing.
       - name: Report what ran
         if: always()
@@ -54,7 +60,7 @@ jobs:
           firefox=$(/Applications/Firefox.app/Contents/MacOS/firefox --version)
           echo "::notice title=Machine::$(sw_vers -productName) $(sw_vers -productVersion) on $(uname -m); Chromium $chromium; $firefox"
           status=0
-          for suite in fast chromium firefox; do
+          for suite in fast chromium firefox installer; do
             if [ ! -f "$suite.tap" ]; then echo "::error title=$suite tests::did not run"; status=1; continue; fi
             count() { grep -E "^# $1 [0-9]+" "$suite.tap" | tail -1 | awk '{print $3}'; }
             tests=$(count tests); pass=$(count pass); fail=$(count fail); skipped=$(count skipped)

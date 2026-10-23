@@ -16,6 +16,8 @@
     "test:all": "npm test && npm run test:browser && npm run test:firefox",
     "firefox-lock": "node scripts/firefox-lock.mjs",
     "test:firefox-lock": "node --test test/firefox-lock.e2e.mjs",
+    "mac-installer": "node scripts/mac-installer.mjs",
+    "test:mac-installer": "node --test test/mac-installer.e2e.mjs",
     "check:pictures": "node test/real-pictures.check.mjs"
   },
   "devDependencies": {
