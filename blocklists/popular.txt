@@ -2,440 +2,444 @@
 # Made by npm run blocklist from the Chrome UX Report's top million (Google; CC BY-SA 4.0 as tranco-list.eu
 # gives it; cached at https://raw.githubusercontent.com/zakird/crux-top-lists/main/data/global/current.csv.gz),
 # which ranks sites in bands: the top 1,000, 5,000, 10,000, 50,000, 100,000, 500,000, 1,000,000.
-# Alphabetical within a band. Fetched 2026-10-23; 2000 of the 7445 built-in sites it ranks.
+# Within a band, by place in the Majestic Million (https://downloads.majestic.com/majestic_million.csv; CC BY 3.0),
+# a ranking by links from across the web, sites it doesn't rank last and alphabetical among themselves.
+# Fetched 2026-10-23; 2000 of the 7445 built-in sites Chrome ranks, 1610 of them in the Majestic Million.
 # Every site here is on starter.txt or community.txt already: this file only puts them in order, for
 # Firefox's own copy of the list (the lock), which takes 1,000 entries (scripts/firefox-lock.mjs).
 
-18comic.vip                    # top 1,000
+pornhub.com                    # top 1,000; links 2,980
+onlyfans.com                   # top 1,000; links 3,236
+chaturbate.com                 # top 1,000; links 4,680
+xvideos.com                    # top 1,000; links 4,815
+xhamster.com                   # top 1,000; links 8,988
+xnxx.com                       # top 1,000; links 12,276
+ekstrabladet.dk                # top 1,000; links 13,165
+youporn.com                    # top 1,000; links 13,656
+dlsite.com                     # top 1,000; links 17,283
+dmm.co.jp                      # top 1,000; links 18,551
+stripchat.com                  # top 1,000; links 18,756
+fetlife.com                    # top 1,000; links 18,980
+redtube.com                    # top 1,000; links 22,437
+eporner.com                    # top 1,000; links 29,116
+donmai.us                      # top 1,000; links 37,169
+spankbang.com                  # top 1,000; links 47,469
+youjizz.com                    # top 1,000; links 57,127
+faphouse.com                   # top 1,000; links 67,740
+tnaflix.com                    # top 1,000; links 67,851
+e-hentai.org                   # top 1,000; links 69,882
+joyclub.de                     # top 1,000; links 79,761
+pornpics.com                   # top 1,000; links 83,356
+imagefap.com                   # top 1,000; links 85,205
+noodlemagazine.com             # top 1,000; links 87,171
+xxxbp.tv                       # top 1,000; links 87,614
+e621.net                       # top 1,000; links 91,759
+rule34.xxx                     # top 1,000; links 119,642
+xhamster.desi                  # top 1,000; links 120,055
+fuq.com                        # top 1,000; links 134,381
+skokka.com                     # top 1,000; links 137,613
+imgsrc.ru                      # top 1,000; links 140,837
+thisvid.com                    # top 1,000; links 142,660
+erome.com                      # top 1,000; links 156,946
+xhsocial.com                   # top 1,000; links 170,652
+pornone.com                    # top 1,000; links 182,887
+ixxx.com                       # top 1,000; links 184,938
+mangago.me                     # top 1,000; links 203,919
+ladies.de                      # top 1,000; links 226,478
+theyarehuge.com                # top 1,000; links 230,522
+boyfriendtv.com                # top 1,000; links 233,003
+porn300.com                    # top 1,000; links 243,328
+xhamster2.com                  # top 1,000; links 257,352
+hitomi.la                      # top 1,000; links 262,291
+mat6tube.com                   # top 1,000; links 262,348
+superporn.com                  # top 1,000; links 271,490
+aznude.com                     # top 1,000; links 284,561
+missav.ws                      # top 1,000; links 294,841
+pornhat.com                    # top 1,000; links 306,156
+xvideos.es                     # top 1,000; links 319,873
+pornhub.org                    # top 1,000; links 331,319
+exhentai.org                   # top 1,000; links 332,438
+jable.tv                       # top 1,000; links 334,573
+sxyprn.com                     # top 1,000; links 335,714
+tokyomotion.net                # top 1,000; links 349,457
+fapello.com                    # top 1,000; links 350,628
+pussyspace.com                 # top 1,000; links 351,781
+rule34video.com                # top 1,000; links 369,928
+milfporn.tv                    # top 1,000; links 403,291
+pimpbunny.com                  # top 1,000; links 446,127
+inxxx.com                      # top 1,000; links 450,988
+18comic.vip                    # top 1,000; links 459,363
+listcrawler.eu                 # top 1,000; links 477,654
+escort.club                    # top 1,000; links 481,146
+fpo.xxx                        # top 1,000; links 529,295
+sexvid.xxx                     # top 1,000; links 545,633
+qorno.com                      # top 1,000; links 548,096
+xvideos2.com                   # top 1,000; links 588,271
+xhamster19.com                 # top 1,000; links 600,375
+kompoz2.com                    # top 1,000; links 602,972
+iporntv.net                    # top 1,000; links 606,770
+mileroticos.com                # top 1,000; links 624,166
+luxuretv.com                   # top 1,000; links 641,286
+hanime1.me                     # top 1,000; links 648,571
+indiansexstories3.com          # top 1,000; links 652,018
+pussyboy.net                   # top 1,000; links 665,047
+skipthegames.com               # top 1,000; links 668,574
+myreadingmanga.info            # top 1,000; links 677,431
+fabswingers.com                # top 1,000; links 681,597
+twpornstars.com                # top 1,000; links 704,687
+supjav.com                     # top 1,000; links 709,244
+beeg.porn                      # top 1,000; links 762,772
+xhaccess.com                   # top 1,000; links 768,386
+xhamster1.desi                 # top 1,000; links 774,266
+xpaja.net                      # top 1,000; links 781,567
+wnacg.com                      # top 1,000; links 786,346
+anybunny.org                   # top 1,000; links 802,358
+bookmark.xxx                   # top 1,000; links 887,200
+missav.ai                      # top 1,000; links 895,031
+xhopen.com                     # top 1,000; links 915,772
+fatalmodel.com                 # top 1,000; links 926,177
+serviporno.com                 # top 1,000; links 941,675
+hdtube.porn                    # top 1,000; links 996,522
 antarvasna3.com                # top 1,000
-anybunny.org                   # top 1,000
 arabtnt.com                    # top 1,000
 arabx.cam                      # top 1,000
-aznude.com                     # top 1,000
-beeg.porn                      # top 1,000
-bookmark.xxx                   # top 1,000
 botinok.porn                   # top 1,000
-boyfriendtv.com                # top 1,000
-chaturbate.com                 # top 1,000
 colliderporn.com               # top 1,000
 desikahani2.net                # top 1,000
 desitales2.com                 # top 1,000
 desitelugusex.com              # top 1,000
-dlsite.com                     # top 1,000
-dmm.co.jp                      # top 1,000
-donmai.us                      # top 1,000
-e-hentai.org                   # top 1,000
-e621.net                       # top 1,000
-ekstrabladet.dk                # top 1,000
-eporner.com                    # top 1,000
-erome.com                      # top 1,000
 erotik.markt.de                # top 1,000
-escort.club                    # top 1,000
-exhentai.org                   # top 1,000
-fabswingers.com                # top 1,000
-fapello.com                    # top 1,000
-faphouse.com                   # top 1,000
-fatalmodel.com                 # top 1,000
-fetlife.com                    # top 1,000
-fpo.xxx                        # top 1,000
 freepornvideo.sex              # top 1,000
 freesexkahani.com              # top 1,000
-fuq.com                        # top 1,000
-hanime1.me                     # top 1,000
 happy-porn.com                 # top 1,000
-hdtube.porn                    # top 1,000
 hentai.name                    # top 1,000
 heovl.im                       # top 1,000
-hitomi.la                      # top 1,000
 hotxv.com                      # top 1,000
 ijavhd.com                     # top 1,000
-imagefap.com                   # top 1,000
-imgsrc.ru                      # top 1,000
-indiansexstories3.com          # top 1,000
-inxxx.com                      # top 1,000
-iporntv.net                    # top 1,000
-ixxx.com                       # top 1,000
-jable.tv                       # top 1,000
 javsub.blog                    # top 1,000
-joyclub.de                     # top 1,000
 kir2kos.net                    # top 1,000
-kompoz2.com                    # top 1,000
-ladies.de                      # top 1,000
 letsporn.com                   # top 1,000
-listcrawler.eu                 # top 1,000
 luticlip.com                   # top 1,000
-luxuretv.com                   # top 1,000
-mangago.me                     # top 1,000
 manhwaweb.com                  # top 1,000
-mat6tube.com                   # top 1,000
-mileroticos.com                # top 1,000
-milfporn.tv                    # top 1,000
-missav.ai                      # top 1,000
-missav.ws                      # top 1,000
 missav123.com                  # top 1,000
 momon-ga.com                   # top 1,000
 movie.eroterest.net            # top 1,000
-myreadingmanga.info            # top 1,000
 njavtv.com                     # top 1,000
-noodlemagazine.com             # top 1,000
 okxxx1.com                     # top 1,000
-onlyfans.com                   # top 1,000
-pimpbunny.com                  # top 1,000
-porn300.com                    # top 1,000
-pornhat.com                    # top 1,000
 pornhat.one                    # top 1,000
-pornhub.com                    # top 1,000
-pornhub.org                    # top 1,000
 pornoborshch.com               # top 1,000
 pornobrasil.com                # top 1,000
-pornone.com                    # top 1,000
-pornpics.com                   # top 1,000
-pussyboy.net                   # top 1,000
-pussyspace.com                 # top 1,000
-qorno.com                      # top 1,000
 rat.xxx                        # top 1,000
-redtube.com                    # top 1,000
 redwap.sex                     # top 1,000
-rule34.xxx                     # top 1,000
-rule34video.com                # top 1,000
-serviporno.com                 # top 1,000
 sexalarab.com                  # top 1,000
-sexvid.xxx                     # top 1,000
 sexybluefilm.com               # top 1,000
 shahvani.com                   # top 1,000
-skipthegames.com               # top 1,000
-skokka.com                     # top 1,000
-spankbang.com                  # top 1,000
 spankbang.party                # top 1,000
-stripchat.com                  # top 1,000
-superporn.com                  # top 1,000
-supjav.com                     # top 1,000
-sxyprn.com                     # top 1,000
 taktube.net                    # top 1,000
 tamilsexvids.net               # top 1,000
 tamilsexzone.com               # top 1,000
 theblowers.com                 # top 1,000
-theyarehuge.com                # top 1,000
-thisvid.com                    # top 1,000
-tnaflix.com                    # top 1,000
-tokyomotion.net                # top 1,000
 tube8.fr                       # top 1,000
-twpornstars.com                # top 1,000
 ukdevilz.com                   # top 1,000
 upskirt.tv                     # top 1,000
 vnsextop1.com                  # top 1,000
-wnacg.com                      # top 1,000
 wonporn.com                    # top 1,000
-xhaccess.com                   # top 1,000
 xham.live                      # top 1,000
-xhamster.com                   # top 1,000
-xhamster.desi                  # top 1,000
-xhamster1.desi                 # top 1,000
-xhamster19.com                 # top 1,000
-xhamster2.com                  # top 1,000
 xhname.com                     # top 1,000
-xhopen.com                     # top 1,000
-xhsocial.com                   # top 1,000
 xhspot.com                     # top 1,000
 xhstream.com                   # top 1,000
 xnhau.city                     # top 1,000
-xnxx.com                       # top 1,000
 xnxx.es                        # top 1,000
 xnxx.health                    # top 1,000
 xnxx.tv                        # top 1,000
 xnxx2.com                      # top 1,000
 xorgasmo.com                   # top 1,000
-xpaja.net                      # top 1,000
-xvideos.com                    # top 1,000
-xvideos.es                     # top 1,000
-xvideos2.com                   # top 1,000
 xvideos3.com                   # top 1,000
 xvideosbr.blog                 # top 1,000
 xxx18hot.com                   # top 1,000
-xxxbp.tv                       # top 1,000
 xxxhindi.to                    # top 1,000
 xxxvideo.link                  # top 1,000
-youjizz.com                    # top 1,000
-youporn.com                    # top 1,000
 zbporn.tv                      # top 1,000
 zebawy.com                     # top 1,000
-1337x.to                       # top 5,000
+fc2.com                        # top 5,000; links 686
+4chan.org                      # top 5,000; links 7,217
+booth.pm                       # top 5,000; links 8,812
+xxx.com                        # top 5,000; links 9,348
+theporndude.com                # top 5,000; links 25,399
+camsoda.com                    # top 5,000; links 29,370
+fansly.com                     # top 5,000; links 33,160
+literotica.com                 # top 5,000; links 33,833
+sex.com                        # top 5,000; links 46,250
+1337x.to                       # top 5,000; links 46,598
+cam4.com                       # top 5,000; links 49,848
+tube8.com                      # top 5,000; links 53,294
+fantia.jp                      # top 5,000; links 53,950
+crushon.ai                     # top 5,000; links 54,691
+eurogirlsescort.com            # top 5,000; links 61,403
+gelbooru.com                   # top 5,000; links 77,433
+beeg.com                       # top 5,000; links 107,431
+paheal.net                     # top 5,000; links 131,175
+spicychat.ai                   # top 5,000; links 142,920
+tryst.link                     # top 5,000; links 149,773
+babepedia.com                  # top 5,000; links 153,003
+f95zone.to                     # top 5,000; links 156,268
+tubegalore.com                 # top 5,000; links 157,283
+mym.fans                       # top 5,000; links 158,297
+porntrex.com                   # top 5,000; links 159,011
+mgstage.com                    # top 5,000; links 168,725
+nhentai.net                    # top 5,000; links 171,667
+ashemaletube.com               # top 5,000; links 203,065
+massagerepublic.com            # top 5,000; links 209,447
+javlibrary.com                 # top 5,000; links 241,574
+maturetube.com                 # top 5,000; links 242,447
+anysex.com                     # top 5,000; links 251,697
+hqporner.com                   # top 5,000; links 266,402
+redwap.me                      # top 5,000; links 279,663
+poringa.net                    # top 5,000; links 283,934
+tumbex.com                     # top 5,000; links 301,088
+jjgirls.com                    # top 5,000; links 318,716
+xgroovy.com                    # top 5,000; links 321,744
+toomics.com                    # top 5,000; links 322,924
+pornolab.net                   # top 5,000; links 324,200
+perfectgirls.xxx               # top 5,000; links 328,000
+pornzog.com                    # top 5,000; links 329,091
+videocelebs.net                # top 5,000; links 329,141
+hanime.tv                      # top 5,000; links 331,259
+lobstertube.com                # top 5,000; links 333,486
+pornoxo.com                    # top 5,000; links 350,697
+xhamster3.com                  # top 5,000; links 352,167
+xfree.com                      # top 5,000; links 355,238
+gaymaletube.com                # top 5,000; links 356,561
+dinotube.com                   # top 5,000; links 357,602
+eroprofile.com                 # top 5,000; links 360,171
+xhamsterlive.com               # top 5,000; links 366,189
+fikfap.com                     # top 5,000; links 371,161
+ok.xxx                         # top 5,000; links 372,485
+tubesafari.com                 # top 5,000; links 376,388
+elitebabes.com                 # top 5,000; links 386,359
+milffox.com                    # top 5,000; links 390,184
+amateri.com                    # top 5,000; links 399,605
+playvids.com                   # top 5,000; links 404,728
+porndroids.com                 # top 5,000; links 420,480
+assoass.com                    # top 5,000; links 426,065
+viralxxxporn.com               # top 5,000; links 433,585
+tiava.com                      # top 5,000; links 443,120
+multporn.net                   # top 5,000; links 447,758
+hotebonytube.com               # top 5,000; links 452,649
+tik.porn                       # top 5,000; links 452,676
+zbporn.com                     # top 5,000; links 455,889
+hentaifox.com                  # top 5,000; links 459,424
+socialmediagirls.com           # top 5,000; links 461,004
+hentaila.tv                    # top 5,000; links 467,671
+91porn.com                     # top 5,000; links 473,520
+babesource.com                 # top 5,000; links 479,092
+melonstube.com                 # top 5,000; links 488,797
+jav.guru                       # top 5,000; links 488,928
+redlights.be                   # top 5,000; links 508,884
+camwhores.tv                   # top 5,000; links 511,537
+cameraprive.com                # top 5,000; links 516,267
+xxbrits.com                    # top 5,000; links 524,728
+imhentai.xxx                   # top 5,000; links 538,494
+hot-sex-tube.com               # top 5,000; links 543,221
+kissjav.li                     # top 5,000; links 558,268
+sniffies.com                   # top 5,000; links 575,811
+jennymovies.com                # top 5,000; links 580,837
+pornohirsch.net                # top 5,000; links 580,851
+javhd.today                    # top 5,000; links 602,757
+adam4adam.com                  # top 5,000; links 607,801
+javtiful.com                   # top 5,000; links 616,372
+megapersonals.eu               # top 5,000; links 633,619
+bestjavporn.com                # top 5,000; links 660,536
+lpsg.com                       # top 5,000; links 669,087
+semprot.com                    # top 5,000; links 689,450
+pornocarioca.com               # top 5,000; links 696,236
+yesporn.vip                    # top 5,000; links 708,667
+hdporncomics.com               # top 5,000; links 712,638
+porngameshub.com               # top 5,000; links 717,329
+javbus.com                     # top 5,000; links 734,817
+metaporn.com                   # top 5,000; links 743,853
+hentaiheroes.com               # top 5,000; links 744,108
+thehentai.net                  # top 5,000; links 777,020
+hentaiera.com                  # top 5,000; links 785,964
+javgg.net                      # top 5,000; links 786,510
+rosszlanyok.hu                 # top 5,000; links 787,223
+xossipy.com                    # top 5,000; links 791,473
+ladyxena.com                   # top 5,000; links 793,327
+hentaimama.io                  # top 5,000; links 796,474
+punishworld.com                # top 5,000; links 802,334
+x-x-x.tube                     # top 5,000; links 818,578
+pornolandia.xxx                # top 5,000; links 824,356
+camstreams.tv                  # top 5,000; links 829,485
+xmegadrive.com                 # top 5,000; links 835,030
+cool18.com                     # top 5,000; links 846,223
+xdate.ch                       # top 5,000; links 848,420
+3hentai.net                    # top 5,000; links 863,360
+xasiat.com                     # top 5,000; links 863,461
+7mmtv.sx                       # top 5,000; links 881,398
+allporncomic.com               # top 5,000; links 888,118
+hentaicity.com                 # top 5,000; links 899,818
+sextb.net                      # top 5,000; links 900,296
+tukif.porn                     # top 5,000; links 903,089
+gayporntube.com                # top 5,000; links 909,072
+rou.video                      # top 5,000; links 913,095
+javdb.com                      # top 5,000; links 925,629
+justporn.com                   # top 5,000; links 926,775
+distintas.net                  # top 5,000; links 933,146
+darknessporn.com               # top 5,000; links 940,837
+redwap.tv                      # top 5,000; links 945,813
+escortsandbabes.com.au         # top 5,000; links 947,370
+freevideo.cz                   # top 5,000; links 968,148
+myhentaicomics.com             # top 5,000; links 990,456
+blowjobs.pro                   # top 5,000; links 991,049
 1porn.tv                       # top 5,000
-3hentai.net                    # top 5,000
-4chan.org                      # top 5,000
-7mmtv.sx                       # top 5,000
-91porn.com                     # top 5,000
 91porny.com                    # top 5,000
 absoluporn.com                 # top 5,000
 abxxx.com                      # top 5,000
-adam4adam.com                  # top 5,000
 adult-machiko.com              # top 5,000
 alastonsuomi.com               # top 5,000
-allporncomic.com               # top 5,000
 alpha-hen.com                  # top 5,000
-amateri.com                    # top 5,000
 anal.media                     # top 5,000
-anysex.com                     # top 5,000
 apornvideo.com                 # top 5,000
 arabsex1.com                   # top 5,000
 arabshentai.com                # top 5,000
 arabxn.com                     # top 5,000
 arbada.com                     # top 5,000
-ashemaletube.com               # top 5,000
-assoass.com                    # top 5,000
 auntmia.com                    # top 5,000
 avizoone.com                   # top 5,000
 avjb.com                       # top 5,000
 avple.tv                       # top 5,000
-babepedia.com                  # top 5,000
-babesource.com                 # top 5,000
 beastiality.tv                 # top 5,000
-beeg.com                       # top 5,000
 besthindiporn.com              # top 5,000
 bestialitysextaboo.net         # top 5,000
-bestjavporn.com                # top 5,000
-blowjobs.pro                   # top 5,000
 bodgirls.com                   # top 5,000
 booru.allthefallen.moe         # top 5,000
-booth.pm                       # top 5,000
 boy18tube.com                  # top 5,000
 boyfriend.tv                   # top 5,000
 bustybus.com                   # top 5,000
-cam4.com                       # top 5,000
-cameraprive.com                # top 5,000
-camsoda.com                    # top 5,000
-camstreams.tv                  # top 5,000
-camwhores.tv                   # top 5,000
 chochox.com                    # top 5,000
 classificadosx.net             # top 5,000
 cnnamador.com                  # top 5,000
-cool18.com                     # top 5,000
-crushon.ai                     # top 5,000
 darknaija.com                  # top 5,000
-darknessporn.com               # top 5,000
 datezone.com                   # top 5,000
-dinotube.com                   # top 5,000
-distintas.net                  # top 5,000
 djatoya.com                    # top 5,000
 dropmms.com                    # top 5,000
-elitebabes.com                 # top 5,000
-eroprofile.com                 # top 5,000
 erothots1.com                  # top 5,000
-escortsandbabes.com.au         # top 5,000
-eurogirlsescort.com            # top 5,000
-f95zone.to                     # top 5,000
-fansly.com                     # top 5,000
-fantia.jp                      # top 5,000
-fc2.com                        # top 5,000
-fikfap.com                     # top 5,000
 filmexxx.live                  # top 5,000
 fngml.com                      # top 5,000
 freeporno.xxx                  # top 5,000
 freepornvideos.xxx             # top 5,000
-freevideo.cz                   # top 5,000
 freshsexvideos.com             # top 5,000
 fuckmoral.com                  # top 5,000
 fulldesisex.com                # top 5,000
 fullxh.com                     # top 5,000
 garotacomlocal.com             # top 5,000
-gaymaletube.com                # top 5,000
-gayporntube.com                # top 5,000
 gekso.org                      # top 5,000
-gelbooru.com                   # top 5,000
 gemidos.tv                     # top 5,000
 gosexpod.com                   # top 5,000
-hanime.tv                      # top 5,000
 hdhindisex.com                 # top 5,000
-hdporncomics.com               # top 5,000
 hello.porn                     # top 5,000
 hentai20.io                    # top 5,000
-hentaicity.com                 # top 5,000
-hentaiera.com                  # top 5,000
 hentaiforce.net                # top 5,000
-hentaifox.com                  # top 5,000
-hentaiheroes.com               # top 5,000
 hentaila.com                   # top 5,000
-hentaila.tv                    # top 5,000
-hentaimama.io                  # top 5,000
 hentairead.com                 # top 5,000
-hot-sex-tube.com               # top 5,000
-hotebonytube.com               # top 5,000
 hotpic.cc                      # top 5,000
 hotpornphotos.com              # top 5,000
 hqporn.xxx                     # top 5,000
-hqporner.com                   # top 5,000
 iha.ee                         # top 5,000
-imhentai.xxx                   # top 5,000
 indianbfvideos.com             # top 5,000
-jav.guru                       # top 5,000
 jav.sb                         # top 5,000
-javbus.com                     # top 5,000
-javdb.com                      # top 5,000
 javdock.com                    # top 5,000
-javgg.net                      # top 5,000
-javhd.today                    # top 5,000
 javhdporn.net                  # top 5,000
-javlibrary.com                 # top 5,000
 javsek.net                     # top 5,000
-javtiful.com                   # top 5,000
 javxxx.me                      # top 5,000
-jennymovies.com                # top 5,000
-jjgirls.com                    # top 5,000
 joporn.name                    # top 5,000
 josporn.club                   # top 5,000
 jovencitas.gratis              # top 5,000
-justporn.com                   # top 5,000
-kissjav.li                     # top 5,000
 krx18.com                      # top 5,000
-ladyxena.com                   # top 5,000
 leaktube.net                   # top 5,000
-literotica.com                 # top 5,000
-lobstertube.com                # top 5,000
 lootedpinay.com                # top 5,000
 looti.net                      # top 5,000
-lpsg.com                       # top 5,000
 machotube.tv                   # top 5,000
 manga18.club                   # top 5,000
-massagerepublic.com            # top 5,000
-maturetube.com                 # top 5,000
 megaescort.info                # top 5,000
-megapersonals.eu               # top 5,000
-melonstube.com                 # top 5,000
-metaporn.com                   # top 5,000
-mgstage.com                    # top 5,000
-milffox.com                    # top 5,000
 momvids.com                    # top 5,000
-multporn.net                   # top 5,000
 my.mail.ru                     # top 5,000
-myhentaicomics.com             # top 5,000
 myhentaigallery.com            # top 5,000
-mym.fans                       # top 5,000
 mzansi247.com                  # top 5,000
 mzansipornvideos.com           # top 5,000
 nan-net.com                    # top 5,000
 napiszex.com                   # top 5,000
 nekopoi.care                   # top 5,000
-nhentai.net                    # top 5,000
 nhentai.to                     # top 5,000
 novinhabucetuda.com            # top 5,000
 nunuporn.com                   # top 5,000
 ok.porn                        # top 5,000
-ok.xxx                         # top 5,000
 onlydesiporn.com               # top 5,000
-paheal.net                     # top 5,000
-perfectgirls.xxx               # top 5,000
 photoacompanhantes.com         # top 5,000
-playvids.com                   # top 5,000
-poringa.net                    # top 5,000
 porndos.com                    # top 5,000
-porndroids.com                 # top 5,000
-porngameshub.com               # top 5,000
 pornhindisex.com               # top 5,000
 porno-zona.com                 # top 5,000
-pornocarioca.com               # top 5,000
 pornogratisdiario.com          # top 5,000
-pornohirsch.net                # top 5,000
 pornokk.com                    # top 5,000
-pornolab.net                   # top 5,000
-pornolandia.xxx                # top 5,000
-pornoxo.com                    # top 5,000
 pornpics.de                    # top 5,000
-porntrex.com                   # top 5,000
 pornwex.tv                     # top 5,000
-pornzog.com                    # top 5,000
-punishworld.com                # top 5,000
 pussyspace.net                 # top 5,000
 qfilm.tv                       # top 5,000
 quartier-rouge.be              # top 5,000
-redlights.be                   # top 5,000
 redporn.porn                   # top 5,000
 redtube.com.br                 # top 5,000
-redwap.me                      # top 5,000
-redwap.tv                      # top 5,000
-rosszlanyok.hu                 # top 5,000
-rou.video                      # top 5,000
 rule34.gg                      # top 5,000
 rule34.us                      # top 5,000
 sambaporno.com                 # top 5,000
 sarapbabe.com                  # top 5,000
-semprot.com                    # top 5,000
 sex-studentki.live             # top 5,000
-sex.com                        # top 5,000
 sexbebin.com                   # top 5,000
 sexetag.com                    # top 5,000
 sexkomix2.com                  # top 5,000
 sexkomix22.com                 # top 5,000
-sextb.net                      # top 5,000
 sexvid.pro                     # top 5,000
 singeporno.com                 # top 5,000
-sniffies.com                   # top 5,000
-socialmediagirls.com           # top 5,000
 solopornoitaliani.xxx          # top 5,000
-spicychat.ai                   # top 5,000
 sukebei.nyaa.si                # top 5,000
 superchatlive.com              # top 5,000
 sxyprn.net                     # top 5,000
 teenxy.com                     # top 5,000
-thehentai.net                  # top 5,000
-theporndude.com                # top 5,000
 thothd.com                     # top 5,000
-tiava.com                      # top 5,000
-tik.porn                       # top 5,000
-toomics.com                    # top 5,000
 topgai.net                     # top 5,000
 toroporno.com                  # top 5,000
-tryst.link                     # top 5,000
-tube8.com                      # top 5,000
-tubegalore.com                 # top 5,000
-tubesafari.com                 # top 5,000
-tukif.porn                     # top 5,000
-tumbex.com                     # top 5,000
 twister.porn                   # top 5,000
 vercomicsporno.com             # top 5,000
-videocelebs.net                # top 5,000
 videosdemadurasx.com           # top 5,000
 videosxgays.com                # top 5,000
-viralxxxporn.com               # top 5,000
 vlxx.phd                       # top 5,000
 voglioporno.com                # top 5,000
 w4nkr.com                      # top 5,000
 watchhentai.net                # top 5,000
 x-fetish.tube                  # top 5,000
 x-video.tube                   # top 5,000
-x-x-x.tube                     # top 5,000
 x3arabi.com                    # top 5,000
 xalabahia.com                  # top 5,000
 xanimu.com                     # top 5,000
-xasiat.com                     # top 5,000
 xcadr.online                   # top 5,000
-xdate.ch                       # top 5,000
 xfeed.com                      # top 5,000
-xfree.com                      # top 5,000
-xgroovy.com                    # top 5,000
-xhamster3.com                  # top 5,000
-xhamsterlive.com               # top 5,000
 xhfanclub.com                  # top 5,000
 xhfuck.com                     # top 5,000
 xhtotal.com                    # top 5,000
 xhwebsite.com                  # top 5,000
 xhwide.com                     # top 5,000
 xleche.com                     # top 5,000
-xmegadrive.com                 # top 5,000
 xn----ztbcbceder.net           # top 5,000
 xn--mgbkt9eckr.net             # top 5,000
 xnalgas.com                    # top 5,000
 xnxx-ru.com                    # top 5,000
 xnxxporn.video                 # top 5,000
-xossipy.com                    # top 5,000
 xvideo.vlog.br                 # top 5,000
 xvideos.tv.br                  # top 5,000
 xvideos4.com                   # top 5,000
 xvideosincesto.com             # top 5,000
 xvideosporno.blog.br           # top 5,000
 xvideosputaria.com             # top 5,000
-xxbrits.com                    # top 5,000
 xxx-sex.one                    # top 5,000
-xxx.com                        # top 5,000
 xxxbule.com                    # top 5,000
 xxxindianstories.com           # top 5,000
 xxxmovies.life                 # top 5,000
@@ -445,242 +449,583 @@ xxxvideo.sex                   # top 5,000
 xxxvideosex.net                # top 5,000
 yaoimangaonline.com            # top 5,000
 yaoiscan.com                   # top 5,000
-yesporn.vip                    # top 5,000
 yhprn.com                      # top 5,000
-zbporn.com                     # top 5,000
+adultfriendfinder.com          # top 10,000; links 12,927
+inkbunny.net                   # top 10,000; links 13,554
+usersporn.com                  # top 10,000; links 18,657
+2chan.net                      # top 10,000; links 23,860
+bongacams.com                  # top 10,000; links 25,486
+myvidster.com                  # top 10,000; links 25,502
+chomikuj.pl                    # top 10,000; links 26,788
+melonbooks.co.jp               # top 10,000; links 33,161
+ladys.one                      # top 10,000; links 41,058
+rusoska.com                    # top 10,000; links 48,352
+gay0day.com                    # top 10,000; links 48,603
+candy.ai                       # top 10,000; links 49,921
+pictoa.com                     # top 10,000; links 50,482
+freeones.com                   # top 10,000; links 52,914
+redgifs.com                    # top 10,000; links 65,467
+nutaku.net                     # top 10,000; links 67,845
+trahkino.me                    # top 10,000; links 68,061
+porn.com                       # top 10,000; links 69,078
+iafd.com                       # top 10,000; links 81,532
+derpibooru.org                 # top 10,000; links 95,251
+txxx.com                       # top 10,000; links 132,879
+poppen.de                      # top 10,000; links 137,339
+iwara.tv                       # top 10,000; links 142,082
+esthe-ranking.jp               # top 10,000; links 160,376
+eyny.com                       # top 10,000; links 172,551
+analdin.com                    # top 10,000; links 184,426
+tubev.sex                      # top 10,000; links 194,922
+ourdream.ai                    # top 10,000; links 196,123
+xxxi.porn                      # top 10,000; links 200,428
+alohatube.com                  # top 10,000; links 203,707
+mature.nl                      # top 10,000; links 204,434
+3movs.com                      # top 10,000; links 213,174
+xxxbunker.com                  # top 10,000; links 220,186
+analvids.com                   # top 10,000; links 237,182
+heavy-r.com                    # top 10,000; links 242,492
+rutor.info                     # top 10,000; links 249,305
+celebjihad.com                 # top 10,000; links 259,343
+gamcore.com                    # top 10,000; links 275,407
+tubepornstars.com              # top 10,000; links 312,464
+desiporn.one                   # top 10,000; links 320,743
+secrethostess.com              # top 10,000; links 322,764
+jkforum.net                    # top 10,000; links 343,618
+grannytube.net                 # top 10,000; links 354,101
+anyporn.com                    # top 10,000; links 356,422
+definebabe.com                 # top 10,000; links 358,843
+kaotic.com                     # top 10,000; links 371,703
+fgirl.ch                       # top 10,000; links 376,463
+xcafe.com                      # top 10,000; links 380,792
+bemyhole.com                   # top 10,000; links 408,901
+sexstories.com                 # top 10,000; links 430,614
+megatube.xxx                   # top 10,000; links 450,939
+xozilla.com                    # top 10,000; links 455,870
+shesfreaky.com                 # top 10,000; links 457,663
+xfreehd.com                    # top 10,000; links 461,008
+caribbeancom.com               # top 10,000; links 462,800
+porzo.com                      # top 10,000; links 473,455
+rahaporn.com                   # top 10,000; links 485,151
+senzuri.tube                   # top 10,000; links 490,896
+tgtube.com                     # top 10,000; links 497,962
+damplips.com                   # top 10,000; links 508,580
+heavyfetish.com                # top 10,000; links 545,629
+njav.tv                        # top 10,000; links 555,660
+hypnotube.com                  # top 10,000; links 560,941
+whoreshub.com                  # top 10,000; links 560,992
+porntop.com                    # top 10,000; links 593,321
+fapcat.com                     # top 10,000; links 630,330
+ebonygalore.com                # top 10,000; links 637,419
+hentaigasm.com                 # top 10,000; links 655,919
+hypnohub.net                   # top 10,000; links 659,897
+sexlog.com                     # top 10,000; links 661,256
+baddiehub.com                  # top 10,000; links 688,059
+youperv.com                    # top 10,000; links 717,784
+eroticmv.com                   # top 10,000; links 730,257
+thegay.com                     # top 10,000; links 731,365
+boundhub.com                   # top 10,000; links 739,514
+ryuugames.com                  # top 10,000; links 743,915
+pornorama.com                  # top 10,000; links 748,485
+bunkr.cr                       # top 10,000; links 797,244
+gayforit.eu                    # top 10,000; links 809,739
+cartoonporn.pro                # top 10,000; links 818,342
+erofus.com                     # top 10,000; links 818,371
+roshy.tv                       # top 10,000; links 823,943
+fapnado.com                    # top 10,000; links 840,667
+xporn.tv                       # top 10,000; links 851,965
+hornybank.com                  # top 10,000; links 875,102
+xchina.co                      # top 10,000; links 887,473
+xerotica.com                   # top 10,000; links 896,006
+inporn.com                     # top 10,000; links 900,101
+xlecx.one                      # top 10,000; links 918,955
+rule34.xyz                     # top 10,000; links 925,497
+leakedzone.com                 # top 10,000; links 932,267
+gayporno.fm                    # top 10,000; links 934,179
+borntobefuck.com               # top 10,000; links 945,380
+xvideos.net                    # top 10,000; links 945,674
+adultgamesworld.com            # top 10,000; links 952,482
+nozomi.la                      # top 10,000; links 974,392
+youx.xxx                       # top 10,000; links 981,899
+allclassic.porn                # top 10,000; links 996,736
 2beeg.me                       # top 10,000
-2chan.net                      # top 10,000
 3dporndude.com                 # top 10,000
-3movs.com                      # top 10,000
 3rabxn.com                     # top 10,000
 7dak.com                       # top 10,000
 9vids.com                      # top 10,000
 abozeb.com                     # top 10,000
-adultfriendfinder.com          # top 10,000
-adultgamesworld.com            # top 10,000
 ahindian.com                   # top 10,000
 aki-h.com                      # top 10,000
-allclassic.porn                # top 10,000
-alohatube.com                  # top 10,000
 amaporn.com                    # top 10,000
-analdin.com                    # top 10,000
-analvids.com                   # top 10,000
 androidadult.com               # top 10,000
 animalsexporntube.com          # top 10,000
 animeshentai.biz               # top 10,000
 anyhdmovie.com                 # top 10,000
-anyporn.com                    # top 10,000
 anyshemale.com                 # top 10,000
 arabxforum.com                 # top 10,000
 area51.porn                    # top 10,000
 asmhentai.com                  # top 10,000
 babehub.com                    # top 10,000
-baddiehub.com                  # top 10,000
-bemyhole.com                   # top 10,000
 bigfuck.tv                     # top 10,000
 boafoda.com                    # top 10,000
-bongacams.com                  # top 10,000
 booksusi.com                   # top 10,000
-borntobefuck.com               # top 10,000
-boundhub.com                   # top 10,000
 boyfriendtv3.com               # top 10,000
-bunkr.cr                       # top 10,000
-candy.ai                       # top 10,000
-caribbeancom.com               # top 10,000
-cartoonporn.pro                # top 10,000
 celeb.gate.cc                  # top 10,000
-celebjihad.com                 # top 10,000
-chomikuj.pl                    # top 10,000
 cinepornogratis.com            # top 10,000
 cloudbate.com                  # top 10,000
 clubeadulto.net                # top 10,000
 comicbox.xyz                   # top 10,000
 contactossex.com               # top 10,000
 cums.net                       # top 10,000
-damplips.com                   # top 10,000
 dedmazay.porn                  # top 10,000
-definebabe.com                 # top 10,000
-derpibooru.org                 # top 10,000
-desiporn.one                   # top 10,000
 desisex.site                   # top 10,000
 desivids.pro                   # top 10,000
 dropmms.net                    # top 10,000
 drpornofilme.com               # top 10,000
-ebonygalore.com                # top 10,000
 erodate.pl                     # top 10,000
-erofus.com                     # top 10,000
 erogarga.com                   # top 10,000
 erothots.co                    # top 10,000
-eroticmv.com                   # top 10,000
 erotik.quoka.de                # top 10,000
-esthe-ranking.jp               # top 10,000
-eyny.com                       # top 10,000
 familyporner.com               # top 10,000
-fapcat.com                     # top 10,000
 fapfolder.club                 # top 10,000
-fapnado.com                    # top 10,000
-fgirl.ch                       # top 10,000
 filmeporno.me                  # top 10,000
 filmepornonline.org            # top 10,000
 filmesporno.xxx                # top 10,000
 filmexxxgratis.live            # top 10,000
 filmnudes.com                  # top 10,000
 filmpornofrancais.fr           # top 10,000
-freeones.com                   # top 10,000
 freeporn8.com                  # top 10,000
 fullxcinema.com                # top 10,000
-gamcore.com                    # top 10,000
-gay0day.com                    # top 10,000
-gayforit.eu                    # top 10,000
-gayporno.fm                    # top 10,000
-grannytube.net                 # top 10,000
 hdporncomics.org               # top 10,000
 hdpornfree.xxx                 # top 10,000
-heavy-r.com                    # top 10,000
-heavyfetish.com                # top 10,000
 hentai18.net                   # top 10,000
 hentaidad.com                  # top 10,000
-hentaigasm.com                 # top 10,000
 hog.tv                         # top 10,000
 hohoj.tv                       # top 10,000
 homo.xxx                       # top 10,000
-hornybank.com                  # top 10,000
 hsex.tv                        # top 10,000
-hypnohub.net                   # top 10,000
-hypnotube.com                  # top 10,000
-iafd.com                       # top 10,000
-inkbunny.net                   # top 10,000
-inporn.com                     # top 10,000
-iwara.tv                       # top 10,000
 japanesebeauties.one           # top 10,000
-jkforum.net                    # top 10,000
 kabinedasnovinhas.com          # top 10,000
-kaotic.com                     # top 10,000
 kimochi.info                   # top 10,000
-ladys.one                      # top 10,000
-leakedzone.com                 # top 10,000
 lesbian8.com                   # top 10,000
 libertic.com                   # top 10,000
 looti.org                      # top 10,000
 manga18fx.com                  # top 10,000
-mature.nl                      # top 10,000
 max.porn                       # top 10,000
-megatube.xxx                   # top 10,000
 megaxh.com                     # top 10,000
 melapelocondibujos.com         # top 10,000
-melonbooks.co.jp               # top 10,000
 milfnut.com                    # top 10,000
 mlookalporno.com               # top 10,000
 muyzorras.com                  # top 10,000
 my-cima.net                    # top 10,000
-myvidster.com                  # top 10,000
 nacknaija.com                  # top 10,000
 newdesixxx.com                 # top 10,000
 nhentai.xxx                    # top 10,000
-njav.tv                        # top 10,000
-nozomi.la                      # top 10,000
 nudogram.com                   # top 10,000
-nutaku.net                     # top 10,000
-ourdream.ai                    # top 10,000
 oxax.tv                        # top 10,000
-pictoa.com                     # top 10,000
 pinayot.com                    # top 10,000
-poppen.de                      # top 10,000
 porn-loop.net                  # top 10,000
-porn.com                       # top 10,000
 pornhat.tv                     # top 10,000
 pornobengala.com               # top 10,000
 pornohammer.com                # top 10,000
 pornomilf.vip                  # top 10,000
 pornoperso.com                 # top 10,000
-pornorama.com                  # top 10,000
 pornstars.tube                 # top 10,000
-porntop.com                    # top 10,000
 pornxnow.me                    # top 10,000
 pornyc.com                     # top 10,000
-porzo.com                      # top 10,000
 pron.click                     # top 10,000
 puritanas.com                  # top 10,000
 pvideo.cz                      # top 10,000
 qombol.com                     # top 10,000
-rahaporn.com                   # top 10,000
 recu.me                        # top 10,000
-redgifs.com                    # top 10,000
 redwap-xxx.com                 # top 10,000
 rexporn.sex                    # top 10,000
-roshy.tv                       # top 10,000
 rphang.now                     # top 10,000
 rubias19.com                   # top 10,000
 rule34.world                   # top 10,000
-rule34.xyz                     # top 10,000
 rule34vault.com                # top 10,000
-rusoska.com                    # top 10,000
-rutor.info                     # top 10,000
-ryuugames.com                  # top 10,000
 samusar.com                    # top 10,000
-secrethostess.com              # top 10,000
 seksvideo.tv                   # top 10,000
-senzuri.tube                   # top 10,000
 sexelarab.com                  # top 10,000
-sexlog.com                     # top 10,000
-sexstories.com                 # top 10,000
-shesfreaky.com                 # top 10,000
 showcamrips.com                # top 10,000
 shrmha.com                     # top 10,000
 silverdaddies.com              # top 10,000
 sonovinhasbr.com               # top 10,000
-tgtube.com                     # top 10,000
-thegay.com                     # top 10,000
 thepornbang.com                # top 10,000
 titsintops.com                 # top 10,000
 tporn.xxx                      # top 10,000
-trahkino.me                    # top 10,000
 truyen-hentai.com              # top 10,000
-tubepornstars.com              # top 10,000
-tubev.sex                      # top 10,000
-txxx.com                       # top 10,000
 uncutmasti.com                 # top 10,000
-usersporn.com                  # top 10,000
 vermangasporno.com             # top 10,000
 videoxxx.sex                   # top 10,000
 wapoz.info                     # top 10,000
 watchporn.to                   # top 10,000
-whoreshub.com                  # top 10,000
 wowuncut.com                   # top 10,000
-xcafe.com                      # top 10,000
-xchina.co                      # top 10,000
-xerotica.com                   # top 10,000
-xfreehd.com                    # top 10,000
 xhbig.com                      # top 10,000
 xhvid.com                      # top 10,000
-xlecx.one                      # top 10,000
 xlxx.mobi                      # top 10,000
 xmilf.com                      # top 10,000
 xn--3-5wf2bubl3iwbf1f5e8d.com  # top 10,000
 xnxx3.com                      # top 10,000
 xnxxsexarab.com                # top 10,000
-xozilla.com                    # top 10,000
-xporn.tv                       # top 10,000
 xvideos-hd.blog                # top 10,000
 xvideos.blog.br                # top 10,000
-xvideos.net                    # top 10,000
 xxx-xxx.click                  # top 10,000
 xxxbfvideo.net                 # top 10,000
-xxxbunker.com                  # top 10,000
 xxxclub.to                     # top 10,000
-xxxi.porn                      # top 10,000
 xxxvideos.blog                 # top 10,000
 xxxz.tv                        # top 10,000
 yespornpics.com                # top 10,000
 you-porn.com                   # top 10,000
-youperv.com                    # top 10,000
-youx.xxx                       # top 10,000
 yuvideos.com                   # top 10,000
 zbiornik.com                   # top 10,000
 zzztube.com                    # top 10,000
+clips4sale.com                 # top 50,000; links 22,108
+hentai-foundry.com             # top 50,000; links 26,137
+chyoa.com                      # top 50,000; links 32,944
+lovense.com                    # top 50,000; links 35,561
+kink.com                       # top 50,000; links 36,678
+manyvids.com                   # top 50,000; links 38,386
+ashleymadison.com              # top 50,000; links 40,393
+joyreactor.cc                  # top 50,000; links 41,450
+omegle.com                     # top 50,000; links 41,658
+zeenite.com                    # top 50,000; links 43,225
+strip2.in                      # top 50,000; links 50,629
+niadd.com                      # top 50,000; links 51,999
+myfreecams.com                 # top 50,000; links 52,778
+livejasmin.com                 # top 50,000; links 53,229
+adameve.com                    # top 50,000; links 54,566
+brazzers.com                   # top 50,000; links 58,566
+swag.live                      # top 50,000; links 60,524
+loyalfans.com                  # top 50,000; links 61,396
+sankakucomplex.com             # top 50,000; links 61,435
+javhd.com                      # top 50,000; links 63,772
+naughtyamerica.com             # top 50,000; links 65,172
+teamskeet.com                  # top 50,000; links 70,217
+undress.app                    # top 50,000; links 75,624
+flirt4free.com                 # top 50,000; links 78,020
+xlovecam.com                   # top 50,000; links 80,936
+imagetwist.com                 # top 50,000; links 81,911
+drtuber.com                    # top 50,000; links 82,082
+subscribestar.adult            # top 50,000; links 84,343
+sdc.com                        # top 50,000; links 87,202
+bangbros.com                   # top 50,000; links 95,410
+mrskin.com                     # top 50,000; links 105,859
+utherverse.com                 # top 50,000; links 105,895
+phun.org                       # top 50,000; links 114,879
+xxxbold.com                    # top 50,000; links 116,688
+thehun.net                     # top 50,000; links 119,658
+bang.com                       # top 50,000; links 120,053
+wikifeet.com                   # top 50,000; links 120,098
+thebestfetishsites.com         # top 50,000; links 129,430
+loverslab.com                  # top 50,000; links 134,460
+blacked.com                    # top 50,000; links 134,715
+iwantclips.com                 # top 50,000; links 135,699
+k2s.cc                         # top 50,000; links 137,870
+justfor.fans                   # top 50,000; links 140,919
+pixhost.to                     # top 50,000; links 142,934
+efukt.com                      # top 50,000; links 144,701
+nuvid.com                      # top 50,000; links 151,819
+streamtape.com                 # top 50,000; links 152,992
+reactor.cc                     # top 50,000; links 153,539
+joi.com                        # top 50,000; links 153,621
+extremerestraints.com          # top 50,000; links 154,451
+duga.jp                        # top 50,000; links 156,942
+niteflirt.com                  # top 50,000; links 159,432
+escortnews.eu                  # top 50,000; links 160,398
+cumlouder.com                  # top 50,000; links 162,450
+pornmd.com                     # top 50,000; links 169,144
+hclips.com                     # top 50,000; links 169,507
+jerkmate.com                   # top 50,000; links 170,358
+sunporno.com                   # top 50,000; links 171,693
+erobella.com                   # top 50,000; links 172,572
+gptgirlfriend.online           # top 50,000; links 174,309
+sexmex.xxx                     # top 50,000; links 177,507
+thepornlist.net                # top 50,000; links 178,930
+hotmovies.com                  # top 50,000; links 179,559
+yaeby.pro                      # top 50,000; links 182,880
+fling.com                      # top 50,000; links 182,931
+pichunter.com                  # top 50,000; links 186,539
+gotporn.com                    # top 50,000; links 189,782
+boobpedia.com                  # top 50,000; links 190,317
+mydirtyhobby.de                # top 50,000; links 194,902
+pornhd.com                     # top 50,000; links 194,927
+happyescorts.com               # top 50,000; links 200,466
+yande.re                       # top 50,000; links 204,481
+kaufmich.com                   # top 50,000; links 207,405
+pornjk.com                     # top 50,000; links 208,237
+adultempire.com                # top 50,000; links 210,948
+upornia.com                    # top 50,000; links 211,622
+adultsearch.com                # top 50,000; links 220,904
+gig.sex                        # top 50,000; links 226,465
+empflix.com                    # top 50,000; links 226,500
+nifty.org                      # top 50,000; links 228,417
+morritastube.com               # top 50,000; links 235,249
+escortnews.com                 # top 50,000; links 236,359
+iceporn.com                    # top 50,000; links 237,178
+pornhubpremium.com             # top 50,000; links 237,200
+theync.com                     # top 50,000; links 237,575
+porndoe.com                    # top 50,000; links 239,798
+hentaihaven.xxx                # top 50,000; links 248,176
+vjav.com                       # top 50,000; links 254,530
+voyeurweb.com                  # top 50,000; links 258,821
+4tube.com                      # top 50,000; links 260,358
+badgirlsbible.com              # top 50,000; links 261,405
+viptube.com                    # top 50,000; links 265,343
+thumbzilla.com                 # top 50,000; links 267,450
+thefappeningblog.com           # top 50,000; links 270,499
+porndig.com                    # top 50,000; links 272,426
+amateur.tv                     # top 50,000; links 276,379
+worldsex.com                   # top 50,000; links 276,491
+kinky.nl                       # top 50,000; links 289,104
+hdzog.com                      # top 50,000; links 293,703
+kickasstorrents.to             # top 50,000; links 295,444
+aebn.com                       # top 50,000; links 298,134
+se.video                       # top 50,000; links 298,848
+porngames.tv                   # top 50,000; links 299,948
+adultdvdempire.com             # top 50,000; links 304,509
+rutracker.net                  # top 50,000; links 314,156
+crazyshit.com                  # top 50,000; links 314,436
+celebmasta.com                 # top 50,000; links 315,475
+voyeur-house.tv                # top 50,000; links 316,459
+mafab.hu                       # top 50,000; links 316,614
+eroticmonkey.ch                # top 50,000; links 320,432
+pornbb.org                     # top 50,000; links 320,710
+planetsuzy.org                 # top 50,000; links 320,739
+nudevista.com                  # top 50,000; links 321,795
+pornbox.com                    # top 50,000; links 324,799
+bdsmlr.com                     # top 50,000; links 330,359
+ero-labs.com                   # top 50,000; links 330,490
+shooshtime.com                 # top 50,000; links 332,736
+hobby.porn                     # top 50,000; links 337,276
+adultdeepfakes.com             # top 50,000; links 341,331
+mylust.com                     # top 50,000; links 345,976
+eroticbeauties.net             # top 50,000; links 352,980
+pornkai.com                    # top 50,000; links 354,034
+bazoocam.org                   # top 50,000; links 356,796
+swinglifestyle.com             # top 50,000; links 358,293
+luscious.net                   # top 50,000; links 366,215
+dxlive.com                     # top 50,000; links 374,315
+createporn.com                 # top 50,000; links 374,360
+thepornguy.org                 # top 50,000; links 383,884
+fux.com                        # top 50,000; links 385,050
+juicychat.ai                   # top 50,000; links 387,811
+lemoncams.com                  # top 50,000; links 390,210
+igg-games.com                  # top 50,000; links 390,682
+erosberry.com                  # top 50,000; links 391,487
+hot.com                        # top 50,000; links 391,544
+vintage-erotica-forum.com      # top 50,000; links 392,771
+rabbitscams.sex                # top 50,000; links 395,305
+storiesonline.net              # top 50,000; links 395,330
+homemoviestube.com             # top 50,000; links 398,014
+6annonce.net                   # top 50,000; links 404,620
+chat-avenue.com                # top 50,000; links 405,382
+lesbianpornvideos.com          # top 50,000; links 407,482
+spankingtube.com               # top 50,000; links 413,118
+thepornlinks.com               # top 50,000; links 417,350
+voyeurhit.com                  # top 50,000; links 418,881
+camcontacts.com                # top 50,000; links 422,135
+trahkino.cc                    # top 50,000; links 427,605
+fyptt.to                       # top 50,000; links 429,112
+doeda.com                      # top 50,000; links 429,261
+celebritymoviearchive.com      # top 50,000; links 429,273
+mult34.com                     # top 50,000; links 436,832
+thatpervert.com                # top 50,000; links 441,529
+summertimesaga.com             # top 50,000; links 443,036
+forhertube.com                 # top 50,000; links 446,114
+kasidie.com                    # top 50,000; links 453,520
+putalocura.com                 # top 50,000; links 456,823
+dirtyroulette.com              # top 50,000; links 462,191
+japan-whores.com               # top 50,000; links 464,435
+stocking-tease.com             # top 50,000; links 464,461
+sextvx.com                     # top 50,000; links 473,510
+nudostar.com                   # top 50,000; links 475,373
+bdsmstreak.com                 # top 50,000; links 477,175
+indexxx.com                    # top 50,000; links 481,482
+forumophilia.com               # top 50,000; links 481,539
+svscomics.com                  # top 50,000; links 483,003
+hentai2read.com                # top 50,000; links 484,918
+exotic-tz.net                  # top 50,000; links 486,819
+fetishpapa.com                 # top 50,000; links 488,011
+ts-dating.com                  # top 50,000; links 488,888
+pornsok.com                    # top 50,000; links 491,107
+iwank.tv                       # top 50,000; links 494,375
+peekvids.com                   # top 50,000; links 494,474
+pornmate.com                   # top 50,000; links 501,174
+hdabla.net                     # top 50,000; links 508,432
+sexbule.xxx                    # top 50,000; links 512,006
+tubepornclassic.com            # top 50,000; links 516,045
+mopoga.com                     # top 50,000; links 517,934
+tabootube.xxx                  # top 50,000; links 517,971
+squirt.org                     # top 50,000; links 521,458
+simplyhentai.org               # top 50,000; links 522,347
+1377x.to                       # top 50,000; links 523,519
+tubebdsm.com                   # top 50,000; links 524,743
+porngo.com                     # top 50,000; links 527,050
+fuqqt.com                      # top 50,000; links 529,236
+heroero.com                    # top 50,000; links 536,193
+javynow.com                    # top 50,000; links 538,415
+cartoonpornvideos.com          # top 50,000; links 545,661
+hentaistream.com               # top 50,000; links 553,162
+freechatnow.com                # top 50,000; links 554,629
+nakedgirls.mobi                # top 50,000; links 554,773
+dirtyship.com                  # top 50,000; links 555,684
+mypornstarbook.net             # top 50,000; links 560,997
+vxxx.com                       # top 50,000; links 561,032
+comdotgame.com                 # top 50,000; links 561,637
+toppornsites.com               # top 50,000; links 563,058
+namethatporn.com               # top 50,000; links 566,690
+fap-nation.com                 # top 50,000; links 566,919
+hairywomen.tv                  # top 50,000; links 569,394
+porno-apk.com                  # top 50,000; links 572,157
+porn00.org                     # top 50,000; links 577,876
+isexychat.com                  # top 50,000; links 579,566
+vagina.nl                      # top 50,000; links 583,043
+porno666.link                  # top 50,000; links 583,800
+xxxtik.com                     # top 50,000; links 590,056
+xmoviesforyou.com              # top 50,000; links 590,090
+doujins.com                    # top 50,000; links 596,414
+thothub.to                     # top 50,000; links 596,440
+shemaletubevideos.com          # top 50,000; links 602,772
+bitchesgirls.com               # top 50,000; links 602,867
+lewdspot.com                   # top 50,000; links 605,639
+tastyblacks.com                # top 50,000; links 606,078
+asiantube.tv                   # top 50,000; links 606,610
+nairobihot.com                 # top 50,000; links 608,981
+xbabe.com                      # top 50,000; links 609,520
+blacktowhite.net               # top 50,000; links 609,561
+escort-ireland.com             # top 50,000; links 609,665
+v2ph.com                       # top 50,000; links 609,767
+ancensored.com                 # top 50,000; links 616,904
+exporntoons.net                # top 50,000; links 621,255
+doeda.one                      # top 50,000; links 623,134
+rargb.to                       # top 50,000; links 628,369
+xtits.com                      # top 50,000; links 633,589
+javtrailers.com                # top 50,000; links 633,800
+watchersweb.com                # top 50,000; links 635,634
+manhunt.net                    # top 50,000; links 635,736
+alotporn.com                   # top 50,000; links 637,534
+reallifecam.com                # top 50,000; links 641,521
+evooli.com                     # top 50,000; links 641,726
+trendyporn.com                 # top 50,000; links 644,646
+gamesofdesire.com              # top 50,000; links 648,723
+pornsos.com                    # top 50,000; links 652,125
+rajwap.xyz                     # top 50,000; links 654,348
+porcore.com                    # top 50,000; links 655,858
+ogfap.com                      # top 50,000; links 655,911
+adultprime.com                 # top 50,000; links 656,629
+kapu.hu                        # top 50,000; links 659,060
+pandesiaworld.com              # top 50,000; links 664,035
+paradisehill.cc                # top 50,000; links 664,040
+hardgif.com                    # top 50,000; links 664,066
+and6.com                       # top 50,000; links 665,921
+kantotin.com                   # top 50,000; links 667,325
+nouslib.com                    # top 50,000; links 668,353
+shemalez.com                   # top 50,000; links 668,407
+fapality.com                   # top 50,000; links 672,378
+made.porn                      # top 50,000; links 672,505
+camwhoresbay.com               # top 50,000; links 676,231
+fapopedia.net                  # top 50,000; links 676,282
+freexcafe.com                  # top 50,000; links 676,332
+ibradome.com                   # top 50,000; links 684,219
+zoig.com                       # top 50,000; links 684,570
+bestsexpositions.com           # top 50,000; links 687,776
+nudography.com                 # top 50,000; links 689,167
+xvix.eu                        # top 50,000; links 691,344
+celebsroulette.com             # top 50,000; links 692,082
+niceporn.tv                    # top 50,000; links 692,181
+apina.biz                      # top 50,000; links 695,595
+nsfw247.to                     # top 50,000; links 696,028
+4porn.com                      # top 50,000; links 696,107
+vikiporn.com                   # top 50,000; links 696,580
+pmvhaven.com                   # top 50,000; links 700,210
+pornflip.com                   # top 50,000; links 700,395
+h-flash.com                    # top 50,000; links 708,594
+terk.nl                        # top 50,000; links 713,041
+yespornpleasexxx.com           # top 50,000; links 721,429
+tranny.one                     # top 50,000; links 721,459
+porno.com                      # top 50,000; links 721,532
+8muses.com                     # top 50,000; links 726,767
+gotanynudes.com                # top 50,000; links 730,146
+xpee.com                       # top 50,000; links 730,236
+hdpornvideo.xxx                # top 50,000; links 730,272
+babestube.com                  # top 50,000; links 732,319
+xcum.com                       # top 50,000; links 734,475
+pornlib.com                    # top 50,000; links 734,725
+sexygirlspics.com              # top 50,000; links 743,854
+lewdzone.com                   # top 50,000; links 748,489
+hentaiplay.net                 # top 50,000; links 752,843
+metarthunter.com               # top 50,000; links 752,902
+pornve.com                     # top 50,000; links 753,163
+flingster.com                  # top 50,000; links 758,726
+pornhd8k.me                    # top 50,000; links 762,512
+javbangers.com                 # top 50,000; links 762,828
+adultism.com                   # top 50,000; links 767,486
+fullporner.com                 # top 50,000; links 771,958
+koreanpornmovie.com            # top 50,000; links 785,880
+tubepleasure.com               # top 50,000; links 786,200
+tubeorigin.com                 # top 50,000; links 791,087
+pornhd3x.tv                    # top 50,000; links 796,150
+pervertium.com                 # top 50,000; links 801,689
+hellporno.com                  # top 50,000; links 812,832
+imx.to                         # top 50,000; links 813,689
+orgasmatrix.com                # top 50,000; links 816,058
+hentaiporns.net                # top 50,000; links 818,351
+whatboyswant.com               # top 50,000; links 824,267
+sexuria.net                    # top 50,000; links 825,911
+anybunny.mobi                  # top 50,000; links 833,110
+cartoonporn.to                 # top 50,000; links 834,694
+pornwhite.com                  # top 50,000; links 835,308
+kenyaadultblog.com             # top 50,000; links 845,853
+sfmcompile.club                # top 50,000; links 846,049
+hd-easyporn.com                # top 50,000; links 846,127
+lesbify.com                    # top 50,000; links 846,153
+hunqz.com                      # top 50,000; links 861,086
+tonicmovies.com                # top 50,000; links 863,166
+onejav.com                     # top 50,000; links 863,190
+porndish.com                   # top 50,000; links 863,502
+rajwap.biz                     # top 50,000; links 863,711
+ultrathots.com                 # top 50,000; links 887,226
+jenporno.cz                    # top 50,000; links 888,994
+femdomvc.com                   # top 50,000; links 893,492
+archivebate.com                # top 50,000; links 893,610
+hdsex.org                      # top 50,000; links 899,885
+ifreechat.com                  # top 50,000; links 899,973
+gertibaldi.com                 # top 50,000; links 904,282
+koreanbj.club                  # top 50,000; links 905,878
+letsjerk.tv                    # top 50,000; links 912,531
+pornmz.com                     # top 50,000; links 912,541
+hdporn92.com                   # top 50,000; links 918,945
+taxi69.com                     # top 50,000; links 919,154
+onscreens.me                   # top 50,000; links 919,169
+ebooxa.com                     # top 50,000; links 922,267
+bigporn.com                    # top 50,000; links 925,616
+xbooru.com                     # top 50,000; links 932,902
+cuckoldsporn.com               # top 50,000; links 938,639
+erome.fan                      # top 50,000; links 938,683
+rule34.dev                     # top 50,000; links 938,951
+pornid.xxx                     # top 50,000; links 952,197
+xyzcomics.com                  # top 50,000; links 952,545
+voissa.com                     # top 50,000; links 953,462
+antarvasnabf.com               # top 50,000; links 959,639
+icegay.tv                      # top 50,000; links 964,549
+the-joi-database.com           # top 50,000; links 967,048
+porntn.com                     # top 50,000; links 967,871
+4kporn.xxx                     # top 50,000; links 975,253
+baddiesonly.tv                 # top 50,000; links 981,419
+faproulette.co                 # top 50,000; links 981,702
+hentairox.com                  # top 50,000; links 981,741
+camhub.cc                      # top 50,000; links 981,751
+homepornking.com               # top 50,000; links 989,183
+watchpeopledie.tv              # top 50,000; links 992,603
+kingcomix.com                  # top 50,000; links 996,728
+transjizz.com                  # top 50,000; links 996,739
+proporn.com                    # top 50,000; links 996,946
+missax.com                     # top 50,000; links 997,288
+internetchicks.com             # top 50,000; links 997,692
+perverttube.com                # top 50,000; links 998,998
 123av.org                      # top 50,000
 1337xx.to                      # top 50,000
-1377x.to                       # top 50,000
 16honeys.com                   # top 50,000
 18porncomic.com                # top 50,000
 18tubehd.com                   # top 50,000
@@ -690,45 +1035,28 @@ zzztube.com                    # top 10,000
 3rab-naar.com                  # top 50,000
 3xxx.pro                       # top 50,000
 4gay.com                       # top 50,000
-4kporn.xxx                     # top 50,000
 4kpornvideos.tv                # top 50,000
-4porn.com                      # top 50,000
-4tube.com                      # top 50,000
 4tunaporn.com                  # top 50,000
 520cc.cc                       # top 50,000
 52av.one                       # top 50,000
-6annonce.net                   # top 50,000
 8freeporn.com                  # top 50,000
-8muses.com                     # top 50,000
 aagmaal.com                    # top 50,000
 aagmaal.to                     # top 50,000
 abjav.com                      # top 50,000
 absolugirl.com                 # top 50,000
-adameve.com                    # top 50,000
 adult-tv-channels.com          # top 50,000
-adultdeepfakes.com             # top 50,000
-adultdvdempire.com             # top 50,000
 adultdvdmarketplace.com        # top 50,000
-adultempire.com                # top 50,000
-adultism.com                   # top 50,000
-adultprime.com                 # top 50,000
-adultsearch.com                # top 50,000
-aebn.com                       # top 50,000
 aflamk1.net                    # top 50,000
 aiexotic.com                   # top 50,000
 allporncomics.co               # top 50,000
 allxporno.com                  # top 50,000
-alotporn.com                   # top 50,000
 amadorasquentes.com            # top 50,000
-amateur.tv                     # top 50,000
 amateur8.com                   # top 50,000
 amateuralbum.net               # top 50,000
 amateuretsexe.com              # top 50,000
 amateurfrancais.com            # top 50,000
 anacams.com                    # top 50,000
 analdin.xxx                    # top 50,000
-ancensored.com                 # top 50,000
-and6.com                       # top 50,000
 androidmo.im                   # top 50,000
 androidmo.ru                   # top 50,000
 animalporn.dog                 # top 50,000
@@ -740,11 +1068,8 @@ animalzoosex.me                # top 50,000
 animalzoosex.world             # top 50,000
 animefox.org                   # top 50,000
 anitokyo.tv                    # top 50,000
-antarvasnabf.com               # top 50,000
-anybunny.mobi                  # top 50,000
 ao-huren.to                    # top 50,000
 apartadox.com                  # top 50,000
-apina.biz                      # top 50,000
 aporntv.com                    # top 50,000
 arabgy.com                     # top 50,000
 arabmovies.pro                 # top 50,000
@@ -752,33 +1077,22 @@ arabtoons.net                  # top 50,000
 arabx.tv                       # top 50,000
 arabx69.com                    # top 50,000
 arabysexy.com                  # top 50,000
-archivebate.com                # top 50,000
 articulo.mercadolibre.com.co   # top 50,000
 ashemaletube.me                # top 50,000
-ashleymadison.com              # top 50,000
 asianmilfhub.com               # top 50,000
 asianpinay.com                 # top 50,000
 asiansextube.vip               # top 50,000
-asiantube.tv                   # top 50,000
 asianwifeporn.com              # top 50,000
 astalavr.com                   # top 50,000
 atkfan.com                     # top 50,000
 babe.today                     # top 50,000
 babesandgirls.com              # top 50,000
-babestube.com                  # top 50,000
 baddielatina.com               # top 50,000
-baddiesonly.tv                 # top 50,000
-badgirlsbible.com              # top 50,000
 bakufu.jp                      # top 50,000
 balancetanude.fr               # top 50,000
-bang.com                       # top 50,000
-bangbros.com                   # top 50,000
 barebackrt.com                 # top 50,000
-bazoocam.org                   # top 50,000
 bbwmilftube.com                # top 50,000
 bdsm.pl                        # top 50,000
-bdsmlr.com                     # top 50,000
-bdsmstreak.com                 # top 50,000
 bdsmx-porn.com                 # top 50,000
 beastiegals.com                # top 50,000
 beeg24.org                     # top 50,000
@@ -786,32 +1100,25 @@ beeglivesex.com                # top 50,000
 bestbondagevideos.com          # top 50,000
 bestcam.tv                     # top 50,000
 besthindisex.com               # top 50,000
-bestsexpositions.com           # top 50,000
 bewarespray.com                # top 50,000
 bhabhisexxxx.com               # top 50,000
 bigassmonster.com              # top 50,000
 bigbootytube.net               # top 50,000
-bigporn.com                    # top 50,000
 bigtitslust.com                # top 50,000
 bigwank.com                    # top 50,000
-bitchesgirls.com               # top 50,000
-blacked.com                    # top 50,000
 blackmilftube.com              # top 50,000
 blackporn.tube                 # top 50,000
 blackporn24.com                # top 50,000
-blacktowhite.net               # top 50,000
 bleachbooru.org                # top 50,000
 bobolike.com                   # top 50,000
 bokephub.com                   # top 50,000
 bokepjilbab.cc                 # top 50,000
 bonporn.com                    # top 50,000
-boobpedia.com                  # top 50,000
 bootyexpo.net                  # top 50,000
 boyspornpics.com               # top 50,000
 boysxclusive.com               # top 50,000
 bqsex.com                      # top 50,000
 bravoporn.com                  # top 50,000
-brazzers.com                   # top 50,000
 brazzers.xxx                   # top 50,000
 brazzerssurvey.com             # top 50,000
 buceteiro.com                  # top 50,000
@@ -819,37 +1126,25 @@ buondua.com                    # top 50,000
 bysex.click                    # top 50,000
 cam4.eu                        # top 50,000
 cambaddies.com                 # top 50,000
-camcontacts.com                # top 50,000
-camhub.cc                      # top 50,000
 camsmut.com                    # top 50,000
 camwh.com                      # top 50,000
 camwhores.video                # top 50,000
-camwhoresbay.com               # top 50,000
 capetinhas.blog                # top 50,000
 cartoonporn.com                # top 50,000
-cartoonporn.to                 # top 50,000
-cartoonpornvideos.com          # top 50,000
 cartoonsworld.vip              # top 50,000
 celebdeepfakes.net             # top 50,000
-celebmasta.com                 # top 50,000
-celebritymoviearchive.com      # top 50,000
 celebsporno.com                # top 50,000
-celebsroulette.com             # top 50,000
 celibook.com                   # top 50,000
 centraldegruposwhats.com.br    # top 50,000
 cerdas.com                     # top 50,000
-chat-avenue.com                # top 50,000
 chaturflix.cam                 # top 50,000
 chiggywiggy.com                # top 50,000
 chikubi.jp                     # top 50,000
 chinapornmovie.com             # top 50,000
 cholotube.org                  # top 50,000
 chudai.video                   # top 50,000
-chyoa.com                      # top 50,000
-clips4sale.com                 # top 50,000
 cockdude.com                   # top 50,000
 colegialasdeverdad.com         # top 50,000
-comdotgame.com                 # top 50,000
 comicporn.xxx                  # top 50,000
 comicsflix.com                 # top 50,000
 comiquetaxxx.com               # top 50,000
@@ -860,15 +1155,11 @@ cosplayrule34.com              # top 50,000
 cosxplay.com                   # top 50,000
 cougarillo.com                 # top 50,000
 crazyporn.xxx                  # top 50,000
-crazyshit.com                  # top 50,000
-createporn.com                 # top 50,000
 csakporno.hu                   # top 50,000
-cuckoldsporn.com               # top 50,000
 cumcams.cc                     # top 50,000
 cumception.com                 # top 50,000
 cumgloryhole.se                # top 50,000
 cumguru.com                    # top 50,000
-cumlouder.com                  # top 50,000
 cumm.co.uk                     # top 50,000
 curvage.org                    # top 50,000
 cutetube.online                # top 50,000
@@ -879,73 +1170,43 @@ desiporn.link                  # top 50,000
 desisex.xxx                    # top 50,000
 deviants.com                   # top 50,000
 dirtydoglinks.com              # top 50,000
-dirtyroulette.com              # top 50,000
-dirtyship.com                  # top 50,000
 dlouha-videa.cz                # top 50,000
 dobbyporn.com                  # top 50,000
 dobryprivat.cz                 # top 50,000
 doctruyen14.biz                # top 50,000
-doeda.com                      # top 50,000
-doeda.one                      # top 50,000
 dogmovie.net                   # top 50,000
 doujinfast.com                 # top 50,000
-doujins.com                    # top 50,000
-drtuber.com                    # top 50,000
 drtuber.desi                   # top 50,000
-duga.jp                        # top 50,000
-dxlive.com                     # top 50,000
 e-kondomy.cz                   # top 50,000
 easyxporn.com                  # top 50,000
 eboblack.com                   # top 50,000
 ebonytube.tv                   # top 50,000
-ebooxa.com                     # top 50,000
-efukt.com                      # top 50,000
 egyporn.org                    # top 50,000
 ekasiwap.com                   # top 50,000
-empflix.com                    # top 50,000
 empornium.sx                   # top 50,000
 empressleak.biz                # top 50,000
 en.xsz-av.com                  # top 50,000
 epawg.com                      # top 50,000
 eporner.video                  # top 50,000
 eporno.ro                      # top 50,000
-ero-labs.com                   # top 50,000
 eroanime-aniruto.net           # top 50,000
-erobella.com                   # top 50,000
 erocurves.com                  # top 50,000
 erokomiksi.com                 # top 50,000
-erome.fan                      # top 50,000
-erosberry.com                  # top 50,000
-eroticbeauties.net             # top 50,000
-eroticmonkey.ch                # top 50,000
-escort-ireland.com             # top 50,000
 escort-side.dk                 # top 50,000
-escortnews.com                 # top 50,000
-escortnews.eu                  # top 50,000
 escortsexe.net                 # top 50,000
 evexxx.com                     # top 50,000
 evojav.pro                     # top 50,000
-evooli.com                     # top 50,000
-exotic-tz.net                  # top 50,000
-exporntoons.net                # top 50,000
-extremerestraints.com          # top 50,000
 famosasnuas.blog               # top 50,000
-fap-nation.com                 # top 50,000
 fap-nation.org                 # top 50,000
 fapachi.com                    # top 50,000
-fapality.com                   # top 50,000
 fapello.ru                     # top 50,000
 faperoni.com                   # top 50,000
 fapeza.com                     # top 50,000
 fapguru.com                    # top 50,000
 fapnado.xxx                    # top 50,000
 faponhd.com                    # top 50,000
-fapopedia.net                  # top 50,000
 fapreactor.com                 # top 50,000
-faproulette.co                 # top 50,000
 femdomhd.org                   # top 50,000
-femdomvc.com                   # top 50,000
-fetishpapa.com                 # top 50,000
 ffjav.com                      # top 50,000
 fikante.com                    # top 50,000
 film-adult.com                 # top 50,000
@@ -957,39 +1218,27 @@ filmesporno.net.br             # top 50,000
 filmespornos.net               # top 50,000
 filmexxx18.com                 # top 50,000
 flaru.com                      # top 50,000
-fling.com                      # top 50,000
-flingster.com                  # top 50,000
-flirt4free.com                 # top 50,000
 folieporno.fr                  # top 50,000
 forcedcinema.net               # top 50,000
-forhertube.com                 # top 50,000
-forumophilia.com               # top 50,000
 freakyza.co.za                 # top 50,000
 freeadultcomix.com             # top 50,000
-freechatnow.com                # top 50,000
 freeporn.ooo                   # top 50,000
 freeporn.rodeo                 # top 50,000
 freeporn8.click                # top 50,000
 freeporncave.com               # top 50,000
 freepublicporn.com             # top 50,000
 freeuseporn.com                # top 50,000
-freexcafe.com                  # top 50,000
 freexxxhindi.com               # top 50,000
 fry99.cc                       # top 50,000
 fsicomics.com                  # top 50,000
 fuckhardclips.com              # top 50,000
 fullboys.com                   # top 50,000
-fullporner.com                 # top 50,000
 fullpornxxx.net                # top 50,000
 fulltaboo.tv                   # top 50,000
 fuqer.com                      # top 50,000
-fuqqt.com                      # top 50,000
 furbooru.org                   # top 50,000
-fux.com                        # top 50,000
 fxggxt.com                     # top 50,000
 fxpornhd.com                   # top 50,000
-fyptt.to                       # top 50,000
-gamesofdesire.com              # top 50,000
 gay.bingo                      # top 50,000
 gay4.net                       # top 50,000
 gayck.com                      # top 50,000
@@ -1005,10 +1254,8 @@ gaytor.rent                    # top 50,000
 gedecomix.com                  # top 50,000
 gekso.mobi                     # top 50,000
 germansextube.biz              # top 50,000
-gertibaldi.com                 # top 50,000
 gettranny.com                  # top 50,000
 ggjav.com                      # top 50,000
-gig.sex                        # top 50,000
 giga-web.jp                    # top 50,000
 girlfriendgalleries.net        # top 50,000
 girlsreview.nl                 # top 50,000
@@ -1017,66 +1264,43 @@ goldencomics.art               # top 50,000
 goldtits.com                   # top 50,000
 goodav17.com                   # top 50,000
 gorecenter.com                 # top 50,000
-gotanynudes.com                # top 50,000
-gotporn.com                    # top 50,000
-gptgirlfriend.online           # top 50,000
 grannytube.tv                  # top 50,000
 gratis-sexnoveller.dk          # top 50,000
 groupsor.link                  # top 50,000
 groupsor.me                    # top 50,000
 gulfsexxx.com                  # top 50,000
 h-ani.com                      # top 50,000
-h-flash.com                    # top 50,000
 h-ken.net                      # top 50,000
 hairyerotica.com               # top 50,000
-hairywomen.tv                  # top 50,000
 halamat.com                    # top 50,000
 hanime.red                     # top 50,000
 happy2hub.eu                   # top 50,000
-happyescorts.com               # top 50,000
-hardgif.com                    # top 50,000
-hclips.com                     # top 50,000
-hd-easyporn.com                # top 50,000
 hd-sexfilme.com                # top 50,000
-hdabla.net                     # top 50,000
 hdgaytube.xxx                  # top 50,000
 hdhole.com                     # top 50,000
-hdporn92.com                   # top 50,000
-hdpornvideo.xxx                # top 50,000
-hdsex.org                      # top 50,000
 hdsexmovies.xxx                # top 50,000
 hdtelugusex.com                # top 50,000
 hdxxxvideo.mobi                # top 50,000
-hdzog.com                      # top 50,000
 hdzog.tube                     # top 50,000
 helloporn.com                  # top 50,000
-hellporno.com                  # top 50,000
 hentai-archive.com             # top 50,000
-hentai-foundry.com             # top 50,000
 hentai-hub.net                 # top 50,000
 hentai-paradise.fr             # top 50,000
 hentai-time.com                # top 50,000
-hentai2read.com                # top 50,000
 hentai4k.com                   # top 50,000
 hentaiasmr.moe                 # top 50,000
 hentaienvy.com                 # top 50,000
-hentaihaven.xxx                # top 50,000
 hentaihome.net                 # top 50,000
 hentaikun.com                  # top 50,000
 hentailegendado.com            # top 50,000
 hentaipaw.com                  # top 50,000
-hentaiplay.net                 # top 50,000
-hentaiporns.net                # top 50,000
 hentaiputa.com                 # top 50,000
-hentairox.com                  # top 50,000
 hentais.blog                   # top 50,000
-hentaistream.com               # top 50,000
 hentaivnx.com                  # top 50,000
 hentaiyaoi.net                 # top 50,000
 hentaizap.com                  # top 50,000
 hentasis1.top                  # top 50,000
 hermanodeleche.com             # top 50,000
-heroero.com                    # top 50,000
 heroine-xxx.com                # top 50,000
 heureporno.com                 # top 50,000
 highporn.net                   # top 50,000
@@ -1085,17 +1309,12 @@ hindi-mom.com                  # top 50,000
 hindicouplesex.com             # top 50,000
 hispasexy.org                  # top 50,000
 hjd2048.com                    # top 50,000
-hobby.porn                     # top 50,000
 hochu.tv                       # top 50,000
 hoes.tube                      # top 50,000
 holdgently.com                 # top 50,000
-homemoviestube.com             # top 50,000
-homepornking.com               # top 50,000
 hornyjav.com                   # top 50,000
 hot-india.com                  # top 50,000
-hot.com                        # top 50,000
 hotdesifuck.pro                # top 50,000
-hotmovies.com                  # top 50,000
 hotmovs.tube                   # top 50,000
 hotntubes.com                  # top 50,000
 hotsexstory.xyz                # top 50,000
@@ -1107,24 +1326,15 @@ hsex.icu                       # top 50,000
 hstream.moe                    # top 50,000
 hub.virtamate.com              # top 50,000
 hugetits.tv                    # top 50,000
-hunqz.com                      # top 50,000
 i69xx.me                       # top 50,000
 iamsissy.com                   # top 50,000
-ibradome.com                   # top 50,000
-icegay.tv                      # top 50,000
 icegaytube.tv                  # top 50,000
-iceporn.com                    # top 50,000
-ifreechat.com                  # top 50,000
-igg-games.com                  # top 50,000
 ilikecomix.com                 # top 50,000
-imagetwist.com                 # top 50,000
 imgfy.net                      # top 50,000
 imgtraffic.com                 # top 50,000
 impervert.com                  # top 50,000
-imx.to                         # top 50,000
 in3x.net                       # top 50,000
 incesto.blog.br                # top 50,000
-indexxx.com                    # top 50,000
 indianlovexxx.com              # top 50,000
 indianofficexxx.com            # top 50,000
 indianpornvideos.click         # top 50,000
@@ -1132,22 +1342,16 @@ indiansexvideo.cam             # top 50,000
 indiantubexxx.net              # top 50,000
 indo18.com                     # top 50,000
 indoporn.mobi                  # top 50,000
-internetchicks.com             # top 50,000
 interracial.com                # top 50,000
-isexychat.com                  # top 50,000
 island-of-pleasure.site        # top 50,000
 itpornit.com                   # top 50,000
-iwank.tv                       # top 50,000
-iwantclips.com                 # top 50,000
 jacquieetmichel.net            # top 50,000
 jade-net-home.com              # top 50,000
-japan-whores.com               # top 50,000
 japaneseanimaltube.cyou        # top 50,000
 japanesesxxx.com               # top 50,000
 japanesethumbs.com             # top 50,000
 jav.autos                      # top 50,000
 jav777.xyz                     # top 50,000
-javbangers.com                 # top 50,000
 javbtc.com                     # top 50,000
 javct.net                      # top 50,000
 javeng.tv                      # top 50,000
@@ -1156,7 +1360,6 @@ javenspanish.com               # top 50,000
 javfilms.com                   # top 50,000
 javfree.me                     # top 50,000
 javhd.co.uk                    # top 50,000
-javhd.com                      # top 50,000
 javhdz.ac                      # top 50,000
 javhdz.bz                      # top 50,000
 javhdz.pw                      # top 50,000
@@ -1170,44 +1373,24 @@ javsaga.ninja                  # top 50,000
 javstore.net                   # top 50,000
 javsubbed.net                  # top 50,000
 javsubindo.com                 # top 50,000
-javtrailers.com                # top 50,000
 javtsunami.com                 # top 50,000
 javtube.com                    # top 50,000
-javynow.com                    # top 50,000
 jcomic.net                     # top 50,000
-jenporno.cz                    # top 50,000
 jerk24.com                     # top 50,000
-jerkmate.com                   # top 50,000
 jilhub.org                     # top 50,000
 jilkatha.com                   # top 50,000
 jizzberry.com                  # top 50,000
 jizzbunker.com                 # top 50,000
-joi.com                        # top 50,000
-joyreactor.cc                  # top 50,000
 joysporn.com                   # top 50,000
-juicychat.ai                   # top 50,000
-justfor.fans                   # top 50,000
 justporno.pro                  # top 50,000
 justthegays.com                # top 50,000
-k2s.cc                         # top 50,000
-kantotin.com                   # top 50,000
-kapu.hu                        # top 50,000
-kasidie.com                    # top 50,000
 katestube.com                  # top 50,000
-kaufmich.com                   # top 50,000
 keekass.com                    # top 50,000
-kenyaadultblog.com             # top 50,000
-kickasstorrents.to             # top 50,000
-kingcomix.com                  # top 50,000
-kink.com                       # top 50,000
-kinky.nl                       # top 50,000
 kitty-kats.net                 # top 50,000
 knit.bid                       # top 50,000
 knockporn.com                  # top 50,000
 koloporno.com                  # top 50,000
 kookporn.com                   # top 50,000
-koreanbj.club                  # top 50,000
-koreanpornmovie.com            # top 50,000
 kudosporn.com                  # top 50,000
 kumatamu.com                   # top 50,000
 kurocore.com                   # top 50,000
@@ -1216,42 +1399,27 @@ lamalinks.com                  # top 50,000
 leaked.fans                    # top 50,000
 lebon.porn                     # top 50,000
 lechetube.com                  # top 50,000
-lemoncams.com                  # top 50,000
 lesbianporn8.net               # top 50,000
-lesbianpornvideos.com          # top 50,000
-lesbify.com                    # top 50,000
 lesbosland.com                 # top 50,000
 leslez.com                     # top 50,000
 lespompeurs.com                # top 50,000
 lespompeuses.com               # top 50,000
-letsjerk.tv                    # top 50,000
 lewd.ninja                     # top 50,000
-lewdspot.com                   # top 50,000
-lewdzone.com                   # top 50,000
 ligadasnovinhas.com            # top 50,000
 livehdcams.com                 # top 50,000
-livejasmin.com                 # top 50,000
 lostshorts.com                 # top 50,000
 love4porn.com                  # top 50,000
-lovense.com                    # top 50,000
-loverslab.com                  # top 50,000
-loyalfans.com                  # top 50,000
 lupoporno.com                  # top 50,000
-luscious.net                   # top 50,000
 lusttaboo.com                  # top 50,000
 m-xnxx.com                     # top 50,000
 madamu.tv                      # top 50,000
-made.porn                      # top 50,000
 madnessporn.com                # top 50,000
 maduras.best                   # top 50,000
-mafab.hu                       # top 50,000
 mallusex.me                    # top 50,000
-manhunt.net                    # top 50,000
 manhwa18.com                   # top 50,000
 manporn.xxx                    # top 50,000
 mansurfer.com                  # top 50,000
 manysex.tube                   # top 50,000
-manyvids.com                   # top 50,000
 masahub2.com                   # top 50,000
 masterfap.net                  # top 50,000
 maturehomemadeporn.com         # top 50,000
@@ -1263,11 +1431,9 @@ megahentai.biz                 # top 50,000
 megasesso.com                  # top 50,000
 meinsex.video                  # top 50,000
 mengem.com                     # top 50,000
-metarthunter.com               # top 50,000
 mfcamhub.com                   # top 50,000
 milf33.com                     # top 50,000
 missavtv.com                   # top 50,000
-missax.com                     # top 50,000
 misskon.com                    # top 50,000
 mixputaria.com                 # top 50,000
 mkiska.name                    # top 50,000
@@ -1275,35 +1441,23 @@ mobile-xvideos.com             # top 50,000
 modelsearcher.com              # top 50,000
 moeimg.net                     # top 50,000
 monstercockland.com            # top 50,000
-mopoga.com                     # top 50,000
-morritastube.com               # top 50,000
 mousouzoku-av.com              # top 50,000
 moveyourhand.com               # top 50,000
 movieffm.net                   # top 50,000
 mrgay.tube                     # top 50,000
-mrskin.com                     # top 50,000
 mrvideospornogratis.xxx        # top 50,000
 mulherpelada.blog              # top 50,000
-mult34.com                     # top 50,000
 mundohentaioficial.com         # top 50,000
-mydirtyhobby.de                # top 50,000
-myfreecams.com                 # top 50,000
-mylust.com                     # top 50,000
 mymangacomics.com              # top 50,000
 mymusclevideo.com              # top 50,000
-mypornstarbook.net             # top 50,000
 myteenwebcam.com               # top 50,000
 nacktsonnen.com                # top 50,000
 naijauncut.com                 # top 50,000
-nairobihot.com                 # top 50,000
-nakedgirls.mobi                # top 50,000
 nakentid.no                    # top 50,000
-namethatporn.com               # top 50,000
 namethatpornad.com             # top 50,000
 nangivideo.com                 # top 50,000
 naoconto.com                   # top 50,000
 napiszex.hu                    # top 50,000
-naughtyamerica.com             # top 50,000
 nekopoi.click                  # top 50,000
 neporn.com                     # top 50,000
 nesaporn.com                   # top 50,000
@@ -1312,57 +1466,35 @@ newarabsex.com                 # top 50,000
 newsexxxx.com                  # top 50,000
 nhentaibr.com                  # top 50,000
 nhentaiyaoi.net                # top 50,000
-niadd.com                      # top 50,000
-niceporn.tv                    # top 50,000
-nifty.org                      # top 50,000
-niteflirt.com                  # top 50,000
 nonvegstory.com                # top 50,000
-nouslib.com                    # top 50,000
 novelcrow.com                  # top 50,000
-nsfw247.to                     # top 50,000
 nu-bay.com                     # top 50,000
 nude-moon.fun                  # top 50,000
 nudelas.com                    # top 50,000
 nudeleted.com                  # top 50,000
-nudevista.com                  # top 50,000
 nudevista.net                  # top 50,000
-nudography.com                 # top 50,000
-nudostar.com                   # top 50,000
 nungxxx.net                    # top 50,000
-nuvid.com                      # top 50,000
-ogfap.com                      # top 50,000
 ohentai.org                    # top 50,000
 ohgeekz.com                    # top 50,000
 okazurand.net                  # top 50,000
 omegascans.org                 # top 50,000
-omegle.com                     # top 50,000
 omegleporn.to                  # top 50,000
 omorashi.org                   # top 50,000
-onejav.com                     # top 50,000
 onfirex.com                    # top 50,000
 onlyindianpornx.info           # top 50,000
 onlyporn.tube                  # top 50,000
-onscreens.me                   # top 50,000
 oomaal.in                      # top 50,000
 ooxxx.com                      # top 50,000
 oppaisan.com                   # top 50,000
 orchisasia.org                 # top 50,000
-orgasmatrix.com                # top 50,000
 originalhindiporn.mobi         # top 50,000
 pakistaniporn.me               # top 50,000
-pandesiaworld.com              # top 50,000
 pantscraper.com                # top 50,000
-paradisehill.cc                # top 50,000
 pasarbokep.com                 # top 50,000
-peekvids.com                   # top 50,000
 pervclips.com                  # top 50,000
-pervertium.com                 # top 50,000
-perverttube.com                # top 50,000
 perverzija.com                 # top 50,000
 phim18k.blog                   # top 50,000
 phonerotica.com                # top 50,000
-phun.org                       # top 50,000
-pichunter.com                  # top 50,000
 pilluporno.com                 # top 50,000
 pinayvlog.com                  # top 50,000
 pinkclips.mobi                 # top 50,000
@@ -1370,72 +1502,45 @@ pinkheartmovies.xyz            # top 50,000
 pisshamster.com                # top 50,000
 pissvids.com                   # top 50,000
 pixhentai.com                  # top 50,000
-pixhost.to                     # top 50,000
 pizde.live                     # top 50,000
-planetsuzy.org                 # top 50,000
 playno1.com                    # top 50,000
 playtube.co.za                 # top 50,000
-pmvhaven.com                   # top 50,000
 poopeegirls.com                # top 50,000
 popjav.in                      # top 50,000
-porcore.com                    # top 50,000
 porn.biz                       # top 50,000
-porn00.org                     # top 50,000
 porn00.tv                      # top 50,000
 porn4fans.com                  # top 50,000
 porn7.xxx                      # top 50,000
 porn87.com                     # top 50,000
 pornalin.com                   # top 50,000
 pornbaker.com                  # top 50,000
-pornbb.org                     # top 50,000
-pornbox.com                    # top 50,000
 porncake.com                   # top 50,000
 porndd.com                     # top 50,000
-porndig.com                    # top 50,000
-porndish.com                   # top 50,000
 pornditt.com                   # top 50,000
-porndoe.com                    # top 50,000
 porndr.com                     # top 50,000
-pornflip.com                   # top 50,000
 pornfreehd.com                 # top 50,000
-porngames.tv                   # top 50,000
 porngem.com                    # top 50,000
 porngifmag.com                 # top 50,000
 porngifs.com                   # top 50,000
-porngo.com                     # top 50,000
 pornhat.video                  # top 50,000
 pornhd.cc                      # top 50,000
-pornhd.com                     # top 50,000
-pornhd3x.tv                    # top 50,000
-pornhd8k.me                    # top 50,000
 pornhdmate.com                 # top 50,000
 pornheed.com                   # top 50,000
 pornhex.com                    # top 50,000
 pornhoarder.tv                 # top 50,000
 pornhub.xxx                    # top 50,000
-pornhubpremium.com             # top 50,000
 pornicom.com                   # top 50,000
-pornid.xxx                     # top 50,000
-pornjk.com                     # top 50,000
-pornkai.com                    # top 50,000
 pornktube.com                  # top 50,000
 pornkut.com                    # top 50,000
 pornl.com                      # top 50,000
-pornlib.com                    # top 50,000
 pornlulu.com                   # top 50,000
 pornlulu.net                   # top 50,000
-pornmate.com                   # top 50,000
-pornmd.com                     # top 50,000
-pornmz.com                     # top 50,000
 pornmz.net                     # top 50,000
-porno-apk.com                  # top 50,000
 porno-videot.com               # top 50,000
 porno-von-nebenan.net          # top 50,000
-porno.com                      # top 50,000
 porno.szex.hu                  # top 50,000
 porno1.hu                      # top 50,000
 porno18.site                   # top 50,000
-porno666.link                  # top 50,000
 pornoaffe.net                  # top 50,000
 pornoamateurlatino.net         # top 50,000
 pornoanne.com                  # top 50,000
@@ -1461,44 +1566,31 @@ pornozec.com                   # top 50,000
 pornpapa.com                   # top 50,000
 pornpics.vip                   # top 50,000
 pornsnow.net                   # top 50,000
-pornsok.com                    # top 50,000
-pornsos.com                    # top 50,000
 pornspan.com                   # top 50,000
-porntn.com                     # top 50,000
 porntry.com                    # top 50,000
 porntv.com                     # top 50,000
 pornuj.cz                      # top 50,000
 pornv.xxx                      # top 50,000
-pornve.com                     # top 50,000
 pornvidio.top                  # top 50,000
-pornwhite.com                  # top 50,000
 pornworms.com                  # top 50,000
 pornxo.xxx                     # top 50,000
 ppp.porn                       # top 50,000
 preggophilia.com               # top 50,000
 privatehomeclips.com           # top 50,000
-proporn.com                    # top 50,000
 ptporn.com                     # top 50,000
 pulpo69.com                    # top 50,000
-putalocura.com                 # top 50,000
 putinho.net                    # top 50,000
 pwgong.com                     # top 50,000
 quadrinhosdesexo.com           # top 50,000
 r34.app                        # top 50,000
-rabbitscams.sex                # top 50,000
 rahatupu.net                   # top 50,000
-rajwap.biz                     # top 50,000
 rajwap.cc                      # top 50,000
-rajwap.xyz                     # top 50,000
 raped.ws                       # top 50,000
 rapelust.com                   # top 50,000
-rargb.to                       # top 50,000
-reactor.cc                     # top 50,000
 realbabes.com.au               # top 50,000
 realbooru.com                  # top 50,000
 realescort.eu                  # top 50,000
 realescort.fi                  # top 50,000
-reallifecam.com                # top 50,000
 recordbate.com                 # top 50,000
 redporn.xxx                    # top 50,000
 redtube.net                    # top 50,000
@@ -1511,18 +1603,13 @@ rotlicht.de                    # top 50,000
 rtgallery.net                  # top 50,000
 rua69.com                      # top 50,000
 rule34.art                     # top 50,000
-rule34.dev                     # top 50,000
 russkoe-porno.me               # top 50,000
-rutracker.net                  # top 50,000
 samoporno.com                  # top 50,000
 sangetods.net                  # top 50,000
-sankakucomplex.com             # top 50,000
 santtas.com                    # top 50,000
 saradahentai.com               # top 50,000
 saveporn.net                   # top 50,000
 scatkings.com                  # top 50,000
-sdc.com                        # top 50,000
-se.video                       # top 50,000
 sebokep.com                    # top 50,000
 secretas.com                   # top 50,000
 seegore.com                    # top 50,000
@@ -1531,13 +1618,11 @@ seksavid.com                   # top 50,000
 sexarbada.com                  # top 50,000
 sexbaba.co                     # top 50,000
 sexbjcam.com                   # top 50,000
-sexbule.xxx                    # top 50,000
 sexfilme.net                   # top 50,000
 sexhdxxx.com                   # top 50,000
 sexindrag.com                  # top 50,000
 sexkbj.com                     # top 50,000
 sexlilarab.com                 # top 50,000
-sexmex.xxx                     # top 50,000
 sexmix.net                     # top 50,000
 sexmoi.cyou                    # top 50,000
 sexnet1.com                    # top 50,000
@@ -1547,115 +1632,68 @@ sexpester.com                  # top 50,000
 sexprime.xxx                   # top 50,000
 sexshawaz.com                  # top 50,000
 sextop1.spa                    # top 50,000
-sextvx.com                     # top 50,000
-sexuria.net                    # top 50,000
 sexvid.porn                    # top 50,000
 sexvideo.fyi                   # top 50,000
 sexvideo.rodeo                 # top 50,000
 sexvideos.rodeo                # top 50,000
 sexwithhorse.net               # top 50,000
-sexygirlspics.com              # top 50,000
-sfmcompile.club                # top 50,000
 shahvatnak.com                 # top 50,000
 shameless.com                  # top 50,000
 shemale.movie                  # top 50,000
 shemale6.com                   # top 50,000
-shemaletubevideos.com          # top 50,000
-shemalez.com                   # top 50,000
-shooshtime.com                 # top 50,000
 showitoff.org                  # top 50,000
 showup.tv                      # top 50,000
 sick-r.com                     # top 50,000
-simplyhentai.org               # top 50,000
 siska.tv                       # top 50,000
 sleazyneasy.com                # top 50,000
 socaseiras.com.br              # top 50,000
 sortporn.com                   # top 50,000
 south-plus.net                 # top 50,000
 spankbanglive.com              # top 50,000
-spankingtube.com               # top 50,000
-squirt.org                     # top 50,000
 sticker18.com                  # top 50,000
-stocking-tease.com             # top 50,000
-storiesonline.net              # top 50,000
 stream-leak.com                # top 50,000
 streamruby.com                 # top 50,000
-streamtape.com                 # top 50,000
-strip2.in                      # top 50,000
 stripchat.app                  # top 50,000
 stripchat.global               # top 50,000
 stripchatgirls.com             # top 50,000
 stufferdb.com                  # top 50,000
-subscribestar.adult            # top 50,000
 subsubfolder.com               # top 50,000
-summertimesaga.com             # top 50,000
-sunporno.com                   # top 50,000
 superhq.net                    # top 50,000
-svscomics.com                  # top 50,000
-swag.live                      # top 50,000
 sweetindianporn.pro            # top 50,000
-swinglifestyle.com             # top 50,000
 szex.monster                   # top 50,000
 taboodude.com                  # top 50,000
-tabootube.xxx                  # top 50,000
 taboovideos.tv                 # top 50,000
 taikip.com                     # top 50,000
 taknai.com                     # top 50,000
-tastyblacks.com                # top 50,000
-taxi69.com                     # top 50,000
-teamskeet.com                  # top 50,000
 tegos.club                     # top 50,000
-terk.nl                        # top 50,000
 tescort.com                    # top 50,000
-thatpervert.com                # top 50,000
-the-joi-database.com           # top 50,000
-thebestfetishsites.com         # top 50,000
 thefap.net                     # top 50,000
 thefappening.plus              # top 50,000
-thefappeningblog.com           # top 50,000
-thehun.net                     # top 50,000
 thepiratebay0.org              # top 50,000
-thepornguy.org                 # top 50,000
-thepornlinks.com               # top 50,000
-thepornlist.net                # top 50,000
 thexxxadult.ru                 # top 50,000
-theync.com                     # top 50,000
 thothub.is                     # top 50,000
 thothub.lol                    # top 50,000
-thothub.to                     # top 50,000
 thothub.vip                    # top 50,000
 thrupnies.com                  # top 50,000
-thumbzilla.com                 # top 50,000
 tickzoo.tv                     # top 50,000
 titshub.com                    # top 50,000
 tizam.ru                       # top 50,000
 todosfamososnus.com            # top 50,000
-tonicmovies.com                # top 50,000
 toonily.com                    # top 50,000
 toonx.net                      # top 50,000
 tophd.xxx                      # top 50,000
 topjav.tv                      # top 50,000
-toppornsites.com               # top 50,000
 topvid.tv                      # top 50,000
 totalfucktube.com              # top 50,000
-trahkino.cc                    # top 50,000
-tranny.one                     # top 50,000
 trannygem.com                  # top 50,000
 trannyvideosx.com              # top 50,000
 transflix.net                  # top 50,000
-transjizz.com                  # top 50,000
-trendyporn.com                 # top 50,000
 trixhentai.com                 # top 50,000
 trixxx.hu                      # top 50,000
 truyenc.com                    # top 50,000
-ts-dating.com                  # top 50,000
 tube3.com                      # top 50,000
 tube8.es                       # top 50,000
-tubebdsm.com                   # top 50,000
-tubeorigin.com                 # top 50,000
-tubepleasure.com               # top 50,000
 tubeporn.tv                    # top 50,000
-tubepornclassic.com            # top 50,000
 tubetubetube.com               # top 50,000
 tubxporn.com                   # top 50,000
 tufos.com.br                   # top 50,000
@@ -1667,56 +1705,33 @@ uaa.com                        # top 50,000
 ugandanporn.com                # top 50,000
 uiporn.com                     # top 50,000
 ujizz.xxx                      # top 50,000
-ultrathots.com                 # top 50,000
 uncutmaza.cc                   # top 50,000
-undress.app                    # top 50,000
-upornia.com                    # top 50,000
 upornia.tube                   # top 50,000
 uporno.xxx                     # top 50,000
-utherverse.com                 # top 50,000
-v2ph.com                       # top 50,000
 vagabundasdoorkut.net          # top 50,000
-vagina.nl                      # top 50,000
 veohentai.com                  # top 50,000
 veopornogratis.xxx             # top 50,000
 videomonstr.com                # top 50,000
 videosection.com               # top 50,000
 videospornogratisx.net         # top 50,000
 videospornosexe.com            # top 50,000
-vikiporn.com                   # top 50,000
-vintage-erotica-forum.com      # top 50,000
 viper.to                       # top 50,000
-viptube.com                    # top 50,000
-vjav.com                       # top 50,000
-voissa.com                     # top 50,000
-voyeur-house.tv                # top 50,000
 voyeurflash.com                # top 50,000
-voyeurhit.com                  # top 50,000
-voyeurweb.com                  # top 50,000
 vsex.in                        # top 50,000
-vxxx.com                       # top 50,000
 w1mp.com                       # top 50,000
 wahedsex.com                   # top 50,000
 wankoz.com                     # top 50,000
 wapbold.net                    # top 50,000
 wastickers.me                  # top 50,000
-watchersweb.com                # top 50,000
-watchpeopledie.tv              # top 50,000
 webcamjackers.com              # top 50,000
 webpussi.com                   # top 50,000
 wetgif.com                     # top 50,000
-whatboyswant.com               # top 50,000
-wikifeet.com                   # top 50,000
 winporn.com                    # top 50,000
 winporn.net                    # top 50,000
-worldsex.com                   # top 50,000
 wporncomics.com                # top 50,000
 wwwxxx.vip                     # top 50,000
 x1hub.com                      # top 50,000
-xbabe.com                      # top 50,000
-xbooru.com                     # top 50,000
 xchica.com                     # top 50,000
-xcum.com                       # top 50,000
 xfantazy.org                   # top 50,000
 xfemaledom.com                 # top 50,000
 xfights.to                     # top 50,000
@@ -1731,11 +1746,9 @@ xhomealone.com                 # top 50,000
 xhplanet.com                   # top 50,000
 xhreal5.com                    # top 50,000
 xlivesex.com                   # top 50,000
-xlovecam.com                   # top 50,000
 xlx.xxx                        # top 50,000
 xlxx.com                       # top 50,000
 xmateur.com                    # top 50,000
-xmoviesforyou.com              # top 50,000
 xn----ztbcbceder.tv            # top 50,000
 xn--ygba1c.chat                # top 50,000
 xnxx.dev                       # top 50,000
@@ -1747,10 +1760,8 @@ xnxxbest.pro                   # top 50,000
 xnxxme.com                     # top 50,000
 xnxxsex.net                    # top 50,000
 xozilla.xxx                    # top 50,000
-xpee.com                       # top 50,000
 xrares.com                     # top 50,000
 xsafadas.net                   # top 50,000
-xtits.com                      # top 50,000
 xtits.xxx                      # top 50,000
 xtorjack.com                   # top 50,000
 xtremechat.com                 # top 50,000
@@ -1767,13 +1778,11 @@ xvideos5.com                   # top 50,000
 xvideos53.com                  # top 50,000
 xvideosbr.to                   # top 50,000
 xvideosxxx.fun                 # top 50,000
-xvix.eu                        # top 50,000
 xxdbx.com                      # top 50,000
 xxnx.kim                       # top 50,000
 xxnxx.live                     # top 50,000
 xxvideos.video                 # top 50,000
 xxxbokepjepang.icu             # top 50,000
-xxxbold.com                    # top 50,000
 xxxculonas.com                 # top 50,000
 xxxdan.com                     # top 50,000
 xxxdee.me                      # top 50,000
@@ -1787,18 +1796,13 @@ xxxporno.cam                   # top 50,000
 xxxsexpic.me                   # top 50,000
 xxxsexzoo.com                  # top 50,000
 xxxshake.com                   # top 50,000
-xxxtik.com                     # top 50,000
 xxxvasna.com                   # top 50,000
 xxxvideo.blog                  # top 50,000
 xxxvideoindian2.com            # top 50,000
 xxxvideoszoo.com               # top 50,000
 xxxzooporn.net                 # top 50,000
-xyzcomics.com                  # top 50,000
-yaeby.pro                      # top 50,000
-yande.re                       # top 50,000
 yescams.com                    # top 50,000
 yespornfree.com                # top 50,000
-yespornpleasexxx.com           # top 50,000
 yesvids.com                    # top 50,000
 youjizz.sex                    # top 50,000
 youporndeutsch.biz             # top 50,000
@@ -1807,8 +1811,6 @@ ytboob.com                     # top 50,000
 yufap.com                      # top 50,000
 zakulisi.cz                    # top 50,000
 zbeng.co.il                    # top 50,000
-zeenite.com                    # top 50,000
-zoig.com                       # top 50,000
 zoo-xnxx.com                   # top 50,000
 zoo-xvideos.com                # top 50,000
 zooporn.show                   # top 50,000
@@ -1822,14 +1824,182 @@ zoox18.com                     # top 50,000
 zoozhamster.com                # top 50,000
 zproxy.org                     # top 50,000
 ztube.org                      # top 50,000
-0xxx.ws                        # top 100,000
+maxim.com                      # top 100,000; links 11,580
+thechive.com                   # top 100,000; links 17,462
+lelo.com                       # top 100,000; links 31,998
+suicidegirls.com               # top 100,000; links 41,775
+chatroulette.com               # top 100,000; links 45,062
+bedpage.com                    # top 100,000; links 50,194
+freetour.com                   # top 100,000; links 61,126
+imlive.com                     # top 100,000; links 64,155
+oglaf.com                      # top 100,000; links 69,464
+fleshbot.com                   # top 100,000; links 75,068
+mydirtyhobby.com               # top 100,000; links 81,314
+lovehoney.com                  # top 100,000; links 88,400
+aebn.net                       # top 100,000; links 91,319
+streamate.com                  # top 100,000; links 94,806
+2nt.com                        # top 100,000; links 100,439
+fleshlight.com                 # top 100,000; links 104,055
+lushstories.com                # top 100,000; links 108,837
+babestation.tv                 # top 100,000; links 125,760
+playboy.de                     # top 100,000; links 126,593
+sexlikereal.com                # top 100,000; links 134,724
+livejasmin-sexchat.ch          # top 100,000; links 140,441
+vrporn.com                     # top 100,000; links 141,757
+akiba-online.com               # top 100,000; links 152,458
+vixen.com                      # top 100,000; links 152,993
+xfantazy.com                   # top 100,000; links 156,639
+pornworld.com                  # top 100,000; links 165,315
+pimpandhost.com                # top 100,000; links 166,780
+porntube.com                   # top 100,000; links 167,176
+feetfinder.com                 # top 100,000; links 171,683
+xlilith.com                    # top 100,000; links 173,442
+sextpanther.com                # top 100,000; links 174,760
+torrentdownloads.pro           # top 100,000; links 176,808
+hentai0day.com                 # top 100,000; links 180,957
+chatrandom.com                 # top 100,000; links 182,995
+julesjordan.com                # top 100,000; links 188,167
+nubiles-porn.com               # top 100,000; links 194,254
+knuddels.de                    # top 100,000; links 194,954
+japanhdv.com                   # top 100,000; links 202,371
+eis.de                         # top 100,000; links 205,946
+big7.com                       # top 100,000; links 212,360
+blackedraw.com                 # top 100,000; links 220,855
+xcams.com                      # top 100,000; links 220,866
+wetpussygames.com              # top 100,000; links 223,354
+fakku.net                      # top 100,000; links 224,124
+konachan.com                   # top 100,000; links 224,130
+dorcelclub.com                 # top 100,000; links 226,442
+povr.com                       # top 100,000; links 235,514
+baraag.net                     # top 100,000; links 239,204
+scrolller.com                  # top 100,000; links 250,832
+bellesa.co                     # top 100,000; links 262,300
+secrets.ai                     # top 100,000; links 268,443
+topescortbabes.com             # top 100,000; links 277,624
+thenude.com                    # top 100,000; links 289,932
+escortforumit.xxx              # top 100,000; links 291,086
+puretaboo.com                  # top 100,000; links 296,816
+sexsaoy.com                    # top 100,000; links 302,077
+sheer.com                      # top 100,000; links 306,150
+mennetwork.com                 # top 100,000; links 310,404
+booru.org                      # top 100,000; links 325,234
+vip4k.com                      # top 100,000; links 351,753
+mzansiporn.mobi                # top 100,000; links 357,768
+exploitedcollegegirls.com      # top 100,000; links 360,065
+mcstories.com                  # top 100,000; links 361,963
+camster.com                    # top 100,000; links 378,740
+nastia.ai                      # top 100,000; links 387,671
+xillimite.com                  # top 100,000; links 400,577
+xmissy.nl                      # top 100,000; links 409,089
+tube2017.com                   # top 100,000; links 413,471
+backroomcastingcouch.com       # top 100,000; links 418,877
+chatzozo.com                   # top 100,000; links 427,802
+joyland.ai                     # top 100,000; links 440,047
+naughtymachinima.com           # top 100,000; links 446,149
+luckycrush.live                # top 100,000; links 446,309
+youramateurporn.com            # top 100,000; links 454,342
+sexjobs.nl                     # top 100,000; links 463,765
+pics-x.com                     # top 100,000; links 473,557
+1baiser.com                    # top 100,000; links 475,430
+feet9.com                      # top 100,000; links 482,956
+hotmovs.com                    # top 100,000; links 483,044
+fakings.com                    # top 100,000; links 488,802
+scandalplanet.com              # top 100,000; links 490,968
+dorcelvision.com               # top 100,000; links 498,927
+pholder.com                    # top 100,000; links 513,118
+coedcherry.com                 # top 100,000; links 514,105
+ah-me.com                      # top 100,000; links 516,007
+girlsofdesire.org              # top 100,000; links 516,040
+czechcasting.com               # top 100,000; links 516,221
+pornx.to                       # top 100,000; links 520,820
+s1s1s1.com                     # top 100,000; links 524,947
+chatspin.com                   # top 100,000; links 525,152
+gaydemon.com                   # top 100,000; links 526,053
+jacquieetmicheltv.net          # top 100,000; links 534,051
+alphaporno.com                 # top 100,000; links 538,580
+curvyerotic.com                # top 100,000; links 550,652
+atkmodels.com                  # top 100,000; links 553,300
+woodmancastingx.com            # top 100,000; links 575,681
+pornann.com                    # top 100,000; links 577,920
+porngames.com                  # top 100,000; links 583,909
+yourlust.com                   # top 100,000; links 584,019
+newbienudes.com                # top 100,000; links 584,547
+daftporn.com                   # top 100,000; links 590,088
+zzcartoon.com                  # top 100,000; links 590,116
+fetishshrine.com               # top 100,000; links 596,755
+nudelive.com                   # top 100,000; links 604,281
+swingtowns.com                 # top 100,000; links 607,056
+aichattings.com                # top 100,000; links 609,909
+famousboard.com                # top 100,000; links 612,904
+sexu.com                       # top 100,000; links 612,916
+rosemarydoll.com               # top 100,000; links 613,259
+trannytube.tv                  # top 100,000; links 630,091
+hideproxy.me                   # top 100,000; links 635,251
+cherrynudes.com                # top 100,000; links 637,563
+punishbang.com                 # top 100,000; links 644,593
+prostasex.cc                   # top 100,000; links 651,968
+influencersgonewild.com        # top 100,000; links 652,027
+tubepornlist.com               # top 100,000; links 652,494
+hentai-moon.com                # top 100,000; links 659,947
+girlsgonewild.com              # top 100,000; links 662,340
+photos18.com                   # top 100,000; links 667,784
+poldertube.nl                  # top 100,000; links 670,759
+xanimeporn.com                 # top 100,000; links 672,250
+tsescorts.com                  # top 100,000; links 672,328
+sexcelebrity.net               # top 100,000; links 676,296
+porn-star.com                  # top 100,000; links 677,632
+pmatehunter.com                # top 100,000; links 684,160
+tokyo-hot.com                  # top 100,000; links 696,336
+hentaihaven.com                # top 100,000; links 696,425
+hotcelebshome.com              # top 100,000; links 702,879
+pornobae.com                   # top 100,000; links 708,597
+porngames.games                # top 100,000; links 708,714
+321sexchat.com                 # top 100,000; links 710,506
+shemalestardb.com              # top 100,000; links 712,718
+dirtyshack.com                 # top 100,000; links 757,771
+erotik.com                     # top 100,000; links 760,296
+centervillage.co.jp            # top 100,000; links 766,935
+camloo.com                     # top 100,000; links 773,984
+fapvid.com                     # top 100,000; links 785,780
+javfun.me                      # top 100,000; links 785,905
+underhentai.net                # top 100,000; links 791,006
+sexverhalen.com                # top 100,000; links 794,889
+javseen.tv                     # top 100,000; links 796,043
+girlswallowed.com              # top 100,000; links 807,156
+maheir.com                     # top 100,000; links 808,406
+ebookrenta.com                 # top 100,000; links 821,138
+katcr.to                       # top 100,000; links 821,257
+hentaihere.com                 # top 100,000; links 824,002
+hentaisea.com                  # top 100,000; links 829,445
+24xxx.porn                     # top 100,000; links 829,516
+miohentai.com                  # top 100,000; links 840,445
+smutba.se                      # top 100,000; links 840,534
+fucd.com                       # top 100,000; links 851,837
+pornslash.com                  # top 100,000; links 851,876
+tfgames.site                   # top 100,000; links 858,222
+rent.men                       # top 100,000; links 861,684
+0xxx.ws                        # top 100,000; links 869,045
+pornrabbit.com                 # top 100,000; links 884,265
+tubewolf.com                   # top 100,000; links 893,558
+boobsradar.com                 # top 100,000; links 912,577
+javcl.com                      # top 100,000; links 925,487
+findhername.net                # top 100,000; links 938,738
+japanesematures.com            # top 100,000; links 938,812
+porn-w.org                     # top 100,000; links 947,044
+wickedwhimsmod.com             # top 100,000; links 948,682
+tbib.org                       # top 100,000; links 948,758
+runetki.com                    # top 100,000; links 949,632
+leakslove.com                  # top 100,000; links 959,662
+u18chan.com                    # top 100,000; links 959,680
+transdoe.com                   # top 100,000; links 966,846
+hentaibros.net                 # top 100,000; links 974,211
+talktome.com                   # top 100,000; links 975,297
+hentailoop.com                 # top 100,000; links 989,300
+slushe.com                     # top 100,000; links 990,657
+bravoteens.com                 # top 100,000; links 996,638
 171gifs.com                    # top 100,000
 18porn.sex                     # top 100,000
 18tokyo.com                    # top 100,000
-1baiser.com                    # top 100,000
-24xxx.porn                     # top 100,000
-2nt.com                        # top 100,000
-321sexchat.com                 # top 100,000
 3gpjizz.mobi                   # top 100,000
 3movs.xxx                      # top 100,000
 3xplanet.com                   # top 100,000
@@ -1838,171 +2008,3 @@ ztube.org                      # top 50,000
 6profis.de                     # top 100,000
 a-hadaka.jp                    # top 100,000
 aagmaal.club                   # top 100,000
-abbdsm.com                     # top 100,000
-adonismale.com                 # top 100,000
-adultchat.net                  # top 100,000
-adultgamescollector.com        # top 100,000
-aebn.net                       # top 100,000
-ah-me.com                      # top 100,000
-aichattings.com                # top 100,000
-akiba-online.com               # top 100,000
-akiba-web.com                  # top 100,000
-akuma.moe                      # top 100,000
-alexaporn.com                  # top 100,000
-allboner.com                   # top 100,000
-alphaporno.com                 # top 100,000
-amatrys.com                    # top 100,000
-animal-hentai.com              # top 100,000
-animalporn.life                # top 100,000
-animalsporn.net                # top 100,000
-apetube.com                    # top 100,000
-arabsx.icu                     # top 100,000
-araby69.com                    # top 100,000
-archivebate.cc                 # top 100,000
-asianpinay.to                  # top 100,000
-asianporn.li                   # top 100,000
-assistirhentai.com             # top 100,000
-atkmodels.com                  # top 100,000
-babesrater.com                 # top 100,000
-babestation.tv                 # top 100,000
-babextube.com                  # top 100,000
-backroomcastingcouch.com       # top 100,000
-baddies247.com                 # top 100,000
-bagla.pl                       # top 100,000
-ballbusting.cc                 # top 100,000
-bananasfamosas.net             # top 100,000
-baraag.net                     # top 100,000
-baramangaonline.com            # top 100,000
-beastythumbs.com               # top 100,000
-bedpage.com                    # top 100,000
-beeg.onl                       # top 100,000
-bellacia.com.br                # top 100,000
-bellesa.co                     # top 100,000
-bengalisexvideos.com           # top 100,000
-bestandfree.com                # top 100,000
-bestiality.guru                # top 100,000
-bestpornclip.com               # top 100,000
-bestpornstars.xxx              # top 100,000
-beszamolok.com                 # top 100,000
-beur-gay.fr                    # top 100,000
-big7.com                       # top 100,000
-bigassporn.tv                  # top 100,000
-bizarroporno.com               # top 100,000
-bizarropornos.com              # top 100,000
-blackedraw.com                 # top 100,000
-bokepfree.icu                  # top 100,000
-bokepmontok.com                # top 100,000
-bokepmulus.icu                 # top 100,000
-bondagevalley.cc               # top 100,000
-bonga-cams.com                 # top 100,000
-bongacams.cam                  # top 100,000
-boobsradar.com                 # top 100,000
-boombo.biz                     # top 100,000
-booru.org                      # top 100,000
-borwap.pro                     # top 100,000
-brasileirinhas.com.br          # top 100,000
-bravoteens.com                 # top 100,000
-broxxx.com                     # top 100,000
-brutalgays.net                 # top 100,000
-buceta.blog                    # top 100,000
-bucetas.blog                   # top 100,000
-bunkr.pk                       # top 100,000
-camdownload.net                # top 100,000
-camloo.com                     # top 100,000
-camster.com                    # top 100,000
-camwhores.us.com               # top 100,000
-camworldx.com                  # top 100,000
-camzey.com                     # top 100,000
-candidteens.net                # top 100,000
-caribbeancompr.com             # top 100,000
-centervillage.co.jp            # top 100,000
-ceskeporno.cz                  # top 100,000
-chatrandom.com                 # top 100,000
-chatroulette.com               # top 100,000
-chatspin.com                   # top 100,000
-chatzozo.com                   # top 100,000
-cherrynudes.com                # top 100,000
-chineseav.net                  # top 100,000
-cliphubs.com                   # top 100,000
-cluset.com                     # top 100,000
-coedcherry.com                 # top 100,000
-comicsarmy.com                 # top 100,000
-comicspornoxxx.com             # top 100,000
-comicsvalley.com               # top 100,000
-cooch.tv                       # top 100,000
-coolsexnew.com                 # top 100,000
-coroasmaduras.net              # top 100,000
-csucsvideok.hu                 # top 100,000
-culonas.best                   # top 100,000
-curvyerotic.com                # top 100,000
-czechcasting.com               # top 100,000
-daftporn.com                   # top 100,000
-dailypornstreams.com           # top 100,000
-desi-porn.tube                 # top 100,000
-desitubexxx.com                # top 100,000
-desivideosporn.com             # top 100,000
-desixxx.org                    # top 100,000
-dirtyshack.com                 # top 100,000
-djav.org                       # top 100,000
-dkwebcam.dk                    # top 100,000
-dojki.xxx                      # top 100,000
-dorcelclub.com                 # top 100,000
-dorcelvision.com               # top 100,000
-doujin69.com                   # top 100,000
-doujinhentai.net               # top 100,000
-drklive.xyz                    # top 100,000
-dropmms.fun                    # top 100,000
-dvd-oasis.com                  # top 100,000
-eachporn.com                   # top 100,000
-ebenporno.com                  # top 100,000
-ebony8.com                     # top 100,000
-ebookrenta.com                 # top 100,000
-eggporncomics.com              # top 100,000
-eis.de                         # top 100,000
-eispop.com                     # top 100,000
-elktube.com                    # top 100,000
-en.ero-video.net               # top 100,000
-eporno.sk                      # top 100,000
-erfahreneladies.de             # top 100,000
-ero-top.name                   # top 100,000
-eroboom.pw                     # top 100,000
-eroguide.dk                    # top 100,000
-eroticasearch.net              # top 100,000
-erotik.com                     # top 100,000
-erotikfilme.fun                # top 100,000
-escorte.com                    # top 100,000
-escortforumit.xxx              # top 100,000
-exploitedcollegegirls.com      # top 100,000
-extremescatporn.com            # top 100,000
-eye.porn                       # top 100,000
-fahlawy.com                    # top 100,000
-fakings.com                    # top 100,000
-fakku.net                      # top 100,000
-famousboard.com                # top 100,000
-fapcam.club                    # top 100,000
-fapdiner.com                   # top 100,000
-faphouselive.com               # top 100,000
-fapix.porn                     # top 100,000
-fapomania.com                  # top 100,000
-fapvid.com                     # top 100,000
-fcjav.com                      # top 100,000
-feet9.com                      # top 100,000
-feetfinder.com                 # top 100,000
-femdom-pov.me                  # top 100,000
-femjoyhunter.com               # top 100,000
-fetishburg.com                 # top 100,000
-fetishshrine.com               # top 100,000
-fickverein.com                 # top 100,000
-fikfapcams.com                 # top 100,000
-filmeporno.tube                # top 100,000
-filmeporno.vip                 # top 100,000
-filmepornoroz.com              # top 100,000
-filmx.cyou                     # top 100,000
-filmyporno.tv                  # top 100,000
-findhername.net                # top 100,000
-fkbae.to                       # top 100,000
-fleshbot.com                   # top 100,000
-fleshed.com                    # top 100,000
-fleshlight.com                 # top 100,000
-footstockings.com              # top 100,000
-forced-sex.net                 # top 100,000

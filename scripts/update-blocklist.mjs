@@ -14,9 +14,11 @@
 // The ranking is the Chrome UX Report's top million (Google's count of real Chrome page loads, which
 // zakird/crux-top-lists caches as a CSV of origins; Google's public dataset, CC BY-SA 4.0 as tranco-list.eu
 // gives it). It ranks sites in bands (the top 1,000, 5,000, 10,000, 50,000, 100,000, 500,000, 1,000,000),
-// not one by one. Firefox's own copy of the built-in list (the lock) holds at most 1,000 entries, and this is
-// what decides which: starter.txt first, then popular.txt in its order (scripts/firefox-lock.mjs). Only the
-// order is taken from the ranking: every site in popular.txt is on the built-in list already.
+// not one by one, and within a band it gives no order, so there the Majestic Million (CC BY 3.0; a ranking
+// by links from across the web) decides, with sites it doesn't rank last and alphabetical among themselves.
+// Firefox's own copy of the built-in list (the lock) holds at most 1,000 entries, and this is what decides
+// which: starter.txt first, then popular.txt in its order (scripts/firefox-lock.mjs). Only the order is
+// taken from the rankings: every site in popular.txt is on the built-in list already.
 import { writeFileSync } from 'node:fs';
 import { dirname, join, relative } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -31,6 +33,7 @@ export const POPULAR_URL = 'https://raw.githubusercontent.com/zakird/crux-top-li
 export const POPULAR_PATH = join(ROOT, 'blocklists', 'popular.txt');
 export const POPULAR_SIZE = 2000; // sites kept in popular.txt: twice what Firefox's copy can take
 export const BANDS = [1000, 5000, 10_000, 50_000, 100_000, 500_000, 1_000_000];
+export const LINKS_URL = 'https://downloads.majestic.com/majestic_million.csv'; // the order within a band
 
 /** The file as it is saved: a note from this project, then the list exactly as published. */
 export function communityList(text, fetchedOn = new Date()) {
@@ -78,25 +81,51 @@ export function rankSites(csv, listed) {
   return ranks;
 }
 
-/** The ranked sites in order: best band first, alphabetical within a band. */
-export const inOrder = (ranks) => [...ranks].sort((a, b) => a[1] - b[1] || a[0].localeCompare(b[0]));
+/**
+ * Each listed site's place in the Majestic Million (GlobalRank,TldRank,Domain,... lines): a Map of domain to
+ * rank, credited like rankSites() to the shortest listed domain a ranked domain is on or under, keeping the
+ * best rank. Majestic ranks by links from across the web rather than visits, so it only breaks ties.
+ */
+export function linkRanks(csv, listed) {
+  const ranks = new Map();
+  for (const line of String(csv).split('\n')) {
+    const [rank, , host] = line.split(',');
+    const place = Number(rank);
+    if (!host || !Number.isInteger(place) || place < 1) continue;
+    const labels = host.trim().toLowerCase().split('.');
+    for (let i = labels.length - 2; i >= 0; i--) {
+      const domain = labels.slice(i).join('.');
+      if (!listed.has(domain)) continue;
+      if (!ranks.has(domain) || ranks.get(domain) > place) ranks.set(domain, place);
+      break;
+    }
+  }
+  return ranks;
+}
 
-/** popular.txt as it is saved: a note, then the top `size` sites, most visited first, each with its band. */
-export function popularList(ranks, fetchedOn = new Date(), size = POPULAR_SIZE) {
+/** The ranked sites in order: best band first; within a band, best link rank first, unranked last, then alphabetical. */
+export const inOrder = (ranks, links = new Map()) =>
+  [...ranks].sort((a, b) => a[1] - b[1] || (links.get(a[0]) ?? Infinity) - (links.get(b[0]) ?? Infinity) || a[0].localeCompare(b[0]));
+
+/** popular.txt as it is saved: a note, then the top `size` sites, most visited first, each with its band and link rank. */
+export function popularList(ranks, links = new Map(), fetchedOn = new Date(), size = POPULAR_SIZE) {
   if (ranks.size < 100) throw new Error(`Only ${ranks.size} built-in sites found in the ranking; expected thousands. Not saving it.`);
-  const ordered = inOrder(ranks).slice(0, size);
+  const ordered = inOrder(ranks, links).slice(0, size);
   const day = fetchedOn.toISOString().slice(0, 10);
   const width = Math.max(...ordered.map(([domain]) => domain.length));
+  const note = ([domain, band]) => `# top ${band.toLocaleString('en-US')}${links.has(domain) ? `; links ${links.get(domain).toLocaleString('en-US')}` : ''}`;
   return [
     `# Popular sites: the built-in sites that Chrome users load most, most loaded first (the top ${size} of them).`,
     '# Made by npm run blocklist from the Chrome UX Report\'s top million (Google; CC BY-SA 4.0 as tranco-list.eu',
     `# gives it; cached at ${POPULAR_URL}),`,
     `# which ranks sites in bands: the top ${BANDS.map((band) => band.toLocaleString('en-US')).join(', ')}.`,
-    `# Alphabetical within a band. Fetched ${day}; ${ordered.length} of the ${ranks.size} built-in sites it ranks.`,
+    `# Within a band, by place in the Majestic Million (${LINKS_URL}; CC BY 3.0),`,
+    '# a ranking by links from across the web, sites it doesn\'t rank last and alphabetical among themselves.',
+    `# Fetched ${day}; ${ordered.length} of the ${ranks.size} built-in sites Chrome ranks, ${[...ranks.keys()].filter((domain) => links.has(domain)).length} of them in the Majestic Million.`,
     '# Every site here is on starter.txt or community.txt already: this file only puts them in order, for',
     "# Firefox's own copy of the list (the lock), which takes 1,000 entries (scripts/firefox-lock.mjs).",
     '',
-    ...ordered.map(([domain, band]) => `${domain.padEnd(width)}  # top ${band.toLocaleString('en-US')}`),
+    ...ordered.map((entry) => `${entry[0].padEnd(width)}  ${note(entry)}`),
     '',
   ].join('\n');
 }
@@ -131,11 +160,12 @@ async function main() {
   writeFileSync(COMMUNITY_PATH, file);
   console.log(`Wrote ${relative(process.cwd(), COMMUNITY_PATH)} (${parseDomainList(file).domains.length} domains).`);
 
-  const { domains } = loadBlocklists();
-  const ranks = rankSites(await fetchText(POPULAR_URL, { gzip: true }), new Set(domains));
-  const popular = popularList(ranks);
+  const listed = new Set(loadBlocklists().domains);
+  const ranks = rankSites(await fetchText(POPULAR_URL, { gzip: true }), listed);
+  const links = linkRanks(await fetchText(LINKS_URL), listed);
+  const popular = popularList(ranks, links);
   writeFileSync(POPULAR_PATH, popular);
-  console.log(`Wrote ${relative(process.cwd(), POPULAR_PATH)} (${parseDomainList(popular).domains.length} of the ${ranks.size} built-in sites the ranking has). Now run: npm run build`);
+  console.log(`Wrote ${relative(process.cwd(), POPULAR_PATH)} (${parseDomainList(popular).domains.length} of the ${ranks.size} built-in sites Chrome ranks; Majestic ranks ${links.size}). Now run: npm run build`);
 
   const look = worthALook(ranks, loadNever());
   if (look.length) {
