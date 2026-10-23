@@ -933,13 +933,24 @@ describe('real browser', () => {
         assert.equal(await record.locator('#hidden-pictures-table').count(), 0, 'no picture tables on the record page');
         await record.goto(`chrome-extension://${judge.extensionId}/pictures.html`);
         await record.waitForFunction(() => document.querySelectorAll('#hidden-pictures-table tbody tr').length >= 3);
-        assert.match(await record.locator('#summary').innerText(), /^\d+ pictures hidden on \d+ sites?, the latest at /);
+        assert.match(await record.locator('#summary').innerText(), /^\d+ pictures hidden on \d+ sites?, the latest at .+\. \d+ of them (is|are) borderline\.$/);
         const sites = await record.evaluate(() => [...document.querySelectorAll('#hidden-sites-table tbody tr')].map((row) => [...row.cells].map((cell) => cell.textContent)));
         assert.ok(sites.some((row) => row[0] === 'allowed.test' && Number(row[1]) >= 3), JSON.stringify(sites));
         const rows = await record.evaluate(() => [...document.querySelectorAll('#hidden-pictures-table tbody tr')].map((row) => [...row.cells].map((cell) => cell.textContent)));
         const nude = rows.find((row) => row[2].endsWith('/nude.jpg'));
-        assert.deepEqual(nude.slice(1), ['allowed.test', 'http://pics.test/pics/nude.jpg', 'Nudity', '0.92', '0.02'], JSON.stringify(rows));
+        assert.deepEqual(nude.slice(1), ['allowed.test', 'http://pics.test/pics/nude.jpg', 'Nudity', '0.92', '0.02', 'Copy address'], JSON.stringify(rows));
         assert.equal(rows.find((row) => row[2].endsWith('/lingerie.jpg'))[3], 'Suggestive');
+        // The drawn picture was hidden on 0.53, a close call: marked borderline, the likelier mistake (#56).
+        const drawn = rows.find((row) => row[2].endsWith('/drawn.jpg'));
+        assert.equal(drawn[3], 'Nudityborderline');
+        assert.equal(await record.locator('#hidden-pictures-table tr.borderline').count(), 1, 'only the close call is marked');
+        // Copy address puts the picture's address on the clipboard, to be opened in a browser without the extension.
+        await judge.context.grantPermissions(['clipboard-read', 'clipboard-write']);
+        const drawnRow = record.locator('#hidden-pictures-table tbody tr', { hasText: 'drawn.jpg' });
+        await drawnRow.locator('button').click();
+        await record.waitForFunction(() => /Address copied/.test(document.getElementById('copy-status').textContent));
+        assert.equal(await record.evaluate(() => navigator.clipboard.readText()), 'http://pics.test/pics/drawn.jpg');
+        assert.equal(await drawnRow.locator('button').innerText(), 'Copied');
 
         await settings.waitForFunction(() => /pictures? judged, \d+ hidden/.test(document.getElementById('picture-status').textContent));
         assert.match(await settings.locator('#picture-status').innerText(), /^Since the browser started: \d+ pictures judged, \d+ hidden; judging runs stand-in\.$/);
