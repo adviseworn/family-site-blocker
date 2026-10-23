@@ -421,6 +421,16 @@ button.small {
   font-weight: 600;
 }
 
+#copy-status {
+  color: var(--muted);
+}
+
+.borderline-mark {
+  display: block;
+  color: var(--latch);
+  font-weight: 600;
+}
+
 #hidden-pictures-table td.picture-url {
   max-width: 18rem;
   overflow: hidden;
