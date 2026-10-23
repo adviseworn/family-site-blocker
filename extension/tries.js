@@ -3,22 +3,12 @@
 // site (tries.html#site=<the site>, from the by-site table there). Like the other pages, this one only
 // reads the record; nothing here can clear it (see lib/attempts.js).
 import { ATTEMPTS, LABELS, byDay, outcome, toCsv } from './lib/attempts.js';
+import { dayFormat, element, plural, showVersion, timeFormat, tries as triesWord, whenFormat } from './lib/page.js';
 
 const api = globalThis.browser ?? globalThis.chrome;
 const $ = (id) => document.getElementById(id);
-const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
-const whenFormat = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' });
-const dayFormat = new Intl.DateTimeFormat(undefined, { dateStyle: 'full' });
-const timeFormat = new Intl.DateTimeFormat(undefined, { timeStyle: 'short' });
 
 let attempts = []; // the record as stored: oldest first
-
-function element(tag, text, attributes = {}) {
-  const node = document.createElement(tag);
-  if (text != null) node.textContent = text;
-  for (const [name, value] of Object.entries(attributes)) node.setAttribute(name, value);
-  return node;
-}
 
 /** The site named in the address (tries.html#site=example.com), or null for every site. */
 function onlySite() {
@@ -36,7 +26,7 @@ function dayHeading(day, count) {
   const midnight = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
   const name = day === midnight ? 'Today' : day === midnight - 86_400_000 ? 'Yesterday' : null;
   const heading = element('h3', name ? `${name}, ` : '');
-  heading.append(element('span', dayFormat.format(day)), ' ', element('small', count === 1 ? '1 try' : `${count} tries`));
+  heading.append(element('span', dayFormat.format(day)), ' ', element('small', triesWord(count)));
   return heading;
 }
 
@@ -75,9 +65,8 @@ function renderSummary(shown, site) {
   const latest = shown[shown.length - 1];
   const opened = shown.filter((attempt) => outcome(attempt) === 'opened').length;
   const fromHistory = shown.filter((attempt) => outcome(attempt) === 'history').length;
-  const tries = shown.length === 1 ? '1 try' : `${shown.length} tries`;
   $('summary').textContent =
-    `${tries}${site ? '' : ` at ${plural(new Set(shown.map((attempt) => attempt.site)).size, 'site')}`}, the latest at ${whenFormat.format(latest.at)}.` +
+    `${triesWord(shown.length)}${site ? '' : ` at ${plural(new Set(shown.map((attempt) => attempt.site)).size, 'site')}`}, the latest at ${whenFormat.format(latest.at)}.` +
     (opened ? ` ${plural(opened, 'page')} opened instead of being blocked.` : '') +
     (fromHistory ? ` ${fromHistory} from this browser's history.` : '');
 }
@@ -117,7 +106,7 @@ api.storage.onChanged.addListener((changes, area) => {
   if (area === 'local' && changes[ATTEMPTS]) render();
 });
 
-$('version').textContent = `Version ${api.runtime.getManifest().version}`;
+showVersion(api);
 render().catch((error) => {
   $('summary').textContent = `Couldn't read the record: ${error.message}`;
 });
