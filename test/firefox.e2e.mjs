@@ -500,10 +500,12 @@ describe('Firefox', { skip: findFirefox() ? false : 'no Firefox found (set FIREF
         await sleep(200);
         note = await browser.run(`const note = document.getElementById('unlisted-note'); return { hidden: note.hidden, text: note.textContent }`);
       }
-      assert.equal(note.text, "1 site in this browser's history looks adult but isn't on either list: see the record page.");
+      assert.equal(note.text, "1 site in this browser's history looks adult but isn't on either list: see which.");
 
+      // The unlisted page (#54), opened in the record page's tab.
       const recordTab = (await browser.tabs()).find(({ url }) => url.endsWith('/attempts.html'));
       await browser.fx.send('WebDriver:SwitchToWindow', { handle: recordTab.handle });
+      await browser.visit(`moz-extension://${new URL(await browser.currentUrl()).host}/unlisted.html`);
       const rows = () =>
         browser.run(`return [...document.querySelectorAll('#unlisted-table tbody tr')].map((row) => [...row.cells].map((cell) => cell.textContent))`);
       let found = [];
@@ -521,7 +523,7 @@ describe('Firefox', { skip: findFirefox() ? false : 'no Firefox found (set FIREF
       let summary = '';
       while (!summary.startsWith('None found') && Date.now() < gone) {
         await sleep(250);
-        summary = await browser.run("return document.getElementById('unlisted-summary').textContent");
+        summary = await browser.run("return document.getElementById('summary').textContent");
       }
       assert.match(summary, /^None found when the history was last looked through/, summary);
       await browser.newTab();
