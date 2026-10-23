@@ -341,6 +341,10 @@ describe('real browser', () => {
       try {
         assert.equal(await page.locator('#engines').innerText(), 'Google, Bing, DuckDuckGo, Yahoo and Brave Search');
         assert.equal(await page.locator('#safe-search a.button').getAttribute('href'), 'https://www.google.com/search?q=test');
+        // It points at what can be seen, the address, and promises nothing from Google's own page (#46).
+        const note = await page.locator('#safe-search-note').innerText();
+        assert.match(note, /^The address should gain safe=active, /);
+        assert.doesNotMatch(note, /should say SafeSearch is on/);
       } finally {
         await page.close();
       }
