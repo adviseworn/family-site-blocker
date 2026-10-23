@@ -3,3 +3,4 @@ dist/
 package-lock.json
 .DS_Store
 extension/_metadata/
+google-check/

@@ -1,0 +1,46 @@
+# Checks safe search against the real Google (#46), which the tests can't do because they never contact a
+# real website: with the extension loaded in Chromium and in Firefox on a GitHub-hosted Mac, it searches
+# Google and Google Images the way a person types them and reports whether the address keeps safe=active
+# once Google's page has run, what the page says about SafeSearch, and whether the results Google Images
+# loads while scrolling carry the setting too. Screenshots of each page are attached to the run.
+# Only harmless searches are made. If Google answers the runner with its "unusual traffic" page, the run
+# says nothing could be checked. Start it from the Actions tab with "Run workflow".
+name: Real Google check
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [google-check] # so it can run from its own branch before it's on main
+
+permissions:
+  contents: read
+
+jobs:
+  google:
+    runs-on: macos-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+
+      - name: Make sure Firefox is installed
+        run: test -d /Applications/Firefox.app || brew install --cask firefox
+
+      - name: Install Playwright and its Chromium
+        run: |
+          npm install
+          npx playwright install chromium
+
+      - name: Search Google with the extension in Chromium and Firefox
+        run: npm run check:google
+
+      - name: Keep the screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: google-check
+          path: google-check/
+          if-no-files-found: ignore
