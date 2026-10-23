@@ -4,8 +4,10 @@
 // keeps the record of blocked attempts. Chrome, Edge and Brave run it as a service worker; Firefox runs
 // it as an event page. Both load it as a module (manifest.json: background.type).
 import { ATTEMPTS, HISTORY_SCAN, bookmarksTo, hostOf, listedDomain, mergeVisits, record } from './lib/attempts.js';
+import { PICTURES, STRICTNESS, recordHidden, strictnessOf, verdict } from './lib/pictures.js';
 import { domainsOf } from './lib/rules.js';
 import { UNLISTED, tallyUnlisted } from './lib/suspects.js';
+import { backendInUse, judgeBytes } from './classifier.js';
 
 const api = globalThis.browser ?? globalThis.chrome;
 
@@ -42,9 +44,18 @@ function listedDomains() {
 // The settings page says when the person's own list changes; the browser also restarts this script
 // after a short idle, so the lists are reread often anyway. It also asks for the history to be looked
 // through again (the button on the page).
-api.runtime.onMessage.addListener((message) => {
+api.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message?.type === 'list-changed') domains = null;
   if (message?.type === 'scan-history') scanHistory();
+  if (message?.type === 'judge-picture') {
+    judgePicture(message.url, sender).then(sendResponse, (error) => sendResponse({ error: String(error?.message ?? error) }));
+    return true; // the answer comes later
+  }
+  if (message?.type === 'picture-status') {
+    sendResponse({ backend: backendInUse(), judged: judgedCount, hidden: hiddenCount, failed: failedCount });
+    return true;
+  }
+  return undefined;
 });
 
 // One write at a time: two navigations close together must not read the same old list and lose a note.
@@ -201,3 +212,70 @@ api.webRequest.onBeforeRequest.addListener(tried, PAGES);
 api.webNavigation.onDOMContentLoaded.addListener(opened);
 api.webNavigation.onCompleted.addListener(opened);
 api.webRequest.onCompleted.addListener(opened, PAGES);
+
+// --- The picture filter ----------------------------------------------------------------------------------
+// A page's content script (content.js) asks about each picture it shows; the picture is fetched here (the
+// browser's cache usually has it), judged by the classifier (classifier.js), and the verdict sent back
+// (lib/pictures.js). Verdicts are remembered by address, so a picture shown twice is judged once, and a
+// hidden picture is noted in the record with its scores, so a wrong verdict can be seen and understood.
+const MAX_REMEMBERED = 2000;
+const judgments = new Map(); // address -> Promise<scores>, oldest first
+let strictness = null; // Promise<string>
+let judgedCount = 0; // since this script started, for the settings page
+let hiddenCount = 0;
+let failedCount = 0; // pictures that couldn't be fetched or decoded, and so were shown
+
+function currentStrictness() {
+  strictness ??= api.storage.local.get(STRICTNESS).then((stored) => strictnessOf(stored[STRICTNESS]));
+  return strictness;
+}
+api.storage.onChanged.addListener((changes, area) => {
+  if (area === 'local' && changes[STRICTNESS]) strictness = null;
+});
+
+function scoresFor(url) {
+  if (!judgments.has(url)) {
+    const scores = fetch(url, { credentials: 'include', cache: 'force-cache', redirect: 'follow' })
+      .then((response) => {
+        if (!response.ok) throw new Error(`the picture couldn't be fetched (${response.status})`);
+        return response.blob();
+      })
+      .then((blob) => judgeBytes(blob, url))
+      .then((scores) => {
+        judgedCount += 1;
+        return scores;
+      });
+    scores.catch(() => {
+      failedCount += 1;
+      judgments.delete(url); // not kept: next time may work (a passing network error)
+    });
+    judgments.set(url, scores);
+    if (judgments.size > MAX_REMEMBERED) judgments.delete(judgments.keys().next().value);
+  }
+  return judgments.get(url);
+}
+
+const NOTE_SAME_WITHIN_MS = 60_000; // the same hidden picture on the same site is one note a minute
+
+async function judgePicture(url, sender) {
+  if (typeof url !== 'string' || !/^(?:https?|data):/i.test(url)) return { hide: false, reason: null };
+  const [scores, setting] = await Promise.all([scoresFor(url), currentStrictness()]);
+  const result = verdict(scores, setting);
+  if (result.hide) {
+    hiddenCount += 1;
+    const site = hostOf(sender?.tab?.url ?? sender?.url ?? '') ?? 'unknown';
+    const at = Date.now();
+    writing = writing
+      .then(async () => {
+        const stored = (await api.storage.local.get(PICTURES))[PICTURES];
+        const list = Array.isArray(stored) ? stored : [];
+        const last = list[list.length - 1];
+        if (last && last.site === site && last.url === url && at - last.at < NOTE_SAME_WITHIN_MS) return;
+        await api.storage.local.set({ [PICTURES]: recordHidden(list, { at, site, url, reason: result.reason, scores }) });
+      })
+      .catch(() => {});
+    await writing;
+  }
+  return { ...result, scores };
+}
+
