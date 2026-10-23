@@ -9,6 +9,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { EXTENSION_DIR, findPage, launchBrowser, startStubInternet, visit } from './helpers/browser.mjs';
+import { MARKS, STAND_IN_SCORES, extensionWithStandInClassifier, galleryPage, servePictures } from './helpers/pictures.mjs';
 
 const VERSION = JSON.parse(readFileSync(join(EXTENSION_DIR, 'manifest.json'), 'utf8')).version;
 const BUILT_IN = JSON.parse(readFileSync(join(EXTENSION_DIR, 'rules', 'domains.json'), 'utf8')).length;
@@ -823,6 +824,161 @@ describe('real browser', () => {
         assert.equal(await record.locator('#all').isVisible(), false);
       } finally {
         await record.close();
+        await page.close();
+      }
+    });
+  });
+
+  describe('pictures', () => {
+    // Pictures the page shows are judged by the background script and kept hidden until then. Most of
+    // these tests use a copy of the extension whose classifier judges by the picture's address (no
+    // explicit picture is needed); the last one uses the real classifier on two ordinary photos.
+    let standIn;
+    let judge; // Chromium with the stand-in classifier
+    const marks = (page) => page.evaluate(`Object.fromEntries(${MARKS})`);
+    const settled = (page, ids, timeout = 20_000) =>
+      page.waitForFunction((want) => want.every((id) => ['ok', 'hidden', 'small'].includes(document.getElementById(id)?.getAttribute('data-family-site-blocker'))), ids, { timeout });
+
+    before(async () => {
+      servePictures(stub, ['photo', 'nude', 'lingerie', 'drawn', 'photo2', 'nude2', 'coffee', 'cat']);
+      stub.page('allowed.test/gallery', galleryPage(['photo', 'nude', 'lingerie', 'drawn']));
+      stub.page('allowed.test/framed', `<!doctype html><h1>Framed</h1><iframe id="frame" src="http://frames.test/inner" width="400" height="300"></iframe>`);
+      stub.page('frames.test/inner', galleryPage(['nude2', 'photo2']));
+      stub.page('allowed.test/later', galleryPage(['photo'], `<img id="late" width="300"><script>setTimeout(() => { document.getElementById('late').src = 'http://pics.test/pics/nude.jpg?late'; }, 300);
+        setTimeout(() => { document.getElementById('photo').src = 'http://pics.test/pics/lingerie.jpg?swapped'; }, 600);</script>`));
+      stub.page('allowed.test/blob', `<!doctype html><img id="made" width="300"><script>fetch('/pics/nude.jpg?blob').then((r) => r.blob()).then((b) => { document.getElementById('made').src = URL.createObjectURL(b); });</script>`);
+      stub.page('allowed.test/real', galleryPage(['cat', 'coffee']));
+      standIn = extensionWithStandInClassifier();
+      judge = await launchBrowser(stub, { extensionDir: standIn.dir });
+    });
+
+    after(async () => {
+      await judge?.close();
+      standIn?.remove();
+    });
+
+    async function openSettingsIn(browserToUse) {
+      const page = await browserToUse.context.newPage();
+      await page.goto(`chrome-extension://${browserToUse.extensionId}/options.html`);
+      return page;
+    }
+
+    test('a picture stays hidden until judged, then is shown or kept hidden; icons are shown at once; the layout is kept', async () => {
+      const page = await judge.context.newPage();
+      try {
+        await page.evaluate(() => chrome.storage.local.remove('pictures')).catch(() => {}); // not an extension page: ignored
+        await page.goto('http://allowed.test/gallery', { waitUntil: 'domcontentloaded' });
+        const early = await marks(page);
+        for (const [id, [mark, visibility]] of Object.entries(early)) {
+          assert.ok(['checking', 'small', 'ok', 'hidden'].includes(mark), `${id} is marked from the start: ${mark}`);
+          if (mark === 'checking') assert.equal(visibility, 'hidden', `${id}: hidden while being judged`);
+        }
+        // The icon is shown as soon as it has loaded, without being judged; the pictures once judged.
+        await page.waitForFunction(() => document.getElementById('icon').getAttribute('data-family-site-blocker') === 'small');
+        await settled(page, ['photo', 'nude', 'lingerie', 'drawn']);
+        const after = await marks(page);
+        assert.deepEqual(
+          { photo: after.photo, nude: after.nude, lingerie: after.lingerie, drawn: after.drawn, icon: after.icon },
+          { photo: ['ok', 'visible'], nude: ['hidden', 'hidden'], lingerie: ['hidden', 'hidden'], drawn: ['hidden', 'hidden'], icon: ['small', 'visible'] },
+        );
+        const box = await page.evaluate(() => { const r = document.getElementById('nude').getBoundingClientRect(); return [r.width, r.height]; });
+        assert.ok(box[0] === 300 && box[1] > 0, `a hidden picture keeps its place on the page: ${box}`);
+        // The page can't bring a hidden picture back by taking the mark off: it is judged again at once.
+        await page.evaluate(() => document.getElementById('nude').removeAttribute('data-family-site-blocker'));
+        await page.waitForFunction(() => document.getElementById('nude').getAttribute('data-family-site-blocker') === 'hidden');
+      } finally {
+        await page.close();
+      }
+    });
+
+    test("hidden pictures go into the record with the page's site, why, and the scores; the record page and the settings page show them", async () => {
+      const settings = await openSettingsIn(judge);
+      const record = await judge.context.newPage();
+      try {
+        const stored = await settings.evaluate(() => chrome.storage.local.get('pictures').then((got) => got.pictures ?? []));
+        const fromGallery = stored.filter((entry) => entry.site === 'allowed.test');
+        assert.ok(fromGallery.length >= 3, JSON.stringify(stored));
+        const byUrl = Object.fromEntries(fromGallery.map((entry) => [entry.url.split('/').pop(), entry]));
+        assert.equal(byUrl['nude.jpg'].reason, 'nudity');
+        assert.deepEqual(byUrl['nude.jpg'].scores, { porn: 0.9, hentai: 0.02, sexy: 0.02 });
+        assert.equal(byUrl['lingerie.jpg'].reason, 'suggestive');
+        assert.equal(byUrl['drawn.jpg'].reason, 'nudity', 'hentai counts as nudity');
+        assert.equal(byUrl['photo.jpg'], undefined, 'shown pictures are not recorded');
+
+        await record.goto(`chrome-extension://${judge.extensionId}/attempts.html`);
+        await record.waitForFunction(() => document.querySelectorAll('#hidden-pictures-table tbody tr').length >= 3);
+        assert.match(await record.locator('#hidden-pictures-summary').innerText(), /^\d+ pictures hidden on \d+ sites?, the latest at /);
+        const sites = await record.evaluate(() => [...document.querySelectorAll('#hidden-sites-table tbody tr')].map((row) => [...row.cells].map((cell) => cell.textContent)));
+        assert.ok(sites.some((row) => row[0] === 'allowed.test' && Number(row[1]) >= 3), JSON.stringify(sites));
+        const rows = await record.evaluate(() => [...document.querySelectorAll('#hidden-pictures-table tbody tr')].map((row) => [...row.cells].map((cell) => cell.textContent)));
+        const nude = rows.find((row) => row[2].endsWith('/nude.jpg'));
+        assert.deepEqual(nude.slice(1), ['allowed.test', 'http://pics.test/pics/nude.jpg', 'Nudity', '0.92', '0.02'], JSON.stringify(rows));
+        assert.equal(rows.find((row) => row[2].endsWith('/lingerie.jpg'))[3], 'Suggestive');
+
+        await settings.waitForFunction(() => /pictures? judged, \d+ hidden/.test(document.getElementById('picture-status').textContent));
+        assert.match(await settings.locator('#picture-status').innerText(), /^Since the browser started: \d+ pictures judged, \d+ hidden; judging runs stand-in\.$/);
+        assert.equal(await settings.locator('#picture-strictness').inputValue(), 'strict', 'the default');
+        assert.deepEqual(await settings.evaluate(() => [...document.getElementById('picture-strictness').options].map((o) => o.value)), ['strict', 'nudity']);
+      } finally {
+        await record.close();
+        await settings.close();
+      }
+    });
+
+    test('under "Nudity only", a suggestive picture is shown and nudity still hidden; the setting takes effect at once', async () => {
+      const settings = await openSettingsIn(judge);
+      const page = await judge.context.newPage();
+      try {
+        await settings.selectOption('#picture-strictness', 'nudity');
+        await settings.waitForFunction(() => chrome.storage.local.get('pictureStrictness').then((got) => got.pictureStrictness === 'nudity'));
+        await page.goto('http://allowed.test/gallery', { waitUntil: 'domcontentloaded' });
+        await settled(page, ['photo', 'nude', 'lingerie', 'drawn']);
+        const after = await marks(page);
+        assert.deepEqual([after.photo[0], after.nude[0], after.lingerie[0], after.drawn[0]], ['ok', 'hidden', 'ok', 'hidden'], JSON.stringify(after));
+      } finally {
+        await settings.selectOption('#picture-strictness', 'strict').catch(() => {});
+        await settings.waitForFunction(() => chrome.storage.local.get('pictureStrictness').then((got) => got.pictureStrictness === 'strict')).catch(() => {});
+        await page.close();
+        await settings.close();
+      }
+    });
+
+    test('pictures in frames, pictures added or changed after the page loaded, and pictures the page makes itself', async () => {
+      const page = await judge.context.newPage();
+      try {
+        await page.goto('http://allowed.test/framed', { waitUntil: 'domcontentloaded' });
+        const inner = await (await page.waitForSelector('#frame')).contentFrame();
+        await inner.waitForFunction(() => ['nude2', 'photo2'].every((id) => ['ok', 'hidden'].includes(document.getElementById(id)?.getAttribute('data-family-site-blocker'))), null, { timeout: 20_000 });
+        const framed = await inner.evaluate(`Object.fromEntries(${MARKS})`);
+        assert.deepEqual([framed.nude2[0], framed.photo2[0]], ['hidden', 'ok'], JSON.stringify(framed));
+
+        await page.goto('http://allowed.test/later', { waitUntil: 'domcontentloaded' });
+        await page.waitForFunction(() => document.getElementById('late').getAttribute('data-family-site-blocker') === 'hidden', null, { timeout: 20_000 });
+        await page.waitForFunction(() => document.getElementById('photo').getAttribute('data-family-site-blocker') === 'hidden', null, { timeout: 20_000 });
+        assert.deepEqual((await marks(page)).photo, ['hidden', 'hidden'], 'the photo whose address changed to a suggestive picture is hidden now');
+
+        // A picture the page made itself (a blob: address) can't be fetched by the background script: shown as it is.
+        await page.goto('http://allowed.test/blob', { waitUntil: 'domcontentloaded' });
+        await page.waitForFunction(() => document.getElementById('made').getAttribute('data-family-site-blocker') === 'ok', null, { timeout: 20_000 });
+      } finally {
+        await page.close();
+      }
+    });
+
+    test('the real classifier, through WebAssembly, finds two ordinary photos neutral and shows them', async () => {
+      const page = await browser.context.newPage();
+      const settings = await openSettings();
+      try {
+        await page.goto('http://allowed.test/real', { waitUntil: 'domcontentloaded' });
+        await settled(page, ['cat', 'coffee'], 60_000);
+        const after = await marks(page);
+        assert.deepEqual([after.cat, after.coffee, after.icon], [['ok', 'visible'], ['ok', 'visible'], ['small', 'visible']], JSON.stringify(after));
+        const status = await settings.evaluate(() => chrome.runtime.sendMessage({ type: 'picture-status' }));
+        assert.equal(status.backend, 'wasm', JSON.stringify(status));
+        assert.ok(status.judged >= 2 && status.failed === 0, JSON.stringify(status));
+        assert.deepEqual(page.errors ?? [], []);
+      } finally {
+        await settings.close();
         await page.close();
       }
     });

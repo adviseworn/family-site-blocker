@@ -1,6 +1,7 @@
 import { ATTEMPTS, HISTORY_SCAN, LABELS, outcome } from './lib/attempts.js';
 import { parseDomainList } from './lib/domains.js';
 import { MY_LIST_CHANGED, myList, saveMyList } from './lib/mylist.js';
+import { STRICTNESS, STRICTNESS_CHOICES, strictnessOf } from './lib/pictures.js';
 import { ENGINES } from './lib/safesearch.js';
 import { UNLISTED } from './lib/suspects.js';
 
@@ -237,7 +238,45 @@ $('save').addEventListener('click', save);
 
 // The version next to the title: when a new one is being installed account by account, it shows which
 // accounts still have the old one.
+// --- Pictures ---------------------------------------------------------------------------------------------
+// The setting is kept in storage; the background script reads it for each verdict (lib/pictures.js).
+const strictnessSelect = $('picture-strictness');
+for (const { value, label } of STRICTNESS_CHOICES) strictnessSelect.append(new Option(label, value));
+async function renderPictureSetting() {
+  const stored = await api.storage.local.get(STRICTNESS);
+  strictnessSelect.value = strictnessOf(stored[STRICTNESS]);
+}
+strictnessSelect.addEventListener('change', () => {
+  api.storage.local.set({ [STRICTNESS]: strictnessOf(strictnessSelect.value) }).catch(() => {});
+});
+const BACKEND_NAMES = { wasm: 'through WebAssembly', webgl: 'on the graphics card', cpu: 'in plain JavaScript, which is slow' };
+async function renderPictureStatus() {
+  const line = $('picture-status');
+  try {
+    const status = await api.runtime.sendMessage({ type: 'picture-status' });
+    if (!status || !status.backend) {
+      line.textContent = 'No picture judged yet since the browser started.';
+      return;
+    }
+    line.textContent =
+      `Since the browser started: ${plural(status.judged, 'picture')} judged, ${status.hidden} hidden` +
+      (status.failed ? `, ${status.failed} shown unjudged because they couldn't be fetched or read` : '') +
+      `; judging runs ${BACKEND_NAMES[status.backend] ?? status.backend}.`;
+  } catch (error) {
+    line.textContent = `Couldn't ask about pictures: ${error.message}`;
+  }
+}
+
 $('version').textContent = `Version ${api.runtime.getManifest().version}`;
+renderPictureSetting().catch(() => {});
+renderPictureStatus();
+// The counts move while pages are open elsewhere: keep the line current while this page is in view.
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden) renderPictureStatus();
+});
+setInterval(() => {
+  if (!document.hidden) renderPictureStatus();
+}, 5000);
 $('engines').textContent = `${ENGINES.slice(0, -1).map(({ name }) => name).join(', ')} and ${ENGINES.at(-1).name}`;
 checkAccess();
 checkPrivateWindows();
