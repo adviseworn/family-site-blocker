@@ -8,7 +8,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import jpeg from 'jpeg-js';
-import { CLASSES, DEFAULT_STRICTNESS, MAX_PICTURES, MIN_SIZE, STRICTNESS_CHOICES, THRESHOLD, hiddenBySite, recordHidden, strictnessOf, verdict } from '../extension/lib/pictures.js';
+import { BORDERLINE, CLASSES, DEFAULT_STRICTNESS, MAX_PICTURES, MIN_SIZE, STRICTNESS_CHOICES, THRESHOLD, borderline, hiddenBySite, recordHidden, strictnessOf, verdict } from '../extension/lib/pictures.js';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const EXT = join(ROOT, 'extension');
@@ -38,6 +38,16 @@ test('pictures: nudity is hidden under both settings, suggestive only under the 
   assert.equal(strictnessOf(undefined), DEFAULT_STRICTNESS);
   assert.deepEqual(CLASSES, ['drawing', 'hentai', 'neutral', 'porn', 'sexy'], "the model's output order");
   assert.equal(MIN_SIZE, 64);
+});
+
+test('pictures: a hidden picture is borderline when the score that decided it was under 0.6, the likelier mistake', () => {
+  assert.equal(BORDERLINE, 0.6);
+  assert.ok(THRESHOLD < BORDERLINE);
+  assert.equal(borderline({ reason: 'nudity', scores: { porn: 0.9, hentai: 0.02, sexy: 0.02 } }), false);
+  assert.equal(borderline({ reason: 'nudity', scores: { porn: 0.3, hentai: 0.23, sexy: 0.4 } }), true, 'nudity decided at 0.53; sexy does not count for it');
+  assert.equal(borderline({ reason: 'suggestive', scores: { porn: 0.08, hentai: 0.01, sexy: 0.6 } }), false, 'suggestive decided at 0.69');
+  assert.equal(borderline({ reason: 'suggestive', scores: { porn: 0.1, hentai: 0, sexy: 0.35 } }), true, 'suggestive decided at 0.45');
+  assert.equal(borderline({ reason: 'suggestive', scores: {} }), true, 'no scores at all: nothing to be sure of');
 });
 
 test('pictures: the record of hidden pictures keeps rounded scores, caps its length, and sums up by site', () => {
