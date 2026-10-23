@@ -705,27 +705,39 @@ describe('real browser', () => {
           [['site3.test', '9\n1 opened'], ['site2.test', '9'], ['site1.test', '9'], ['site0.test', '9'], ['site6.test', '8'], ['site5.test', '8'], ['site4.test', '8']],
         );
         assert.ok(table.every((row) => row.length === 4 && row[2] && row[3]), 'first and latest times');
+        assert.equal(await record.locator('.day').count(), 0, 'the tries themselves are on a page of their own (#52)');
 
-        // Every try, by day, newest first.
-        const rows = () => record.evaluate(() => [...document.querySelectorAll('.day tbody tr')].map((row) => [...row.cells].map((cell) => cell.textContent)));
-        const dayHeadings = await record.evaluate(() => [...document.querySelectorAll('.day h3')].map((h) => h.textContent));
+        // Every try has a page of its own, by day, newest first, reached from the record page.
+        assert.equal(await record.locator('#every-try').innerText(), 'See every try (60)');
+        const tries = await browser.context.newPage();
+        tries.errors = [];
+        tries.on('pageerror', (error) => tries.errors.push(error.message));
+        await tries.goto(`chrome-extension://${browser.extensionId}/tries.html`);
+        const rows = () => tries.evaluate(() => [...document.querySelectorAll('.day tbody tr')].map((row) => [...row.cells].map((cell) => cell.textContent)));
+        await tries.waitForFunction(() => document.querySelectorAll('.day tbody tr').length === 60);
+        assert.match(await tries.locator('#summary').innerText(), /^60 tries at 7 sites, the latest at .+\. 1 page opened instead of being blocked\. 1 from this browser's history\.$/);
+        const dayHeadings = await tries.evaluate(() => [...document.querySelectorAll('.day h3')].map((h) => h.textContent));
         assert.ok(dayHeadings.length >= 1 && dayHeadings.length <= 2, `an hour of tries spans one day, or two at midnight: ${dayHeadings}`);
         assert.match(dayHeadings[0], /^Today, .+ \d+ tr(y|ies)$/);
         const all = await rows();
-        assert.equal(all.length, 60);
         assert.deepEqual(all[0].slice(1), ['site3.test', 'Opened, not blocked']);
         assert.deepEqual(all[59].slice(1), ['site0.test', 'Visited (browser history)']);
         assert.match(all[0][0], /^\d{1,2}:\d\d [AP]M$/, 'a time only; the day is in the heading');
+        assert.equal(await tries.locator('#filter').isVisible(), false);
 
-        // Choosing a site shows only its tries; choosing it again, or "Show every site", shows them all.
-        await record.click('#sites-table tr[data-site="site4.test"] button');
-        await record.waitForFunction(() => document.querySelectorAll('.day tbody tr').length === 8);
-        assert.equal(await record.locator('#filter').innerText(), 'Only site4.test. Show every site');
+        // A site in the by-site table leads to that site's tries alone; "Show every site" to all of them.
+        assert.equal(await record.locator('#sites-table tr[data-site="site4.test"] a').getAttribute('href'), 'tries.html#site=site4.test');
+        await tries.goto(`chrome-extension://${browser.extensionId}/tries.html#site=site4.test`);
+        await tries.waitForFunction(() => document.querySelectorAll('.day tbody tr').length === 8);
+        assert.equal(await tries.locator('#filter').innerText(), 'Only site4.test. Show every site');
+        assert.match(await tries.locator('#summary').innerText(), /^8 tries, the latest at /);
         assert.ok((await rows()).every((row) => row[1] === 'site4.test'));
-        assert.equal(await record.locator('#sites-table tr[data-site="site4.test"] button').getAttribute('aria-pressed'), 'true');
-        await record.click('#filter-clear');
-        await record.waitForFunction(() => document.querySelectorAll('.day tbody tr').length === 60);
-        assert.equal(await record.locator('#filter').isVisible(), false);
+        assert.equal(await tries.title(), 'Family Site Blocker record: site4.test');
+        await tries.click('#filter-clear');
+        await tries.waitForFunction(() => document.querySelectorAll('.day tbody tr').length === 60);
+        assert.equal(await tries.locator('#filter').isVisible(), false);
+        assert.deepEqual(tries.errors, []);
+        await tries.close();
 
         // "Save as a file" downloads the whole record as CSV, oldest first.
         const [download] = await Promise.all([record.waitForEvent('download'), record.click('#save-file')]);
