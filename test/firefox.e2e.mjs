@@ -12,6 +12,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { EXTENSION_DIR, startStubInternet } from './helpers/browser.mjs';
 import { findFirefox, launchFirefox } from './helpers/firefox.mjs';
+import { MARKS, extensionWithStandInClassifier, galleryPage, servePictures } from './helpers/pictures.mjs';
 
 const VERSION = JSON.parse(readFileSync(join(EXTENSION_DIR, 'manifest.json'), 'utf8')).version;
 const BUILT_IN = JSON.parse(readFileSync(join(EXTENSION_DIR, 'rules', 'domains.json'), 'utf8')).length;
@@ -527,6 +528,85 @@ describe('Firefox', { skip: findFirefox() ? false : 'no Firefox found (set FIREF
 
       await browser.run("document.getElementById('lockbox-hide').click()");
       await waitUntilShown('lockbox-locked');
+    });
+  });
+
+  describe('pictures', () => {
+    // The picture filter in Firefox: the real classifier on two ordinary photos, then a copy of the
+    // extension whose classifier judges by the picture's address for the hiding, the setting and the record.
+    const waitForMarks = async (target, ids, ms = 30_000) => {
+      const until = Date.now() + ms;
+      let marks = {};
+      while (Date.now() < until) {
+        marks = Object.fromEntries(await target.run(`return ${MARKS}`));
+        if (ids.every((id) => ['ok', 'hidden', 'small'].includes(marks[id]?.[0]))) return marks;
+        await sleep(250);
+      }
+      throw new Error(`pictures never judged: ${JSON.stringify(marks)}`);
+    };
+
+    before(() => {
+      servePictures(stub, ['cat', 'coffee', 'photo', 'nude', 'lingerie', 'drawn']);
+      stub.page('allowed.test/real', galleryPage(['cat', 'coffee']));
+      stub.page('allowed.test/gallery', galleryPage(['photo', 'nude', 'lingerie', 'drawn']));
+    });
+
+    test('the real classifier, through WebAssembly, finds two ordinary photos neutral and shows them', async () => {
+      await browser.newTab();
+      const result = await browser.visit('http://allowed.test/real');
+      assert.equal(result.finalUrl, 'http://allowed.test/real', `ended at ${result.finalUrl}`);
+      const marks = await waitForMarks(browser, ['cat', 'coffee', 'icon']);
+      assert.deepEqual([marks.cat, marks.coffee, marks.icon], [['ok', 'visible'], ['ok', 'visible'], ['small', 'visible']], JSON.stringify(marks));
+      const settings = tabsAfterInstall.find(({ url }) => url.endsWith('/options.html'));
+      await browser.fx.send('WebDriver:SwitchToWindow', { handle: settings.handle });
+      const status = await browser.fx.send('WebDriver:ExecuteAsyncScript', {
+        script: `const done = arguments[arguments.length - 1]; browser.runtime.sendMessage({ type: 'picture-status' }).then(done, (e) => done({ error: String(e) }));`,
+        args: [],
+      });
+      assert.equal(status.backend, 'wasm', JSON.stringify(status));
+      assert.ok(status.judged >= 2 && status.failed === 0, JSON.stringify(status));
+      assert.equal(await browser.run("return document.getElementById('picture-strictness').value"), 'strict');
+      const until = Date.now() + 15_000;
+      let line = '';
+      while (!/judged/.test(line) && Date.now() < until) {
+        await sleep(300);
+        line = await browser.run("return document.getElementById('picture-status').textContent");
+      }
+      assert.match(line, /^Since the browser started: \d+ pictures judged, 0 hidden; judging runs through WebAssembly\.$/);
+    });
+
+    test('with the stand-in classifier: nudity and suggestive pictures are hidden, a photo shown, the record filled, and "Nudity only" lets the suggestive one through', async () => {
+      const standIn = extensionWithStandInClassifier();
+      const judge = await launchFirefox(stub, { extensionDir: standIn.dir });
+      try {
+        const settings = (await judge.tabs()).find(({ url }) => url.endsWith('/options.html'));
+        await judge.newTab();
+        await judge.visit('http://allowed.test/gallery');
+        let marks = await waitForMarks(judge, ['photo', 'nude', 'lingerie', 'drawn']);
+        assert.deepEqual(
+          [marks.photo, marks.nude, marks.lingerie, marks.drawn, marks.icon],
+          [['ok', 'visible'], ['hidden', 'hidden'], ['hidden', 'hidden'], ['hidden', 'hidden'], ['small', 'visible']],
+          JSON.stringify(marks),
+        );
+        await judge.fx.send('WebDriver:SwitchToWindow', { handle: settings.handle });
+        const record = await judge.fx.send('WebDriver:ExecuteAsyncScript', {
+          script: `const done = arguments[arguments.length - 1]; browser.storage.local.get('pictures').then((got) => done(got.pictures ?? []), (e) => done([]));`,
+          args: [],
+        });
+        const names = record.filter((entry) => entry.site === 'allowed.test').map((entry) => [entry.url.split('/').pop(), entry.reason]).sort();
+        assert.deepEqual(names, [['drawn.jpg', 'nudity'], ['lingerie.jpg', 'suggestive'], ['nude.jpg', 'nudity']], JSON.stringify(record));
+        await judge.fx.send('WebDriver:ExecuteAsyncScript', {
+          script: `const done = arguments[arguments.length - 1]; browser.storage.local.set({ pictureStrictness: 'nudity' }).then(() => done('ok'), (e) => done('error ' + e));`,
+          args: [],
+        });
+        await judge.newTab();
+        await judge.visit('http://allowed.test/gallery');
+        marks = await waitForMarks(judge, ['photo', 'nude', 'lingerie', 'drawn']);
+        assert.deepEqual([marks.photo[0], marks.nude[0], marks.lingerie[0], marks.drawn[0]], ['ok', 'hidden', 'ok', 'hidden'], JSON.stringify(marks));
+      } finally {
+        await judge.close();
+        standIn.remove();
+      }
     });
   });
 
