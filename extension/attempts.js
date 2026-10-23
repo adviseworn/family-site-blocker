@@ -1,8 +1,9 @@
-// The whole record of blocked attempts on a page of its own: the settings page shows only the latest few
-// and links here. First the record summed up by site, then every try grouped by day, newest first, and a
-// button that saves the lot as a CSV file. Like the settings page, this page only reads the record;
-// nothing here can clear it (see lib/attempts.js).
-import { ATTEMPTS, LABELS, bySite, byDay, outcome, toCsv } from './lib/attempts.js';
+// The record on a page of its own: the settings page shows only the latest few blocked attempts and links
+// here. This page sums the record up: by site, with a link for each site to every one of its tries on
+// tries.html (which also lists every try of all, grouped by day); then the pictures hidden, and the sites
+// that might belong on the list. A button saves the whole record as a CSV file. Like the settings page,
+// this page only reads the record; nothing here can clear it (see lib/attempts.js).
+import { ATTEMPTS, bySite, outcome, toCsv } from './lib/attempts.js';
 import { MY_LIST_CHANGED, addToMyList } from './lib/mylist.js';
 import { PICTURES, hiddenBySite } from './lib/pictures.js';
 import { UNLISTED } from './lib/suspects.js';
@@ -11,11 +12,8 @@ const api = globalThis.browser ?? globalThis.chrome;
 const $ = (id) => document.getElementById(id);
 const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
 const whenFormat = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' });
-const dayFormat = new Intl.DateTimeFormat(undefined, { dateStyle: 'full' });
-const timeFormat = new Intl.DateTimeFormat(undefined, { timeStyle: 'short' });
 
 let attempts = []; // the record as stored: oldest first
-let onlySite = null; // a site chosen in the by-site table, or null for every site
 
 function element(tag, text, attributes = {}) {
   const node = document.createElement(tag);
@@ -44,57 +42,14 @@ function renderSites() {
   rows.replaceChildren();
   for (const site of bySite(attempts)) {
     const row = element('tr', null, { 'data-site': site.site });
-    if (site.site === onlySite) row.classList.add('chosen');
-    const choose = element('button', site.site, { type: 'button', class: 'link', 'aria-pressed': String(site.site === onlySite) });
-    choose.addEventListener('click', () => {
-      onlySite = onlySite === site.site ? null : site.site;
-      renderSites();
-      renderDays();
-      if (onlySite) $('all').scrollIntoView({ behavior: 'smooth', block: 'start' });
-    });
     const name = element('td');
-    name.append(choose);
+    name.append(element('a', site.site, { href: `tries.html#site=${encodeURIComponent(site.site)}` }));
     row.append(name);
     const tries = element('td', String(site.tries));
     if (site.opened) tries.append(element('small', `${site.opened} opened`, { class: 'opened' }));
     row.append(tries, element('td', whenFormat.format(site.first)), element('td', whenFormat.format(site.last)));
     rows.append(row);
   }
-}
-
-function dayHeading(day, count) {
-  const today = new Date();
-  const midnight = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
-  const name = day === midnight ? 'Today' : day === midnight - 86_400_000 ? 'Yesterday' : null;
-  const heading = element('h3', name ? `${name}, ` : '');
-  heading.append(element('span', dayFormat.format(day)), ' ', element('small', count === 1 ? '1 try' : `${count} tries`));
-  return heading;
-}
-
-function renderDays() {
-  const shown = onlySite ? attempts.filter((attempt) => attempt.site === onlySite) : attempts;
-  $('filter').hidden = !onlySite;
-  $('filter-site').textContent = onlySite ?? '';
-  const days = document.createDocumentFragment();
-  for (const { day, attempts: list } of byDay(shown)) {
-    const section = element('section', null, { class: 'day' });
-    section.append(dayHeading(day, list.length));
-    const table = element('table', null, { class: 'attempts' });
-    const head = element('thead');
-    const headRow = element('tr');
-    for (const title of ['Time', 'Site', 'Result']) headRow.append(element('th', title, { scope: 'col' }));
-    head.append(headRow);
-    const body = element('tbody');
-    for (const attempt of list) {
-      const row = element('tr', null, { class: outcome(attempt) });
-      row.append(element('td', timeFormat.format(attempt.at)), element('td', attempt.site), element('td', LABELS[outcome(attempt)]));
-      body.append(row);
-    }
-    table.append(head, body);
-    section.append(table);
-    days.append(section);
-  }
-  $('days').replaceChildren(days);
 }
 
 // --- Not on the list, but might belong there -------------------------------------------------------------
@@ -191,13 +146,12 @@ function renderHiddenPictures(record) {
 async function render() {
   const stored = await api.storage.local.get([ATTEMPTS, UNLISTED, PICTURES]);
   attempts = Array.isArray(stored[ATTEMPTS]) ? stored[ATTEMPTS] : [];
-  if (onlySite && !attempts.some((attempt) => attempt.site === onlySite)) onlySite = null;
   renderSummary();
   $('save-file').hidden = attempts.length === 0;
+  $('every-try').hidden = attempts.length === 0;
+  $('every-try').textContent = `See every try (${attempts.length})`;
   $('sites').hidden = attempts.length === 0;
-  $('all').hidden = attempts.length === 0;
   renderSites();
-  renderDays();
   renderUnlisted(stored[UNLISTED]);
   renderHiddenPictures(stored[PICTURES]);
 }
@@ -217,11 +171,6 @@ function saveFile() {
 }
 
 $('save-file').addEventListener('click', saveFile);
-$('filter-clear').addEventListener('click', () => {
-  onlySite = null;
-  renderSites();
-  renderDays();
-});
 // Keep the record current while the page is open.
 api.storage.onChanged.addListener((changes, area) => {
   if (area !== 'local') return;

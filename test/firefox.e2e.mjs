@@ -415,8 +415,9 @@ describe('Firefox', { skip: findFirefox() ? false : 'no Firefox found (set FIREF
           version: document.getElementById('version').textContent,
           summary: document.getElementById('summary').textContent,
           sites: [...document.querySelectorAll('#sites-table tbody tr')].map((row) => [...row.cells].map((cell) => cell.textContent)),
+          siteLink: document.querySelector('#sites-table a')?.getAttribute('href'),
+          everyTry: document.getElementById('every-try').textContent,
           days: document.querySelectorAll('.day').length,
-          rows: [...document.querySelectorAll('.day tbody tr')].map((row) => [...row.cells].map((cell) => cell.textContent)),
         }`);
         if (state.sites.length > 0) break;
         await sleep(200);
@@ -426,10 +427,42 @@ describe('Firefox', { skip: findFirefox() ? false : 'no Firefox found (set FIREF
       assert.equal(state.sites.length, 1, JSON.stringify(state.sites));
       assert.equal(state.sites[0][0], SITE);
       assert.equal(state.sites[0][1], `${count}1 opened`, 'the tries, with how many got through');
-      assert.ok(state.days >= 2, `the try from three days ago has a day of its own: ${state.days} days`);
-      assert.equal(state.rows.length, count);
-      assert.ok(state.rows.every((row) => row[1] === SITE && /^(Blocked|Opened, not blocked|Visited \(browser history\))$/.test(row[2])), JSON.stringify(state.rows.slice(0, 3)));
-      assert.equal(state.rows.at(-1)[2], 'Visited (browser history)', 'oldest last');
+      assert.equal(state.siteLink, `tries.html#site=${SITE}`);
+      assert.equal(state.everyTry, `See every try (${count})`);
+      assert.equal(state.days, 0, 'the tries themselves are on a page of their own (#52)');
+
+      // Every try, on its page: all of them, then the one site's.
+      await browser.run(`document.getElementById('every-try').click()`);
+      await browser.waitForUrl((url) => url.endsWith('/tries.html'));
+      const tries = async (expected) => {
+        const end = Date.now() + 10_000;
+        let got = {};
+        do {
+          got = await browser.run(`return {
+            summary: document.getElementById('summary').textContent,
+            filter: document.getElementById('filter').hidden ? null : document.getElementById('filter').textContent,
+            days: document.querySelectorAll('.day').length,
+            rows: [...document.querySelectorAll('.day tbody tr')].map((row) => [...row.cells].map((cell) => cell.textContent)),
+          }`);
+          if (got.rows.length === expected) return got;
+          await sleep(200);
+        } while (Date.now() < end);
+        throw new Error(`expected ${expected} rows: ${JSON.stringify(got).slice(0, 300)}`);
+      };
+      let every = await tries(count);
+      assert.match(every.summary, new RegExp(`^${count} tr(y|ies) at 1 site, the latest at .+\\.`));
+      assert.equal(every.filter, null);
+      assert.ok(every.days >= 2, `the try from three days ago has a day of its own: ${every.days} days`);
+      assert.ok(every.rows.every((row) => row[1] === SITE && /^(Blocked|Opened, not blocked|Visited \(browser history\))$/.test(row[2])), JSON.stringify(every.rows.slice(0, 3)));
+      assert.equal(every.rows.at(-1)[2], 'Visited (browser history)', 'oldest last');
+      await browser.visit(`moz-extension://${new URL(await browser.currentUrl()).host}/tries.html#site=${SITE}`);
+      every = await tries(count);
+      assert.equal(every.filter, `Only ${SITE}. Show every site`);
+      await browser.run(`document.getElementById('filter-clear').click()`);
+      await browser.waitForUrl((url) => url.endsWith('/tries.html'));
+      every = await tries(count);
+      assert.equal(every.filter, null);
+      await browser.visit(`moz-extension://${new URL(await browser.currentUrl()).host}/attempts.html`);
 
       // The file: the page makes it from the record the same way the fast tests check; Firefox then saves
       // it to the downloads folder, which is Firefox's business, so only its contents are checked here.
