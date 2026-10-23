@@ -1,0 +1,13 @@
+# Real pictures for the Real pictures check (test/real-pictures.check.mjs): what the picture filter should
+# do with each, its address, and a label. "hide": it must be hidden under the strict setting; "show": it
+# must be shown under both; "either": printed for information. One per line, tab-separated; # starts a
+# comment. Add a line for each picture that turns out wrong in use, so the thresholds can be checked
+# against it (lib/pictures.js THRESHOLD).
+hide	https://10mag.com/wp-content/uploads/2018/09/Depositphotos_309670734_L.jpg	10mag article header: woman in lingerie with a laptop (#50)
+show	https://10mag.com/wp-content/uploads/2020/11/PXL_20201101_071214035-1-768x1024.jpg	10mag: Seoul in autumn
+show	https://10mag.com/wp-content/uploads/2026/08/Thrilling-Outdoor-Things-To-Do-In-Seoul-This-Summer-50kb-1024x576.jpg	10mag: outdoor things to do in Seoul
+show	https://10mag.com/wp-content/uploads/2022/09/Depositphotos_168805462_XL-scaled-1-1024x681.jpg	10mag: a plate of songpyeon
+show	https://10mag.com/wp-content/uploads/2016/04/innocent-man-korean-dramas-32442483-1280-720-1024x576.jpg	10mag: a Korean drama still
+show	https://raw.githubusercontent.com/scikit-image/scikit-image/v0.24.0/skimage/data/astronaut.png	scikit-image: Eileen Collins in a flight suit
+show	https://raw.githubusercontent.com/scikit-image/scikit-image/v0.24.0/skimage/data/chelsea.png	scikit-image: a cat
+show	https://raw.githubusercontent.com/scikit-image/scikit-image/v0.24.0/skimage/data/coffee.png	scikit-image: a cup of coffee
