@@ -51,8 +51,12 @@ api.runtime.onMessage.addListener((message, sender, sendResponse) => {
     judgePicture(message.url, sender).then(sendResponse, (error) => sendResponse({ error: String(error?.message ?? error) }));
     return true; // the answer comes later
   }
+  if (message?.type === 'judge-video-frame') {
+    judgeFrame(message, sender).then(sendResponse, (error) => sendResponse({ error: String(error?.message ?? error) }));
+    return true;
+  }
   if (message?.type === 'picture-status') {
-    sendResponse({ backend: backendInUse(), judged: judgedCount, hidden: hiddenCount, failed: failedCount });
+    sendResponse({ backend: backendInUse(), judged: judgedCount, hidden: hiddenCount, failed: failedCount, frames: frameCount, videos: videoCount });
     return true;
   }
   return undefined;
@@ -218,12 +222,16 @@ api.webRequest.onCompleted.addListener(opened, PAGES);
 // browser's cache usually has it), judged by the classifier (classifier.js), and the verdict sent back
 // (lib/pictures.js). Verdicts are remembered by address, so a picture shown twice is judged once, and a
 // hidden picture is noted in the record with its scores, so a wrong verdict can be seen and understood.
+// For a video, the content script sends frames as it plays (small JPEGs, as data: addresses), which are
+// judged the same way but not remembered: no two frames are alike, and a frame has no address.
 const MAX_REMEMBERED = 2000;
 const judgments = new Map(); // address -> Promise<scores>, oldest first
 let strictness = null; // Promise<string>
 let judgedCount = 0; // since this script started, for the settings page
 let hiddenCount = 0;
 let failedCount = 0; // pictures that couldn't be fetched or decoded, and so were shown
+let frameCount = 0; // video frames judged
+let videoCount = 0; // videos hidden
 
 function currentStrictness() {
   strictness ??= api.storage.local.get(STRICTNESS).then((stored) => strictnessOf(stored[STRICTNESS]));
@@ -257,24 +265,54 @@ function scoresFor(url) {
 
 const NOTE_SAME_WITHIN_MS = 60_000; // the same hidden picture on the same site is one note a minute
 
+/** Notes a hidden picture or video in the record, unless the same one was noted a moment ago. */
+function noteHidden({ site, url, kind, reason, scores }) {
+  const at = Date.now();
+  writing = writing
+    .then(async () => {
+      const stored = (await api.storage.local.get(PICTURES))[PICTURES];
+      const list = Array.isArray(stored) ? stored : [];
+      const last = list[list.length - 1];
+      if (last && last.site === site && last.url === url && at - last.at < NOTE_SAME_WITHIN_MS) return;
+      await api.storage.local.set({ [PICTURES]: recordHidden(list, { at, site, url, reason, scores, kind }) });
+    })
+    .catch(() => {});
+  return writing;
+}
+
+const siteOf = (sender) => hostOf(sender?.tab?.url ?? sender?.url ?? '') ?? 'unknown';
+
 async function judgePicture(url, sender) {
   if (typeof url !== 'string' || !/^(?:https?|data):/i.test(url)) return { hide: false, reason: null };
   const [scores, setting] = await Promise.all([scoresFor(url), currentStrictness()]);
   const result = verdict(scores, setting);
   if (result.hide) {
     hiddenCount += 1;
-    const site = hostOf(sender?.tab?.url ?? sender?.url ?? '') ?? 'unknown';
-    const at = Date.now();
-    writing = writing
-      .then(async () => {
-        const stored = (await api.storage.local.get(PICTURES))[PICTURES];
-        const list = Array.isArray(stored) ? stored : [];
-        const last = list[list.length - 1];
-        if (last && last.site === site && last.url === url && at - last.at < NOTE_SAME_WITHIN_MS) return;
-        await api.storage.local.set({ [PICTURES]: recordHidden(list, { at, site, url, reason: result.reason, scores }) });
-      })
-      .catch(() => {});
-    await writing;
+    await noteHidden({ site: siteOf(sender), url, reason: result.reason, scores });
+  }
+  return { ...result, scores };
+}
+
+// A frame of a video, judged like a picture but not remembered. A verdict to hide is noted under an
+// address someone can open: the video's own if it has one (not a blob: the page made), else its poster's,
+// else the page's.
+async function judgeFrame({ frame, src, poster }, sender) {
+  if (typeof frame !== 'string' || !/^data:image\//i.test(frame)) return { hide: false, reason: null };
+  const [blob, setting] = await Promise.all([fetch(frame).then((response) => response.blob()), currentStrictness()]);
+  let scores;
+  try {
+    scores = await judgeBytes(blob, 'video-frame');
+  } catch (error) {
+    failedCount += 1;
+    throw error;
+  }
+  frameCount += 1;
+  const result = verdict(scores, setting);
+  if (result.hide) {
+    videoCount += 1;
+    const page = sender?.tab?.url ?? sender?.url ?? '';
+    const url = [src, poster, page].find((address) => /^https?:/i.test(address ?? '')) ?? page;
+    await noteHidden({ site: siteOf(sender), url, kind: 'video', reason: result.reason, scores });
   }
   return { ...result, scores };
 }

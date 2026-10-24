@@ -8,7 +8,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import jpeg from 'jpeg-js';
-import { BORDERLINE, CLASSES, DEFAULT_STRICTNESS, MAX_PICTURES, MIN_SIZE, STRICTNESS_CHOICES, THRESHOLD, borderline, hiddenBySite, recordHidden, strictnessOf, verdict } from '../extension/lib/pictures.js';
+import { BORDERLINE, CLASSES, DEFAULT_STRICTNESS, MAX_PICTURES, MIN_SIZE, STRICTNESS_CHOICES, THRESHOLD, borderline, countHidden, hiddenBySite, isVideo, recordHidden, strictnessOf, verdict } from '../extension/lib/pictures.js';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const EXT = join(ROOT, 'extension');
@@ -68,6 +68,26 @@ test('pictures: the record of hidden pictures keeps rounded scores, caps its len
   assert.deepEqual(hiddenBySite(undefined), []);
 });
 
+test('pictures: a hidden video is noted as one, counted apart in the summaries, and counted with the pictures by site', () => {
+  let record = recordHidden(undefined, { at: 1000, site: 'a.test', url: 'https://a.test/x.jpg', reason: 'nudity', scores: { porn: 0.9 } });
+  assert.equal(countHidden(record), '1 picture');
+  record = recordHidden(record, { at: 2000, site: 'a.test', url: 'https://a.test/clip.mp4', reason: 'suggestive', scores: { sexy: 0.7 }, kind: 'video' });
+  assert.deepEqual(record[1], { at: 2000, site: 'a.test', url: 'https://a.test/clip.mp4', reason: 'suggestive', scores: { porn: 0, hentai: 0, sexy: 0.7 }, kind: 'video' });
+  assert.equal(isVideo(record[1]), true);
+  assert.equal(isVideo(record[0]), false, 'a picture carries no kind');
+  assert.equal(countHidden(record), '1 picture and 1 video');
+  record = recordHidden(record, { at: 3000, site: 'b.test', url: 'https://b.test/page', reason: 'nudity', scores: { porn: 0.8 }, kind: 'video' });
+  assert.equal(countHidden(record), '1 picture and 2 videos');
+  assert.equal(countHidden(record.filter(isVideo)), '2 videos');
+  assert.equal(countHidden([]), '0 pictures');
+  assert.equal(countHidden(undefined), '0 pictures');
+  assert.deepEqual(hiddenBySite(record), [
+    { site: 'a.test', pictures: 2, last: 2000 },
+    { site: 'b.test', pictures: 1, last: 3000 },
+  ]);
+  assert.equal(recordHidden([], { at: 1, site: 's', url: 'u', reason: 'nudity', scores: {}, kind: 'picture' })[0].kind, undefined, 'only video is a kind');
+});
+
 test('pictures: the content script runs in every page and frame from the start, and the model and its runtime ship with the add-on', () => {
   const [script] = manifest.content_scripts;
   assert.deepEqual(script, { matches: ['<all_urls>'], js: ['content.js'], css: ['content.css'], run_at: 'document_start', all_frames: true });
@@ -84,6 +104,10 @@ test('pictures: the content script runs in every page and frame from the start, 
   assert.ok(licenses.includes('Apache License') && licenses.includes('MIT License'), 'both licences are shipped');
   const css = readFileSync(join(EXT, 'content.css'), 'utf8');
   assert.match(css, /img:not\(\[data-family-site-blocker="ok"\]\):not\(\[data-family-site-blocker="small"\]\)\s*\{\s*visibility:\s*hidden\s*!important;/);
+  assert.match(css, /video:not\(\[data-family-site-blocker="ok"\]\)\s*\{\s*visibility:\s*hidden\s*!important;/, 'a video is hidden until judged, too');
+  const content = readFileSync(join(EXT, 'content.js'), 'utf8');
+  assert.match(content, /querySelectorAll\('img, video'\)/, 'the content script watches videos as well as pictures');
+  assert.match(content, /judge-video-frame/, 'and sends their frames to be judged');
   assert.doesNotMatch(readFileSync(join(EXT, 'vendor/tf.fesm.min.js'), 'utf8').slice(0, 20000), /\bimport\s+[\w$]+\s+from\s*"/, 'the runtime is self-contained');
 });
 

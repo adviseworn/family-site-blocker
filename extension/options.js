@@ -261,6 +261,7 @@ async function renderPictureStatus() {
     line.textContent =
       `Since the browser started: ${plural(status.judged, 'picture')} judged, ${status.hidden} hidden` +
       (status.failed ? `, ${status.failed} shown unjudged because they couldn't be fetched or read` : '') +
+      (status.frames ? `; ${plural(status.frames, 'video frame')} judged, ${plural(status.videos ?? 0, 'video')} hidden` : '') +
       `; judging runs ${BACKEND_NAMES[status.backend] ?? status.backend}.`;
   } catch (error) {
     line.textContent = `Couldn't ask about pictures: ${error.message}`;
