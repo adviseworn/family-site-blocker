@@ -1,5 +1,9 @@
 /* The picture filter (content.js): a picture stays hidden until it has been judged and found fine
-   ("ok"), or is too small to be a picture ("small"). Everything else about the page is left alone. */
+   ("ok"), or is too small to be a picture ("small"); a video until its poster and first frame have been.
+   Everything else about the page is left alone. */
 img:not([data-family-site-blocker="ok"]):not([data-family-site-blocker="small"]) {
+  visibility: hidden !important;
+}
+video:not([data-family-site-blocker="ok"]) {
   visibility: hidden !important;
 }

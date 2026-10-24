@@ -40,8 +40,19 @@ export async function startStubInternet() {
 
     const custom = pages.get(`${host}${path}`) ?? pages.get(path);
     if (custom) {
-      res.writeHead(custom.status ?? 200, { 'content-type': 'text/html; charset=utf-8', ...custom.headers });
-      res.end(custom.body ?? '');
+      const body = custom.body ?? '';
+      // A video is fetched in pieces (Range requests), and a browser only seeks or loops one when the
+      // server answers them: binary bodies get that.
+      const range = Buffer.isBuffer(body) && !custom.status ? /^bytes=(\d*)-(\d*)$/.exec(req.headers.range ?? '') : null;
+      if (range && (range[1] || range[2])) {
+        const start = range[1] ? Number(range[1]) : Math.max(0, body.length - Number(range[2]));
+        const end = range[1] && range[2] ? Math.min(Number(range[2]), body.length - 1) : body.length - 1;
+        res.writeHead(206, { 'content-type': 'application/octet-stream', 'accept-ranges': 'bytes', 'content-range': `bytes ${start}-${end}/${body.length}`, 'content-length': end - start + 1, ...custom.headers });
+        res.end(body.subarray(start, end + 1));
+        return;
+      }
+      res.writeHead(custom.status ?? 200, { 'content-type': 'text/html; charset=utf-8', ...(Buffer.isBuffer(body) ? { 'accept-ranges': 'bytes', 'content-length': body.length } : {}), ...custom.headers });
+      res.end(body);
     } else if (path.endsWith('.gif')) {
       res.writeHead(200, { 'content-type': 'image/gif', 'access-control-allow-origin': '*' });
       res.end(PIXEL);
