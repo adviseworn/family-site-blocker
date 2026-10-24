@@ -9,7 +9,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { EXTENSION_DIR, findPage, launchBrowser, startStubInternet, visit } from './helpers/browser.mjs';
-import { MARKS, STAND_IN_SCORES, extensionWithStandInClassifier, galleryPage, servePictures } from './helpers/pictures.mjs';
+import { MARKS, STAND_IN_SCORES, extensionWithStandInClassifier, galleryPage, servePictures, serveVideos, videoPage } from './helpers/pictures.mjs';
 
 const VERSION = JSON.parse(readFileSync(join(EXTENSION_DIR, 'manifest.json'), 'utf8')).version;
 const BUILT_IN = JSON.parse(readFileSync(join(EXTENSION_DIR, 'rules', 'domains.json'), 'utf8')).length;
@@ -869,6 +869,30 @@ describe('real browser', () => {
         setTimeout(() => { document.getElementById('photo').src = 'http://pics.test/pics/lingerie.jpg?swapped'; }, 600);</script>`));
       stub.page('allowed.test/blob', `<!doctype html><img id="made" width="300"><script>fetch('/pics/nude.jpg?blob').then((r) => r.blob()).then((b) => { document.getElementById('made').src = URL.createObjectURL(b); });</script>`);
       stub.page('allowed.test/real', galleryPage(['cat', 'coffee']));
+      // Videos from the page's own site, whose frames it may read: red is "nude" to the stand-in, blue a photo.
+      serveVideos(stub);
+      stub.page(
+        'allowed.test/videos',
+        videoPage([
+          'id="red" src="/videos/red.webm" autoplay muted loop',
+          'id="blue" src="/videos/blue.webm" autoplay muted loop',
+          'id="turns" src="/videos/blue-then-red.webm" autoplay muted loop',
+          'id="poster-bad" src="/videos/blue.webm" poster="http://pics.test/pics/lingerie.jpg?poster" preload="none"',
+          'id="poster-ok" src="/videos/blue.webm" poster="http://pics.test/pics/photo.jpg?poster" preload="none"',
+          'id="metadata" src="/videos/blue.webm" preload="metadata" controls',
+        ]),
+      );
+      // Videos from another site: the page may read their frames only when that site allows it (CORS).
+      stub.page(
+        'allowed.test/videos-elsewhere',
+        videoPage([
+          'id="foreign" src="http://videos.test/videos/red.webm" autoplay muted loop',
+          'id="foreign-poster" src="http://videos.test/videos/red.webm" poster="http://pics.test/pics/lingerie.jpg?fp" preload="none"',
+          'id="foreign-allowed" src="http://videos.test/videos/cors/red.webm" crossorigin="anonymous" autoplay muted loop',
+        ]),
+      );
+      // A page that makes its own video (a blob: address, as players that stream do) from a red one.
+      stub.page('allowed.test/video-blob', videoPage(['id="made" autoplay muted loop'], `<script>fetch('/videos/red.webm').then((r) => r.blob()).then((b) => { document.getElementById('made').src = URL.createObjectURL(b); });</script>`));
       standIn = extensionWithStandInClassifier();
       judge = await launchBrowser(stub, { extensionDir: standIn.dir });
     });
@@ -999,6 +1023,110 @@ describe('real browser', () => {
         await page.waitForFunction(() => document.getElementById('made').getAttribute('data-family-site-blocker') === 'ok', null, { timeout: 20_000 });
       } finally {
         await page.close();
+      }
+    });
+
+    const marksSeen = (page, id) => page.evaluate((i) => window.__marks[i] ?? [], id);
+    const paused = (page, id) => page.evaluate((i) => document.getElementById(i).paused, id);
+
+    test('a video is judged out of sight by its poster and first frame, then by a frame every moment as it plays; one that shows something is hidden and paused', async () => {
+      const page = await judge.context.newPage();
+      try {
+        await page.goto('http://allowed.test/videos', { waitUntil: 'domcontentloaded' });
+        // Every video is hidden from the start, before any frame could be seen.
+        const early = await marks(page);
+        for (const id of ['red', 'blue', 'turns', 'poster-bad', 'poster-ok']) {
+          assert.ok(['checking', 'ok', 'hidden'].includes(early[id]?.[0]), `${id} is marked from the start: ${JSON.stringify(early[id])}`);
+          if (early[id][0] === 'checking') assert.equal(early[id][1], 'hidden', `${id}: hidden while being judged`);
+        }
+        await settled(page, ['red', 'blue', 'poster-bad', 'poster-ok', 'metadata']);
+        const after = await marks(page);
+        assert.deepEqual(
+          { red: after.red, blue: after.blue, posterBad: after['poster-bad'], posterOk: after['poster-ok'], metadata: after.metadata },
+          { red: ['hidden', 'hidden'], blue: ['ok', 'visible'], posterBad: ['hidden', 'hidden'], posterOk: ['ok', 'visible'], metadata: ['ok', 'visible'] },
+        );
+        // The red video was never shown: hidden while judged, then kept hidden. The blue one was judged out
+        // of sight too, then shown.
+        assert.ok(!(await marksSeen(page, 'red')).includes('ok'), `red was shown at some point: ${JSON.stringify(await marksSeen(page, 'red'))}`);
+        assert.deepEqual(await marksSeen(page, 'blue'), ['checking', 'ok']);
+        // The hidden one is paused; the shown one plays on, and keeps being judged as it does.
+        await page.waitForFunction(() => document.getElementById('red').paused);
+        assert.equal(await paused(page, 'blue'), false, 'the blue video plays');
+        const box = await page.evaluate(() => { const r = document.getElementById('red').getBoundingClientRect(); return [r.width, r.height]; });
+        assert.ok(box[0] === 300 && box[1] > 0, `a hidden video keeps its place on the page: ${box}`);
+        // One that starts fine and turns is shown first, then hidden within a moment and paused.
+        await page.waitForFunction(() => document.getElementById('turns').getAttribute('data-family-site-blocker') === 'hidden', null, { timeout: 20_000 });
+        const turns = await marksSeen(page, 'turns');
+        assert.ok(turns.indexOf('ok') >= 0 && turns.indexOf('ok') < turns.lastIndexOf('hidden'), `shown, then hidden: ${JSON.stringify(turns)}`);
+        await page.waitForFunction(() => document.getElementById('turns').paused);
+        // The page starting a hidden video again finds it paused again, still hidden; and taking the mark
+        // off doesn't bring it back.
+        await page.evaluate(() => document.getElementById('red').play().catch(() => {}));
+        await page.waitForFunction(() => document.getElementById('red').paused && getComputedStyle(document.getElementById('red')).visibility === 'hidden');
+        await page.evaluate(() => document.getElementById('red').removeAttribute('data-family-site-blocker'));
+        await page.waitForFunction(() => document.getElementById('red').getAttribute('data-family-site-blocker') === 'hidden');
+        assert.equal(await page.evaluate(() => getComputedStyle(document.getElementById('red')).visibility), 'hidden');
+        // A new source starts over: the red video given the blue one is judged again and shown.
+        await page.evaluate(() => { document.getElementById('red').src = '/videos/blue.webm'; });
+        await page.waitForFunction(() => document.getElementById('red').getAttribute('data-family-site-blocker') === 'ok', null, { timeout: 20_000 });
+      } finally {
+        await page.close();
+      }
+    });
+
+    test("a video from another site is judged by its frames only when that site allows the page to read them; otherwise by its poster alone, or shown as it is; a video the page made itself is judged", async () => {
+      const page = await judge.context.newPage();
+      try {
+        await page.goto('http://allowed.test/videos-elsewhere', { waitUntil: 'domcontentloaded' });
+        await settled(page, ['foreign', 'foreign-poster', 'foreign-allowed']);
+        const after = await marks(page);
+        assert.deepEqual(
+          { foreign: after.foreign, foreignPoster: after['foreign-poster'], foreignAllowed: after['foreign-allowed'] },
+          { foreign: ['ok', 'visible'], foreignPoster: ['hidden', 'hidden'], foreignAllowed: ['hidden', 'hidden'] },
+        );
+        assert.equal(await paused(page, 'foreign'), false, 'a video that could not be judged plays as it is');
+        await page.waitForFunction(() => document.getElementById('foreign-allowed').paused);
+        // Streaming players give a video a blob: address made from data the page fetched itself: those frames can be read.
+        await page.goto('http://allowed.test/video-blob', { waitUntil: 'domcontentloaded' });
+        await page.waitForFunction(() => document.getElementById('made').getAttribute('data-family-site-blocker') === 'hidden', null, { timeout: 20_000 });
+        assert.ok(!(await marksSeen(page, 'made')).includes('ok'), JSON.stringify(await marksSeen(page, 'made')));
+      } finally {
+        await page.close();
+      }
+    });
+
+    test("hidden videos go into the record as videos, under the video's address or, for one the page made, the page's; the pages and the settings page count them", async () => {
+      const settings = await openSettingsIn(judge);
+      const record = await judge.context.newPage();
+      try {
+        const stored = await settings.evaluate(() => chrome.storage.local.get('pictures').then((got) => got.pictures ?? []));
+        const videos = stored.filter((entry) => entry.kind === 'video');
+        assert.ok(videos.length >= 3, JSON.stringify(stored));
+        const red = videos.find((entry) => entry.url === 'http://allowed.test/videos/red.webm');
+        assert.deepEqual([red.site, red.reason, red.scores], ['allowed.test', 'nudity', { porn: 0.9, hentai: 0.02, sexy: 0.02 }], JSON.stringify(videos));
+        assert.ok(videos.some((entry) => entry.url === 'http://allowed.test/videos/blue-then-red.webm'), 'the video that turned');
+        assert.ok(videos.some((entry) => entry.url === 'http://videos.test/videos/cors/red.webm'), 'the video from the other site');
+        assert.ok(videos.some((entry) => entry.url === 'http://allowed.test/video-blob'), "the video the page made is noted under the page's address");
+        assert.ok(!stored.some((entry) => entry.url === 'http://allowed.test/videos/blue.webm'), 'shown videos are not recorded');
+        assert.ok(stored.some((entry) => entry.url === 'http://pics.test/pics/lingerie.jpg?poster' && entry.kind === undefined), 'a video hidden by its poster is noted as that picture');
+        assert.ok(stored.every((entry) => !entry.url.startsWith('data:') && !entry.url.startsWith('blob:')), 'no frame or blob: address is kept');
+
+        await record.goto(`chrome-extension://${judge.extensionId}/attempts.html`);
+        await record.waitForFunction(() => /^\d+ pictures and \d+ videos hidden on \d+ sites?, the latest at /.test(document.querySelector('#pictures-line span').textContent));
+        await record.goto(`chrome-extension://${judge.extensionId}/pictures.html`);
+        await record.waitForFunction(() => document.querySelectorAll('#hidden-pictures-table tbody tr').length >= 6);
+        assert.match(await record.locator('#summary').innerText(), /^\d+ pictures and \d+ videos hidden on \d+ sites?, the latest at /);
+        const rows = await record.evaluate(() => [...document.querySelectorAll('#hidden-pictures-table tbody tr')].map((row) => [...row.cells].map((cell) => cell.textContent)));
+        const redRow = rows.find((row) => row[2].endsWith('/videos/red.webm'));
+        assert.deepEqual(redRow.slice(1), ['allowed.test', 'videohttp://allowed.test/videos/red.webm', 'Nudity', '0.92', '0.02', 'Copy address'], JSON.stringify(rows));
+        assert.equal(await record.locator('#hidden-pictures-table tbody tr', { hasText: '/videos/red.webm' }).locator('.kind-mark').textContent(), 'video');
+        assert.equal(await record.locator('#hidden-pictures-table tbody tr', { hasText: '/pics/nude.jpg' }).locator('.kind-mark').count(), 0, 'pictures carry no mark');
+
+        await settings.waitForFunction(() => /video frames judged/.test(document.getElementById('picture-status').textContent));
+        assert.match(await settings.locator('#picture-status').innerText(), /^Since the browser started: \d+ pictures judged, \d+ hidden; \d+ video frames judged, \d+ videos hidden; judging runs stand-in\.$/);
+      } finally {
+        await record.close();
+        await settings.close();
       }
     });
 
