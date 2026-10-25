@@ -1,9 +1,10 @@
-import { ATTEMPTS, HISTORY_SCAN, LABELS, outcome } from './lib/attempts.js';
+import { ATTEMPTS, HISTORY_SCAN, LABELS, outcome, summarize } from './lib/attempts.js';
 import { parseDomainList } from './lib/domains.js';
 import { MY_LIST_CHANGED, myList, saveMyList } from './lib/mylist.js';
 import { STRICTNESS, STRICTNESS_CHOICES, strictnessOf } from './lib/pictures.js';
 import { ENGINES } from './lib/safesearch.js';
 import { UNLISTED } from './lib/suspects.js';
+import { WATCHING } from './lib/watching.js';
 
 // Firefox provides `browser`; Chrome, Edge and Brave provide `chrome`. Both return promises here.
 const api = globalThis.browser ?? globalThis.chrome;
@@ -139,6 +140,35 @@ async function checkPrivateWindows() {
   }
 }
 
+// --- Can it be switched off? ------------------------------------------------------------------------------
+// The Firefox lock (see the README), or in Chrome, Edge and Brave a policy, has the browser install the
+// extension itself and take away its switch and its Remove item. The browser says how this copy was
+// installed and whether it can be switched off (management.getSelf needs no permission): under a lock,
+// installType is "admin" and mayDisable false; a copy loaded temporarily or unpacked is "development".
+async function checkLock() {
+  const line = $('lock-status');
+  try {
+    const self = await api.management.getSelf();
+    const locked = self.installType === 'admin' || self.mayDisable === false;
+    if (locked) {
+      line.textContent = isFirefox
+        ? 'The Firefox lock is on: Firefox installed this add-on itself and gives no way to switch it off or remove it.'
+        : 'A policy on this computer keeps this extension installed: the browser gives no way to switch it off or remove it.';
+    } else if (self.installType === 'development') {
+      line.textContent = isFirefox
+        ? 'The lock is not on. This copy was loaded temporarily, so Firefox removes it when it quits, and until then anyone can switch it off or remove it in the Add-ons Manager. The README says how to keep it installed, and how to lock it on a Mac.'
+        : 'This copy was loaded unpacked, so anyone can switch it off or remove it on the extensions page.';
+    } else {
+      line.textContent = isFirefox
+        ? 'The lock is not on: anyone using this Firefox can switch the add-on off or remove it in the Add-ons Manager. The README says how to lock it on a Mac.'
+        : 'Nothing stops someone from switching this extension off or removing it on the extensions page.';
+    }
+    $('lock').classList.toggle('locked', locked);
+  } catch (error) {
+    line.textContent = `Couldn't tell whether this copy can be switched off: ${error.message}`;
+  }
+}
+
 // --- Blocked attempts ---------------------------------------------------------------------------------
 // The background script notes every attempt to open a listed site (see lib/attempts.js). The latest
 // few are shown here, newest first; the whole record is on attempts.html, in its own tab. Nothing here
@@ -174,8 +204,9 @@ function renderUnlisted(unlisted) {
 }
 
 async function renderAttempts() {
-  const stored = await api.storage.local.get([ATTEMPTS, HISTORY_SCAN, UNLISTED]);
+  const stored = await api.storage.local.get([ATTEMPTS, HISTORY_SCAN, UNLISTED, WATCHING]);
   const attempts = Array.isArray(stored[ATTEMPTS]) ? [...stored[ATTEMPTS]].reverse() : [];
+  const watching = stored[WATCHING] ?? null;
   renderHistoryScan(stored[HISTORY_SCAN]);
   renderUnlisted(stored[UNLISTED]);
   const table = $('attempts-table');
@@ -190,18 +221,18 @@ async function renderAttempts() {
     return;
   }
 
-  const opened = attempts.filter((attempt) => outcome(attempt) === 'opened').length;
-  const fromHistory = attempts.filter((attempt) => outcome(attempt) === 'history').length;
+  const counts = summarize(attempts, watching);
   $('attempts-summary').textContent =
-    `${plural(attempts.length, 'attempt')}, the latest at ${when.format(attempts[0].at)}.` +
-    (opened ? ` ${plural(opened, 'page')} opened instead of being blocked.` : '') +
-    (fromHistory ? ` ${fromHistory} from this browser's history.` : '');
+    `${plural(counts.tries, 'attempt')}, the latest at ${when.format(counts.latest)}.` +
+    (counts.opened ? ` ${plural(counts.opened, 'page')} opened instead of being blocked.` : '') +
+    (counts.history ? ` ${counts.history} from this browser's history${counts.off ? `, ${counts.off} of them from times the extension was off` : ''}.` : '');
   table.caption.textContent = attempts.length > SHOWN ? `The latest ${SHOWN}` : '';
 
   for (const attempt of attempts.slice(0, SHOWN)) {
     const row = document.createElement('tr');
-    row.className = outcome(attempt);
-    for (const text of [when.format(attempt.at), attempt.site, LABELS[outcome(attempt)]]) {
+    const what = outcome(attempt, watching);
+    row.className = what;
+    for (const text of [when.format(attempt.at), attempt.site, LABELS[what]]) {
       const cell = document.createElement('td');
       cell.textContent = text;
       row.append(cell);
@@ -281,6 +312,7 @@ setInterval(() => {
 $('engines').textContent = `${ENGINES.slice(0, -1).map(({ name }) => name).join(', ')} and ${ENGINES.at(-1).name}`;
 checkAccess();
 checkPrivateWindows();
+checkLock();
 renderAttempts().catch((error) => {
   $('attempts-summary').textContent = `Couldn't read the record: ${error.message}`;
 });

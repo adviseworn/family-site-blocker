@@ -246,13 +246,43 @@ textarea {
   color: var(--bad);
 }
 
-.history td:last-child {
+.history td:last-child,
+.unseen td:last-child {
   color: var(--muted);
 }
 
+/* A visit from a time the extension was off, and one from before the site was listed: the one is the
+   record's only sign of being off, the other a site the list has caught up with. */
+.off td:last-child {
+  color: var(--bad);
+}
+
+.unlisted td:last-child {
+  color: var(--latch);
+}
+
 #history-scan,
-#safe-search-note {
+#safe-search-note,
+#lock-status,
+#since,
+#off-note {
   color: var(--muted);
+}
+
+#lock.locked #lock-status,
+#off-summary {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+#lock a {
+  color: var(--gate);
+  font-weight: 600;
+}
+
+#off-table td:nth-child(3),
+#off-table td:nth-child(4) {
+  white-space: nowrap;
 }
 
 code {
@@ -308,7 +338,8 @@ code {
   white-space: nowrap;
 }
 
-#sites-table small.opened {
+#sites-table small.opened,
+#sites-table small.off {
   display: block;
   color: var(--bad);
   font-weight: 600;
