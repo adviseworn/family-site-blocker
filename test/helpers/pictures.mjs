@@ -1,6 +1,6 @@
 // Helpers for testing the picture filter in a real browser without explicit pictures: a copy of the
-// extension whose classifier judges a picture by its address instead of its pixels, and the pages and
-// pictures the tests show.
+// extension whose classifier judges a picture by its address instead of its pixels (and a video's frame
+// by its colour), and the pages, pictures and videos the tests show.
 import { cpSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
@@ -17,15 +17,27 @@ export const STAND_IN_SCORES = {
   photo: { drawing: 0.001, hentai: 0, neutral: 0.999, porn: 0, sexy: 0 },
 };
 
-const STAND_IN = `// A stand-in for classifier.js, for the tests: judges a picture by its address, not its pixels.
+const STAND_IN = `// A stand-in for classifier.js, for the tests: judges a picture by its address, not its pixels, and a
+// video's frame (which has no address) by its colour: red is "nude", green "lingerie", anything else a photo.
 const SCORES = ${JSON.stringify(STAND_IN_SCORES)};
 export const SIZE = 224;
 export async function loadModel() {}
 export const backendInUse = () => 'stand-in';
 export async function judgeBytes(blob, url = '') {
   if (!blob || blob.size === 0) throw new Error('not a picture');
-  const word = Object.keys(SCORES).find((name) => url.includes(name)) ?? 'photo';
-  return SCORES[word];
+  const word = Object.keys(SCORES).find((name) => url.includes(name));
+  if (word) return SCORES[word];
+  if (url === 'video-frame') {
+    const bitmap = await createImageBitmap(blob);
+    const canvas = new OffscreenCanvas(1, 1);
+    const context = canvas.getContext('2d', { willReadFrequently: true });
+    context.drawImage(bitmap, 0, 0, 1, 1); // scaled to one pixel: the frame's average colour
+    bitmap.close();
+    const [r, g, b] = context.getImageData(0, 0, 1, 1).data;
+    if (r > 150 && g < 100 && b < 100) return SCORES.nude;
+    if (g > 150 && r < 100 && b < 100) return SCORES.lingerie;
+  }
+  return SCORES.photo;
 }
 `;
 
@@ -47,6 +59,21 @@ export function servePictures(stub, names) {
   for (const name of names) stub.page(`/pics/${name}.jpg`, name.includes('coffee') ? photos.coffee : photos.cat, jpeg);
 }
 
+/**
+ * Serves the fixture videos (test/fixtures/*.webm: two seconds of one colour, 64 by 64, and
+ * blue-then-red, a second of blue and then three of red) from the stub internet, on any host, at
+ * /videos/<name>.webm. With { cors: true } they may be read by pages on other sites (a frame of a video
+ * from another site can only be judged if the site allows it), from /videos/cors/<name>.webm.
+ */
+export const VIDEOS = ['red', 'blue', 'blue-then-red'];
+export function serveVideos(stub) {
+  for (const name of VIDEOS) {
+    const bytes = readFileSync(join(FIXTURES, `${name}.webm`));
+    stub.page(`/videos/${name}.webm`, bytes, { headers: { 'content-type': 'video/webm', 'cache-control': 'max-age=3600' } });
+    stub.page(`/videos/cors/${name}.webm`, bytes, { headers: { 'content-type': 'video/webm', 'cache-control': 'max-age=3600', 'access-control-allow-origin': '*' } });
+  }
+}
+
 /** A page showing pictures: an icon, then one <img> per name, 300 px wide. */
 export function galleryPage(names, extra = '') {
   return `<!doctype html><meta charset="utf-8"><title>Gallery</title><h1>Gallery</h1>
@@ -55,5 +82,17 @@ export function galleryPage(names, extra = '') {
     ${extra}`;
 }
 
-/** What each picture on a page is marked as, and whether it can be seen: { id: [mark, visibility] }. */
-export const MARKS = `[...document.querySelectorAll('img')].map((img) => [img.id || img.src, [img.getAttribute('data-family-site-blocker'), getComputedStyle(img).visibility]])`;
+/**
+ * A page showing videos, 300 px wide, that also keeps every mark the filter sets on each element (in
+ * window.__marks[id], oldest first), so a test can see what a video went through. Each entry of `videos`
+ * is one <video>'s attributes, with an id.
+ */
+export function videoPage(videos, extra = '') {
+  return `<!doctype html><meta charset="utf-8"><title>Videos</title><h1>Videos</h1>
+    <script>window.__marks = {}; new MutationObserver((records) => { for (const r of records) (window.__marks[r.target.id] ??= []).push(r.target.getAttribute('data-family-site-blocker')); }).observe(document.documentElement, { attributes: true, subtree: true, attributeFilter: ['data-family-site-blocker'] });</script>
+    ${videos.map((attributes) => `<video ${attributes} width="300"></video>`).join('\n')}
+    ${extra}`;
+}
+
+/** What each picture and video on a page is marked as, and whether it can be seen: { id: [mark, visibility] }. */
+export const MARKS = `[...document.querySelectorAll('img, video')].map((el) => [el.id || el.currentSrc || el.src, [el.getAttribute('data-family-site-blocker'), getComputedStyle(el).visibility]])`;

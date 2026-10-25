@@ -61,17 +61,33 @@ export function strictnessOf(stored) {
 
 /**
  * Notes a hidden picture in the record: { at, site: <the page's host>, url: <the picture's address>,
- * reason, scores: { porn, hentai, sexy } rounded }. Returns the new list, oldest first, capped.
+ * reason, scores: { porn, hentai, sexy } rounded }. A hidden video is noted the same way with
+ * kind: 'video', its url being the video's own address, its poster's, or failing both the page's: an
+ * address someone can open. Returns the new list, oldest first, capped.
  */
-export function recordHidden(record, { at, site, url, reason, scores }) {
+export function recordHidden(record, { at, site, url, reason, scores, kind }) {
   const list = Array.isArray(record) ? record : [];
   const rounded = Object.fromEntries(['porn', 'hentai', 'sexy'].map((name) => [name, Math.round((Number(scores?.[name]) || 0) * 100) / 100]));
-  const entry = { at, site, url: String(url ?? '').slice(0, 500), reason, scores: rounded };
+  const entry = { at, site, url: String(url ?? '').slice(0, 500), reason, scores: rounded, ...(kind === 'video' ? { kind } : {}) };
   const kept = [...list, entry];
   return kept.length > MAX_PICTURES ? kept.slice(kept.length - MAX_PICTURES) : kept;
 }
 
-/** The record summed up by site, most pictures first: { site, pictures, last }. */
+/** Whether a record entry is a hidden video rather than a picture. */
+export const isVideo = (entry) => entry?.kind === 'video';
+
+/** "3 pictures", "1 picture and 2 videos": the record's entries counted by kind, for the summaries. */
+export function countHidden(record) {
+  const list = Array.isArray(record) ? record : [];
+  const videos = list.filter(isVideo).length;
+  const pictures = list.length - videos;
+  const word = (n, noun) => `${n} ${noun}${n === 1 ? '' : 's'}`;
+  if (videos === 0) return word(pictures, 'picture');
+  if (pictures === 0) return word(videos, 'video');
+  return `${word(pictures, 'picture')} and ${word(videos, 'video')}`;
+}
+
+/** The record summed up by site, most entries first: { site, pictures (pictures and videos together), last }. */
 export function hiddenBySite(record) {
   const sites = new Map();
   for (const entry of Array.isArray(record) ? record : []) {
