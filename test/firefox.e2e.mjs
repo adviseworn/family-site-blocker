@@ -751,9 +751,9 @@ describe('Firefox', { skip: findFirefox() ? false : 'no Firefox found (set FIREF
       const attempts = await inPage(`browser.storage.local.get('attempts').then((got) => done(got.attempts), (e) => done('error: ' + e));`);
       const recorded = attempts.filter((entry) => entry.site === SITE && entry.from === 'history' && Math.abs(entry.at - yesterday) < 1000);
       assert.equal(recorded.length, 1, `yesterday's visit went into the record first: ${JSON.stringify(attempts.slice(-3))}`);
-      const live = attempts.filter((entry) => !entry.from && Date.now() - entry.at < 60_000);
+      const live = attempts.filter((entry) => entry.site === SITE && !entry.from && Date.now() - entry.at < 60_000);
       assert.ok(live.length >= 1, 'the try itself is noted once, not again from the history');
-      assert.equal(attempts.filter((entry) => entry.from === 'history' && Date.now() - entry.at < 60_000).length, 0);
+      assert.equal(attempts.filter((entry) => entry.site === SITE && entry.from === 'history' && Date.now() - entry.at < 60_000).length, 0);
     });
 
     test('a password locked away with a short wait comes back after it, and is locked away again; the settings page says where it stands', async () => {
