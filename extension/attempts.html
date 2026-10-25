@@ -12,12 +12,14 @@
       <p class="eyebrow"><a href="options.html">Family Site Blocker</a> <span id="version" class="version"></span></p>
       <h1>Blocked attempts</h1>
       <p id="summary" aria-live="polite">Loading…</p>
-      <p>Every time a listed site was opened in a tab, with the time. Visits found in this browser’s own history, from before the extension was watching or before the site was listed, are marked as from there. Nothing on this page can clear the record.</p>
+      <p>Every time a listed site was opened in a tab, with the time. If the site got through instead of being blocked, the note says so: then something on the settings page still needs switching on. Visits found in this browser’s own history, from before the extension was watching or before the site was listed, are marked as from there, and the site’s pages are then taken out of that history, with any bookmarks to listed sites, so the address bar stops suggesting them. Nothing on this page can clear the record.</p>
       <div class="actions">
         <a id="every-try" class="button secondary" href="tries.html" hidden>See every try</a>
         <button id="save-file" type="button" class="secondary" hidden>Save as a file</button>
         <span id="save-status" role="status"></span>
       </div>
+      <p id="history-scan" aria-live="polite"></p>
+      <p><button id="history-scan-now" class="secondary" type="button">Look through this browser’s history again</button></p>
     </header>
 
     <section id="sites" aria-labelledby="sites-heading" hidden>

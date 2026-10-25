@@ -1,7 +1,11 @@
-import { ATTEMPTS, HISTORY_SCAN, LABELS, outcome } from './lib/attempts.js';
+// The settings page: a board that says whether everything is working and what still needs switching on,
+// the two settings (the person's own sites, the pictures setting), the record in a few lines, and where
+// the locked-away password stands. The record and the password have pages of their own.
+import { ATTEMPTS, LABELS, outcome } from './lib/attempts.js';
 import { parseDomainList } from './lib/domains.js';
+import { BOX, PROGRESS, describeBox, loadBox } from './lib/lockbox.js';
 import { MY_LIST_CHANGED, myList, saveMyList } from './lib/mylist.js';
-import { STRICTNESS, STRICTNESS_CHOICES, strictnessOf } from './lib/pictures.js';
+import { PICTURES, STRICTNESS, STRICTNESS_CHOICES, countHidden, hiddenBySite, strictnessOf } from './lib/pictures.js';
 import { ENGINES } from './lib/safesearch.js';
 import { UNLISTED } from './lib/suspects.js';
 
@@ -24,6 +28,13 @@ const CHECKS = [
 
 const sites = (n) => (n === 1 ? '1 site' : `${n} sites`);
 
+/** Marks a line of the board: 'ok' (a tick), 'todo' (something to do), or 'checking'. */
+function markLine(id, state) {
+  const line = $(id);
+  line.classList.remove('ok', 'todo', 'checking');
+  line.classList.add(state);
+}
+
 async function builtInDomains() {
   const response = await fetch(api.runtime.getURL('rules/domains.json'));
   return response.json();
@@ -39,7 +50,7 @@ async function refresh() {
 
 // Only some browsers let an extension ask their rule matcher directly: Chrome and Edge for extensions
 // loaded unpacked, Firefox only with an extra permission and a developer setting. Everywhere else, the
-// sentence introducing the results stays hidden and the note points at the test site instead.
+// list of checks stays hidden and the note points at the test site instead.
 async function runChecks() {
   const list = $('results');
   const note = $('check-note');
@@ -53,13 +64,14 @@ async function runChecks() {
       outcomes.push(matchedRules.length > 0);
     }
   } catch {
-    $('check-intro').hidden = true;
+    $('check-details').hidden = true;
     note.textContent = isFirefox
-      ? "Firefox doesn't let add-ons run this check automatically, so use the button above."
-      : "This browser doesn't let extensions run this check automatically, so use the button above.";
+      ? "Firefox doesn't let add-ons check the addresses automatically, so open the test site."
+      : "This browser doesn't let extensions check the addresses automatically, so open the test site.";
+    markLine('check', 'ok'); // nothing is known to be wrong; the test site is the check
     return;
   }
-  $('check-intro').hidden = false;
+  $('check-details').hidden = false;
 
   let failed = 0;
   CHECKS.forEach((check, index) => {
@@ -87,6 +99,7 @@ async function runChecks() {
   note.textContent = failed
     ? `${failed} of ${CHECKS.length} checks failed. Open the browser's extensions page and look for errors on this extension.`
     : `All ${CHECKS.length} checks passed.`;
+  markLine('check', failed ? 'todo' : 'ok');
 }
 
 async function save() {
@@ -119,6 +132,48 @@ async function checkAccess() {
   $('access').hidden = allowed;
 }
 
+// Whether anything stops the person using the browser from switching the add-on off. Under the Firefox
+// lock (the README's "Lock it" section) Firefox installs the add-on itself and shows no switch; the browser
+// reports that as an installation by an administrator. getSelf needs no permission.
+async function checkLock() {
+  const line = $('lock');
+  const status = $('lock-status');
+  let info;
+  try {
+    info = await api.management.getSelf();
+  } catch {
+    line.hidden = true; // nothing to say
+    return;
+  }
+  const readme = (anchor, text) => {
+    const link = document.createElement('a');
+    link.href = `https://github.com/adviseworn/family-site-blocker#${anchor}`;
+    link.target = '_blank';
+    link.rel = 'noopener';
+    link.textContent = text;
+    return link;
+  };
+  status.replaceChildren();
+  if (info.installType === 'admin') {
+    status.append(
+      isFirefox
+        ? 'The Firefox lock is in force: Firefox installed the add-on itself and gives no way to switch it off or remove it.'
+        : 'Installed by policy: the browser gives no way to switch the add-on off or remove it.',
+    );
+    markLine('lock', 'ok');
+  } else if (isFirefox && info.installType === 'development') {
+    status.append('Loaded temporarily: Firefox removes the add-on when it quits, and anyone can switch it off before then. ', readme('firefox', 'How to keep it installed, and lock it'), '.');
+    markLine('lock', 'todo');
+  } else if (isFirefox) {
+    status.append('Not under the Firefox lock: anyone who opens the Add-ons Manager can switch the add-on off or remove it. ', readme('firefox', 'How to lock it, on a Mac'), '.');
+    markLine('lock', 'todo');
+  } else {
+    status.append('Anyone who can open the extensions page can switch the add-on off or remove it; the lock covers Firefox only. ', readme('limits', 'What to do about that'), '.');
+    markLine('lock', 'todo');
+  }
+  line.hidden = false;
+}
+
 // Browsers switch extensions off in private windows unless the person allows them there, which would
 // leave an easy way round the blocker. Say so, and point at the switch.
 async function checkPrivateWindows() {
@@ -134,38 +189,24 @@ async function checkPrivateWindows() {
       : `${windows} are not blocked yet, so sites can still be opened there. ${howTo}`;
     // Firefox doesn't let extensions open about:addons, so the button is for Chrome, Edge and Brave only.
     $('private-open').hidden = covered || isFirefox;
+    markLine('private', covered ? 'ok' : 'todo');
   } catch {
     status.textContent = `Couldn’t tell whether private windows are blocked. ${howTo}`;
+    markLine('private', 'todo');
   }
 }
 
-// --- Blocked attempts ---------------------------------------------------------------------------------
+// --- The record -----------------------------------------------------------------------------------------
 // The background script notes every attempt to open a listed site (see lib/attempts.js). The latest
-// few are shown here, newest first; the whole record is on attempts.html, in its own tab. Nothing here
-// can clear the record.
-const SHOWN = 10;
+// few are shown here, newest first; the whole record is on attempts.html, in its own tab, with the look
+// through the browser's history. The pictures hidden and the sites that might belong on the list get a
+// line each. Nothing here can clear the record.
+const SHOWN = 3;
 const when = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' });
 const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
 
-function renderHistoryScan(scan) {
-  const line = $('history-scan');
-  if (!scan) {
-    line.textContent = "This browser's history hasn't been looked through yet.";
-    return;
-  }
-  const date = when.format(scan.at);
-  if (scan.error) {
-    line.textContent = `Couldn't look through this browser's history on ${date}: ${scan.error}`;
-    return;
-  }
-  const found = scan.found ? `found ${plural(scan.found, 'visit')} to listed sites` : 'found no visits to listed sites';
-  const added = scan.added ? `, ${scan.added === scan.found ? 'all' : scan.added} new` : scan.found ? ', none new' : '';
-  const taken = [scan.removed ? `${plural(scan.removed, 'page')} from this browser's history` : '', scan.bookmarks ? plural(scan.bookmarks, 'bookmark') : ''].filter(Boolean);
-  line.textContent = `Looked through this browser's history on ${date}: ${found}${added}.` + (taken.length ? ` Removed ${taken.join(' and ')}.` : '');
-}
-
 // Sites the history scan found that aren't listed but look adult from their names (lib/suspects.js): a
-// pointer to the record page, where they can be added to the person's list.
+// pointer to the page where they can be added to the person's list.
 function renderUnlisted(unlisted) {
   const note = $('unlisted-note');
   const count = unlisted?.sites?.length ?? 0;
@@ -173,11 +214,18 @@ function renderUnlisted(unlisted) {
   if (count) note.firstChild.textContent = `${sites(count)} in this browser's history look${count === 1 ? 's' : ''} adult but ${count === 1 ? "isn't" : "aren't"} on either list: `;
 }
 
+function renderPicturesLine(pictures) {
+  const hidden = Array.isArray(pictures) ? pictures : [];
+  $('pictures-line').firstElementChild.textContent = hidden.length
+    ? `${countHidden(hidden)} hidden on ${plural(hiddenBySite(hidden).length, 'site')}, the latest at ${when.format(Math.max(...hidden.map((entry) => entry.at)))}.`
+    : 'No picture hidden so far.';
+}
+
 async function renderAttempts() {
-  const stored = await api.storage.local.get([ATTEMPTS, HISTORY_SCAN, UNLISTED]);
+  const stored = await api.storage.local.get([ATTEMPTS, UNLISTED, PICTURES]);
   const attempts = Array.isArray(stored[ATTEMPTS]) ? [...stored[ATTEMPTS]].reverse() : [];
-  renderHistoryScan(stored[HISTORY_SCAN]);
   renderUnlisted(stored[UNLISTED]);
+  renderPicturesLine(stored[PICTURES]);
   const table = $('attempts-table');
   const all = $('attempts-all');
   const rows = table.querySelector('tbody');
@@ -213,17 +261,24 @@ async function renderAttempts() {
   all.textContent = `See the whole record (${attempts.length})`;
 }
 
-$('history-scan-now').addEventListener('click', () => {
-  $('history-scan').textContent = "Looking through this browser's history…";
-  api.runtime.sendMessage({ type: 'scan-history' }).catch(() => {});
-});
 // Keep the record current while the page is open, and the box with the person's list when the record
 // page adds to it (unless the box holds unsaved edits, which must not be thrown away).
 api.storage.onChanged.addListener((changes, area) => {
   if (area !== 'local') return;
-  if (changes[ATTEMPTS] || changes[HISTORY_SCAN] || changes[UNLISTED]) renderAttempts();
+  if (changes[ATTEMPTS] || changes[UNLISTED] || changes[PICTURES]) renderAttempts();
+  if (changes[BOX] || changes[PROGRESS]) renderLockbox();
   if (changes[MY_LIST_CHANGED] && $('custom').value === loaded) refresh().catch(() => {});
 });
+
+// --- Locked-away password ---------------------------------------------------------------------------------
+// One line on where it stands; everything else is on lockbox.html.
+async function renderLockbox() {
+  try {
+    $('lockbox-line').textContent = describeBox(await loadBox(api.storage.local));
+  } catch (error) {
+    $('lockbox-line').textContent = `Couldn't read the locked-away password: ${error.message}`;
+  }
+}
 
 $('access-allow').addEventListener('click', () => {
   // The permission prompt only appears when it is requested straight from the click.
@@ -255,14 +310,14 @@ async function renderPictureStatus() {
   try {
     const status = await api.runtime.sendMessage({ type: 'picture-status' });
     if (!status || !status.backend) {
-      line.textContent = 'No picture judged yet since the browser started.';
+      line.textContent = 'Pictures and videos are judged before they show; none judged yet since the browser started.';
       return;
     }
     line.textContent =
-      `Since the browser started: ${plural(status.judged, 'picture')} judged, ${status.hidden} hidden` +
-      (status.failed ? `, ${status.failed} shown unjudged because they couldn't be fetched or read` : '') +
+      `Pictures and videos are judged before they show: since the browser started, ${plural(status.judged, 'picture')} judged, ${status.hidden} hidden` +
       (status.frames ? `; ${plural(status.frames, 'video frame')} judged, ${plural(status.videos ?? 0, 'video')} hidden` : '') +
-      `; judging runs ${BACKEND_NAMES[status.backend] ?? status.backend}.`;
+      (status.failed ? `; ${status.failed} shown unjudged because they couldn't be fetched or read` : '') +
+      ` (${BACKEND_NAMES[status.backend] ?? status.backend}).`;
   } catch (error) {
     line.textContent = `Couldn't ask about pictures: ${error.message}`;
   }
@@ -271,6 +326,8 @@ async function renderPictureStatus() {
 $('version').textContent = `Version ${api.runtime.getManifest().version}`;
 renderPictureSetting().catch(() => {});
 renderPictureStatus();
+renderLockbox();
+checkLock();
 // The counts move while pages are open elsewhere: keep the line current while this page is in view.
 document.addEventListener('visibilitychange', () => {
   if (!document.hidden) renderPictureStatus();
