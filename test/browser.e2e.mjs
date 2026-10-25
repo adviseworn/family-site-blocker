@@ -862,9 +862,15 @@ describe('real browser', () => {
         assert.match(await page.locator('#summary').innerText(), / 1 on yours\.$/);
         await page.waitForFunction(() => document.getElementById('unlisted-note').hidden);
         assert.equal((await visit(browser.context, 'http://nsfw-pictures.test/page')).outcome, 'blocked page');
-        const list = await stored(page);
+        let list = await stored(page);
         assert.ok(list.some((entry) => entry.site === 'nsfw-pictures.test' && entry.from === 'history'), JSON.stringify(list));
-        assert.ok(list.some((entry) => entry.site === 'nsfw-pictures.test' && !entry.from), 'the try just made');
+        // The background script notes the try a moment after the page load, behind whatever it is writing.
+        const noted = Date.now() + 10_000;
+        while (!list.some((entry) => entry.site === 'nsfw-pictures.test' && !entry.from) && Date.now() < noted) {
+          await pause(100);
+          list = await stored(page);
+        }
+        assert.ok(list.some((entry) => entry.site === 'nsfw-pictures.test' && !entry.from), `the try just made: ${JSON.stringify(list.slice(-4))}`);
         assert.deepEqual(record.errors, []);
         assert.deepEqual(page.errors, []);
       } finally {
