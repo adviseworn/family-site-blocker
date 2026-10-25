@@ -41,16 +41,29 @@
 // included, with nobody at the screen. From version 1.3.2 the add-on then updates itself
 // (scripts/updates-manifest.mjs), and the lock keeps automatic add-on updates switched on (ExtensionUpdate).
 // The lock still lets anyone install a newer signed version over it by hand.
+//
+// The profile also says which copy it is. The 3rdparty policy hands values to one add-on as its managed
+// storage (browser.storage.managed), which nothing but a policy can write: the lock puts a stamp there, the
+// version it was built with and how many entries Firefox's own copy of the list has, and writes the same
+// stamp into extension/rules/lock.json. The settings page reads both (extension/lib/lock.js) and says whether
+// the profile installed is this version's copy, an older one (install the new profile) or a newer one. The
+// profile's description, which Device Management shows, names the version too.
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, relative } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { parseDomainList } from '../extension/lib/domains.js';
+import { STAMP } from '../extension/lib/lock.js';
 import { BLOCKLIST_DIR, listFiles, loadNever } from './build-rules.mjs';
 import { LATEST_URL } from './updates-site.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
-export const ADDON_ID = JSON.parse(readFileSync(join(ROOT, 'extension', 'manifest.json'), 'utf8')).browser_specific_settings.gecko.id;
+const MANIFEST = JSON.parse(readFileSync(join(ROOT, 'extension', 'manifest.json'), 'utf8'));
+export const ADDON_ID = MANIFEST.browser_specific_settings.gecko.id;
+/** The add-on version the profile is built with, which the stamp carries. */
+export const VERSION = MANIFEST.version;
 export const PROFILE_PATH = join(ROOT, 'mac', 'family-site-blocker-firefox.mobileconfig');
+/** The add-on's own copy of the stamp, so it knows which copy of the profile belongs to its version. */
+export const STAMP_PATH = join(ROOT, 'extension', 'rules', 'lock.json');
 // The newest signed version, on the public update site; the Mac has to be online when Firefox first starts.
 export const XPI_URL = LATEST_URL;
 
@@ -93,6 +106,9 @@ export function filterSites(dir = BLOCKLIST_DIR) {
 /** The filter's entries: the whole top-level domains, then the sites, as match patterns. */
 export const filterEntries = (dir = BLOCKLIST_DIR) => [...WHOLE_DOMAINS.map((tld) => filterPattern(tld)), ...filterSites(dir).sites.map(filterPattern)];
 
+/** The stamp that says which copy of the lock a profile is: the add-on version it was built with, and the size of Firefox's own copy of the list. */
+export const lockStamp = (entries = filterEntries(), version = VERSION) => ({ version, entries: entries.length });
+
 /**
  * The policies, in the form Firefox reads them (policies.json, or the org.mozilla.firefox settings on a Mac).
  * `xpiSource` is the address or file path Firefox installs the add-on from.
@@ -109,6 +125,8 @@ export function firefoxPolicies(xpiSource = XPI_URL, entries = filterEntries()) 
       'extensions.dnr.enabled': { Value: true, Status: 'locked' },
     },
     WebsiteFilter: { Block: entries },
+    // The stamp, as the add-on's managed storage; another add-on's settings here would be another program's.
+    '3rdparty': { Extensions: { [ADDON_ID]: { [STAMP]: lockStamp(entries) } } },
   };
 }
 
@@ -141,6 +159,7 @@ export const macSettings = (policies = firefoxPolicies()) => ({ EnterprisePolici
 
 /** The configuration profile that puts macSettings() in force for every account on the Mac. */
 export function mobileconfig(settings = macSettings()) {
+  const stamp = settings['3rdparty']?.Extensions?.[ADDON_ID]?.[STAMP] ?? lockStamp();
   return plist({
     PayloadContent: [
       {
@@ -158,6 +177,7 @@ export function mobileconfig(settings = macSettings()) {
       'Firefox also gets its own copy of the add-on\u2019s built-in list of sites (whole adult domains such as .porn and .xxx, and the sites people visit most), which keeps blocking them when add-ons don\u2019t run, as in Troubleshoot Mode. ' +
       'Private windows, Troubleshoot Mode from Firefox\u2019s menus, about:config and Refresh Firefox, which could get round it, are turned off. ' +
       'Settings that other programs, such as another blocker, give Firefox for their own add-ons stay in force. ' +
+      `This is the copy from version ${stamp.version} of Family Site Blocker, with ${stamp.entries.toLocaleString('en-US')} entries in Firefox’s own list; the add-on’s settings page says whether a newer copy is due. ` +
       'Only an administrator can remove this profile.',
     PayloadDisplayName: 'Family Site Blocker for Firefox',
     PayloadIdentifier: 'local.parental-controls.family-site-blocker.firefox',
@@ -191,9 +211,12 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   mkdirSync(dirname(PROFILE_PATH), { recursive: true });
   writeFileSync(PROFILE_PATH, mobileconfig());
   writeFileSync(AGENT_PATH, launchAgent());
+  mkdirSync(dirname(STAMP_PATH), { recursive: true });
+  writeFileSync(STAMP_PATH, `${JSON.stringify(lockStamp(), null, 2)}\n`);
   console.log(
     `Wrote ${relative(process.cwd(), PROFILE_PATH)}, with ${WHOLE_DOMAINS.length} whole domains (${WHOLE_DOMAINS.map((tld) => `.${tld}`).join(', ')}, ` +
-      `covering ${covered} built-in sites) and ${sites.length} built-in sites in Firefox's own filter, and ${relative(process.cwd(), AGENT_PATH)}`,
+      `covering ${covered} built-in sites) and ${sites.length} built-in sites in Firefox's own filter, stamped as version ${VERSION}; ` +
+      `${relative(process.cwd(), AGENT_PATH)}; and ${relative(process.cwd(), STAMP_PATH)}`,
   );
   if (leftOut.length > 0) {
     console.log(
