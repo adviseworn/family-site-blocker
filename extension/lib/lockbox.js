@@ -1,10 +1,16 @@
 // What the locked-away password's page (lockbox.html) and the settings page share: where the box, the
 // unlocking progress and the record of what has happened are kept, how long a wait reads, the one line
 // that says where things stand, and the words for each entry in the record.
-import { isBox } from './timelock.js';
+import { isBox, stepsOf, waitOf } from './timelock.js';
 
 export const BOX = 'lockbox'; // the sealed box (lib/timelock.js)
-export const PROGRESS = 'lockboxProgress'; // { n, x, done, startedAt, workedAt }: the box being worked on, the number reached so far, steps done, when the work started and was last saved
+// The unlocking under way: { n, x, done, before, inner, startedAt, workedAt }. n is the stored box's
+// modulus, so the progress counts only for that box; x the number reached and done the squarings done in
+// the layer being worked on; before the squarings done in the layers already opened (0 until the first
+// is); inner the layer being worked on, once the stored box has been opened to a box inside it (absent
+// while the stored box's own puzzle is the one; a box inside is as locked as the stored one, so keeping it
+// here gives nothing away); startedAt when the work started and workedAt when it was last saved.
+export const PROGRESS = 'lockboxProgress';
 export const EVENTS = 'lockboxEvents'; // what has happened to the password, oldest first: [{ at, event, … }] (#75)
 
 /** How many entries the record keeps; the oldest go when it is longer. */
@@ -12,11 +18,12 @@ export const EVENTS_KEPT = 500;
 
 /**
  * The events the page records, and what each carries besides `at` (an ISO time) and `event`:
- * locked { delay }, started {}, resumed { done, steps }, stopped { done, steps }, shown { startedAt },
- * sealed { delay }, seal-failed {}, restored { lockedAt }, deleted {}. An unlock is a `started` … `shown`
- * pair; `sealed` or `seal-failed` follows `shown` straight away.
+ * locked { delay }, lengthened { from, to }, started {}, resumed { done, steps }, stopped { done, steps },
+ * shown { startedAt }, sealed { delay, previous? }, seal-failed {}, restored { lockedAt }, deleted {}. An
+ * unlock is a `started` … `shown` pair; `sealed` or `seal-failed` follows `shown` straight away, and
+ * `sealed` with `previous` is the password locked away again with a wait of the person's choosing (#76).
  */
-export const EVENT_NAMES = ['locked', 'started', 'resumed', 'stopped', 'shown', 'sealed', 'seal-failed', 'restored', 'deleted'];
+export const EVENT_NAMES = ['locked', 'lengthened', 'started', 'resumed', 'stopped', 'shown', 'sealed', 'seal-failed', 'restored', 'deleted'];
 
 const plural = (count, word) => `${count} ${word}${count === 1 ? '' : 's'}`;
 
@@ -52,9 +59,16 @@ export async function loadBox(store) {
   const { [BOX]: box, [PROGRESS]: progress, [EVENTS]: events } = await store.get([BOX, PROGRESS, EVENTS]);
   const record = Array.isArray(events) ? events.filter(isEvent) : [];
   if (!isBox(box)) return { box: null, progress: null, events: record };
-  // Progress only counts for the box it was made on.
-  return { box, progress: progress?.n === box.n ? progress : null, events: record };
+  // Progress only counts for the box it was made on, and the layer it names has to be a box.
+  if (progress?.n !== box.n || (progress.inner !== undefined && !isBox(progress.inner))) return { box, progress: null, events: record };
+  return { box, progress: { before: 0, ...progress }, events: record };
 }
+
+/** The layer being worked on, or to start on: a box inside the stored one that the work has reached, else the stored box. */
+export const layerUnderWork = ({ box, progress }) => progress?.inner ?? box;
+
+/** How far unlocking has got, as a fraction of all the squarings the stored box takes. */
+export const fractionDone = ({ box, progress }) => (progress ? Math.min(1, ((progress.before ?? 0) + progress.done) / stepsOf(box)) : 0);
 
 /** Adds an entry to the record, with the time, and returns it. The oldest entries go once the record is long. */
 export async function recordEvent(store, event, details = {}) {
@@ -87,6 +101,9 @@ export function sinceOf({ box, events = [] }) {
   return whole ? entries[0].at : box.lockedAt;
 }
 
+/** "since Oct 11, 2026", with ", wait lengthened Oct 25, 2026" when the box says it was (#76). */
+export const sinceText = ({ box, events = [] }) => `since ${day(sinceOf({ box, events }))}${box.lengthenedAt ? `, wait lengthened ${day(box.lengthenedAt)}` : ''}`;
+
 /** ", unlocked once, last on Oct 24, 2026" or ", never unlocked": what the record says about the password now locked away; "" with no record. */
 function unlocksOf(events) {
   const { entries, whole } = thisPassword(events);
@@ -101,12 +118,12 @@ export function describeBox({ box, progress, events = [] }) {
     const last = events.at(-1);
     return last?.event === 'deleted' ? `No password is locked away; the last one was deleted on ${day(last.at)}.` : 'No password is locked away.';
   }
-  const state = `A password is locked away (since ${day(sinceOf({ box, events }))})${unlocksOf(events)}`;
+  const state = `A password is locked away (${sinceText({ box, events })})${unlocksOf(events)}`;
   if (progress) {
     const started = isTime(progress.startedAt) ? `, started ${day(progress.startedAt)}` : '';
-    return `${state}; unlocking it is ${percent({ done: progress.done, steps: box.steps })}% done${started}.`;
+    return `${state}; unlocking it is ${Math.floor(fractionDone({ box, progress }) * 100)}% done${started}.`;
   }
-  return `${state}; getting it back takes about ${duration(box.steps / box.rate)}.`;
+  return `${state}; getting it back takes about ${duration(waitOf(box))}.`;
 }
 
 /** What an entry of the record says happened, in words, for the record on the password's page. */
@@ -114,6 +131,10 @@ export function describeEvent(entry) {
   switch (entry.event) {
     case 'locked':
       return typeof entry.delay === 'number' ? `Locked away, with a wait of ${duration(entry.delay)}.` : 'Locked away.';
+    case 'lengthened':
+      return typeof entry.from === 'number' && typeof entry.to === 'number'
+        ? `The wait was lengthened from ${duration(entry.from)} to ${duration(entry.to)}, without unlocking.`
+        : 'The wait was lengthened, without unlocking.';
     case 'started':
       return 'Unlocking started.';
     case 'resumed':
@@ -123,6 +144,9 @@ export function describeEvent(entry) {
     case 'shown':
       return isTime(entry.startedAt) ? `The password was shown (unlocking started ${when(entry.startedAt)}).` : 'The password was shown.';
     case 'sealed':
+      if (typeof entry.delay === 'number' && typeof entry.previous === 'number') {
+        return `Locked away again, with a wait of ${duration(entry.delay)} in place of ${duration(entry.previous)}.`;
+      }
       return typeof entry.delay === 'number' ? `Locked away again, with the same wait of ${duration(entry.delay)}.` : 'Locked away again, with the same wait.';
     case 'seal-failed':
       return 'Couldn’t be locked away again with a fresh puzzle, so the old one was kept.';
