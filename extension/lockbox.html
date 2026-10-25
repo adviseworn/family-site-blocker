@@ -65,6 +65,18 @@
 
       <p id="lockbox-status" role="status"></p>
     </section>
+
+    <section id="lockbox-record" aria-labelledby="lockbox-record-heading" hidden>
+      <h2 id="lockbox-record-heading">What has happened</h2>
+      <p>Everything done with the locked-away password on this page, with the time, newest first: locked away, unlocking started, carried on or stopped, the password shown and locked away again, a backup file restored, the password deleted. The record stays when the password is deleted or replaced, and nothing on this page can clear it.</p>
+      <table id="lockbox-events" class="attempts">
+        <thead>
+          <tr><th scope="col">When</th><th scope="col">What happened</th></tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+      <p><button id="lockbox-events-more" class="secondary" type="button" hidden>Show all</button></p>
+    </section>
   </main>
   <script type="module" src="lockbox.js"></script>
 </body>

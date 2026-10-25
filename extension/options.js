@@ -4,7 +4,7 @@
 import { ATTEMPTS, LABELS, outcome } from './lib/attempts.js';
 import { parseDomainList } from './lib/domains.js';
 import { describeLock, lockInForce, managedStamp } from './lib/lock.js';
-import { BOX, PROGRESS, describeBox, loadBox } from './lib/lockbox.js';
+import { BOX, EVENTS, PROGRESS, describeBox, loadBox } from './lib/lockbox.js';
 import { MY_LIST_CHANGED, myList, saveMyList } from './lib/mylist.js';
 import { PICTURES, STRICTNESS, STRICTNESS_CHOICES, countHidden, hiddenBySite, strictnessOf } from './lib/pictures.js';
 import { ENGINES } from './lib/safesearch.js';
@@ -272,12 +272,12 @@ async function renderAttempts() {
 api.storage.onChanged.addListener((changes, area) => {
   if (area !== 'local') return;
   if (changes[ATTEMPTS] || changes[UNLISTED] || changes[PICTURES]) renderAttempts();
-  if (changes[BOX] || changes[PROGRESS]) renderLockbox();
+  if (changes[BOX] || changes[PROGRESS] || changes[EVENTS]) renderLockbox();
   if (changes[MY_LIST_CHANGED] && $('custom').value === loaded) refresh().catch(() => {});
 });
 
 // --- Locked-away password ---------------------------------------------------------------------------------
-// One line on where it stands; everything else is on lockbox.html.
+// One line on where it stands, and what its record says (#75); everything else is on lockbox.html.
 async function renderLockbox() {
   try {
     $('lockbox-line').textContent = describeBox(await loadBox(api.storage.local));
