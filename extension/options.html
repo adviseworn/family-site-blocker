@@ -13,62 +13,63 @@
       <p id="summary" aria-live="polite">Loading the lists…</p>
     </header>
 
-    <section id="access" aria-labelledby="access-heading" hidden>
-      <h2 id="access-heading">Website access</h2>
-      <p>This browser hasn’t given Family Site Blocker access to websites yet, so sites on the list can still open. Click <strong>Allow access</strong>, then confirm.</p>
-      <p><button id="access-allow" type="button">Allow access</button></p>
-    </section>
-
-    <section aria-labelledby="check-heading">
-      <h2 id="check-heading">Check that it works</h2>
-      <p>Open the test site. You should see “This site is blocked” instead of the site.</p>
-      <p><a class="button" href="https://exampleadultsite.com/" target="_blank" rel="noopener">Open exampleadultsite.com</a></p>
-      <p id="check-intro" hidden>You can also ask the browser whether it would block each of these addresses, without visiting them.</p>
-      <ul id="results" class="results"></ul>
-      <p id="check-note" aria-live="polite"></p>
-    </section>
-
-    <section aria-labelledby="private-heading">
-      <h2 id="private-heading">Private windows</h2>
-      <p id="private-status" aria-live="polite">Checking…</p>
-      <p><button id="private-open" type="button" hidden>Open Details page</button></p>
+    <section id="working" aria-labelledby="working-heading">
+      <h2 id="working-heading">Is it working?</h2>
+      <ul id="board" class="board">
+        <li id="access" class="todo" hidden>
+          <span class="mark" aria-hidden="true"></span>
+          <span class="what">This browser hasn’t given Family Site Blocker access to websites yet, so sites on the list can still open. Click <strong>Allow access</strong>, then confirm. <button id="access-allow" type="button" class="small">Allow access</button></span>
+        </li>
+        <li id="private" class="checking">
+          <span class="mark" aria-hidden="true"></span>
+          <span class="what"><span id="private-status">Checking…</span> <button id="private-open" type="button" class="secondary small" hidden>Open Details page</button></span>
+        </li>
+        <li id="lock" class="checking" hidden>
+          <span class="mark" aria-hidden="true"></span>
+          <span class="what" id="lock-status"></span>
+        </li>
+        <li id="safe-search" class="ok">
+          <span class="mark" aria-hidden="true"></span>
+          <span class="what">Safe search is kept on at <span id="engines">the big search engines</span>, whatever their settings say, and YouTube is kept in Restricted Mode. <a class="button secondary small" href="https://www.google.com/search?q=test" target="_blank" rel="noopener">Search Google for “test”</a>
+            <small id="safe-search-note">The address should gain <code>safe=active</code>, which makes Google leave explicit results out; for an explicit search, Google Images also says above the results: “SafeSearch is locked to filter by safety settings applied to this browser.” Other search engines, and sites with a search of their own, aren’t covered.</small></span>
+        </li>
+        <li id="judging" class="ok">
+          <span class="mark" aria-hidden="true"></span>
+          <span class="what" id="picture-status">Pictures and videos are judged before they show.</span>
+        </li>
+        <li id="check" class="checking">
+          <span class="mark" aria-hidden="true"></span>
+          <span class="what"><a class="button small" href="https://exampleadultsite.com/" target="_blank" rel="noopener">Open exampleadultsite.com</a> You should see “This site is blocked” instead of the site. <span id="check-note">Checking…</span>
+            <details id="check-details" hidden>
+              <summary>Show the checks</summary>
+              <p id="check-intro">The browser was asked whether it would block each of these addresses, without visiting them.</p>
+              <ul id="results" class="results"></ul>
+            </details></span>
+        </li>
+      </ul>
     </section>
 
     <section aria-labelledby="mine-heading">
       <h2 id="mine-heading">Your blocked sites</h2>
-      <p>One site per line. Subdomains such as www and m are blocked too.</p>
+      <p>One site per line, added to the built-in list. Subdomains such as www and m are blocked too.</p>
       <label class="visually-hidden" for="custom">Blocked sites, one per line</label>
-      <textarea id="custom" rows="8" spellcheck="false" autocapitalize="off" autocomplete="off" placeholder="example.com"></textarea>
+      <textarea id="custom" rows="6" spellcheck="false" autocapitalize="off" autocomplete="off" placeholder="example.com"></textarea>
       <div class="actions">
         <button id="save" type="button">Save changes</button>
         <span id="status" role="status"></span>
       </div>
     </section>
 
-    <section id="safe-search" aria-labelledby="safe-search-heading">
-      <h2 id="safe-search-heading">Safe search</h2>
-      <p>A list can’t filter search results, so searches on <span id="engines">the big search engines</span> are sent with the engine’s own strict filter switched on, whatever its settings say, and YouTube is kept in Restricted Mode. Other search engines, and sites with a search of their own, aren’t covered.</p>
-      <p><a class="button secondary" href="https://www.google.com/search?q=test" target="_blank" rel="noopener">Search Google for “test”</a></p>
-      <p id="safe-search-note">The address should gain <code>safe=active</code>, which makes Google leave explicit results out. An ordinary search like this one shows nothing more; for an explicit search, Google Images also says above the results: “SafeSearch is locked to filter by safety settings applied to this browser.” Google’s own SafeSearch settings show the account’s setting, which this extension leaves alone, so they may still say Blur or Off.</p>
-    </section>
-
     <section id="pictures" aria-labelledby="pictures-heading">
       <h2 id="pictures-heading">Pictures</h2>
-      <p>A list of sites can’t touch one picture on an ordinary site, so every picture a page shows is also judged on this computer, before it’s shown, and kept hidden when it shows nudity or, under the first setting below, anything suggestive. Videos are judged the same way, by their poster and first frame before they can be seen and then by a frame every second or two as they play, and a video that shows something is hidden and paused. Nothing leaves the computer.</p>
-      <label for="picture-strictness">Hide pictures that show</label>
+      <label for="picture-strictness">Hide pictures and videos that show</label>
       <select id="picture-strictness"></select>
-      <p id="picture-status" aria-live="polite"></p>
-      <p>The judging is a machine’s: it misses some pictures, and hides the odd harmless one, such as swimwear, art or a medical page, more so under the first setting. Hidden pictures and videos are listed on the record page with their scores. Pictures set as page backgrounds aren’t judged, a video whose frames the page itself may not read is judged by its poster alone, and in Firefox’s Troubleshoot Mode nothing is.</p>
+      <p>Every picture and video a page shows is judged on this computer before it shows, and kept hidden when it shows nudity or, under the first setting, anything suggestive; nothing leaves the computer. The judge is a machine’s and errs both ways, more so under the first setting. <a href="https://github.com/adviseworn/family-site-blocker#pictures" target="_blank" rel="noopener">What it judges and what it misses.</a></p>
     </section>
 
     <section id="attempts" aria-labelledby="attempts-heading">
-      <h2 id="attempts-heading">Blocked attempts</h2>
-      <p>Each time a site on either list is opened in a tab, it’s noted with the time. If the site got through instead of being blocked, the note says so: then something above still needs switching on. Visits from before the extension was watching, or before a site was listed, are added from this browser’s own history when the extension is installed or updated, marked as found there. The latest few are below; the whole record, summed up by site and day, has a page of its own. Nothing on either page can clear the record.</p>
-      <p>Once a try is in the record, the site’s pages are taken out of this browser’s own history, and bookmarks to listed sites are removed, so the address bar stops suggesting them. The record is the place to look for them.</p>
+      <h2 id="attempts-heading">The record</h2>
       <p id="attempts-summary" aria-live="polite">Loading…</p>
-      <p id="history-scan" aria-live="polite"></p>
-      <p id="unlisted-note" aria-live="polite" hidden><span></span><a href="unlisted.html" target="_blank" rel="noopener">see which</a>.</p>
-      <p><button id="history-scan-now" class="secondary" type="button">Look through this browser’s history again</button></p>
       <table id="attempts-table" class="attempts" hidden>
         <caption></caption>
         <thead>
@@ -77,62 +78,18 @@
         <tbody></tbody>
       </table>
       <p><a id="attempts-all" class="button secondary" href="attempts.html" target="_blank" rel="noopener" hidden>See the whole record</a></p>
+      <p id="pictures-line" aria-live="polite"><span></span> <a href="pictures.html" target="_blank" rel="noopener">See the pictures hidden</a>.</p>
+      <p id="unlisted-note" aria-live="polite" hidden><span></span><a href="unlisted.html" target="_blank" rel="noopener">see which</a>.</p>
+      <p class="muted">Every try at a listed site is noted with the time, whether it was blocked or got through; visits from before the extension was watching are added from this browser’s own history, and listed sites are kept out of the address bar. <a href="https://github.com/adviseworn/family-site-blocker#blocked-attempts" target="_blank" rel="noopener">How the record works.</a></p>
     </section>
 
-    <section id="lockbox" aria-labelledby="lockbox-heading">
+    <section id="lockbox-section" aria-labelledby="lockbox-heading">
       <h2 id="lockbox-heading">Locked-away password</h2>
-      <p>Keep a password here that you can only get back after a wait you choose, such as this computer’s administrator password. The wait is real computing: the computer has to work through a puzzle that can’t be skipped, so reading the extension’s storage or changing the clock doesn’t get the password out sooner.</p>
-
-      <div id="lockbox-empty" hidden>
-        <label for="lockbox-secret">Password to lock away</label>
-        <input id="lockbox-secret" type="text" spellcheck="false" autocapitalize="off" autocomplete="off">
-        <label for="lockbox-delay">Wait before it can be seen again</label>
-        <select id="lockbox-delay">
-          <option value="60">1 minute (to try it out)</option>
-          <option value="600">10 minutes</option>
-          <option value="3600" selected>1 hour</option>
-          <option value="14400">4 hours</option>
-          <option value="43200">12 hours</option>
-          <option value="86400">1 day</option>
-          <option value="172800">2 days</option>
-        </select>
-        <div class="actions">
-          <button id="lockbox-lock" type="button">Lock it away</button>
-          <button id="lockbox-make" class="secondary" type="button">Make one up</button>
-          <label class="button secondary" for="lockbox-restore">Restore from a backup file</label>
-          <input id="lockbox-restore" class="visually-hidden" type="file" accept=".json,application/json">
-        </div>
-      </div>
-
-      <div id="lockbox-locked" hidden>
-        <p id="lockbox-summary"></p>
-        <div id="lockbox-progress-area" hidden>
-          <progress id="lockbox-progress" max="1" value="0"></progress>
-          <p id="lockbox-progress-text" aria-live="polite"></p>
-        </div>
-        <div class="actions">
-          <button id="lockbox-start" type="button">Start unlocking</button>
-          <button id="lockbox-stop" class="secondary" type="button" hidden>Stop unlocking</button>
-          <button id="lockbox-backup" class="secondary" type="button">Save a backup file</button>
-          <button id="lockbox-delete" class="secondary" type="button">Delete it</button>
-        </div>
-        <p class="note">Removing the extension deletes the locked-away password with it, and so does Firefox when it quits if the add-on isn’t signed. Keep a backup file: it stays locked with the same wait.</p>
-      </div>
-
-      <div id="lockbox-open" hidden>
-        <label for="lockbox-revealed">Your password</label>
-        <input id="lockbox-revealed" type="text" readonly spellcheck="false">
-        <div class="actions">
-          <button id="lockbox-copy" type="button">Copy</button>
-          <button id="lockbox-hide" class="secondary" type="button">Hide</button>
-        </div>
-        <p>It’s already locked away again with the same wait. It stays on this page until you click Hide or close the page.</p>
-      </div>
-
-      <p id="lockbox-status" role="status"></p>
+      <p id="lockbox-line" aria-live="polite">Loading…</p>
+      <p><a id="lockbox-page" class="button secondary" href="lockbox.html" target="_blank" rel="noopener">Open the locked-away password page</a></p>
+      <p class="muted">A password you can only get back after a wait you choose, such as this computer’s administrator password. <a href="https://github.com/adviseworn/family-site-blocker#locked-away-password" target="_blank" rel="noopener">How it works.</a></p>
     </section>
   </main>
   <script type="module" src="options.js"></script>
-  <script type="module" src="lockbox.js"></script>
 </body>
 </html>
