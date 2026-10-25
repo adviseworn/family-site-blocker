@@ -3,6 +3,7 @@
 // the locked-away password stands. The record and the password have pages of their own.
 import { ATTEMPTS, LABELS, outcome } from './lib/attempts.js';
 import { parseDomainList } from './lib/domains.js';
+import { describeLock, lockInForce, managedStamp } from './lib/lock.js';
 import { BOX, PROGRESS, describeBox, loadBox } from './lib/lockbox.js';
 import { MY_LIST_CHANGED, myList, saveMyList } from './lib/mylist.js';
 import { PICTURES, STRICTNESS, STRICTNESS_CHOICES, countHidden, hiddenBySite, strictnessOf } from './lib/pictures.js';
@@ -134,18 +135,30 @@ async function checkAccess() {
 
 // Whether anything stops the person using the browser from switching the add-on off. Under the Firefox
 // lock (the README's "Lock it" section) Firefox installs the add-on itself and shows no switch; the browser
-// reports that as an installation by an administrator. getSelf needs no permission.
-async function checkLock() {
-  const line = $('lock');
-  const status = $('lock-status');
+// reports that as an installation by an administrator (getSelf needs no permission), and the lock's profile
+// says which copy it is through the add-on's managed storage (lib/lock.js). Read once, for both lines.
+const lockState = (async () => {
   let info;
   try {
     info = await api.management.getSelf();
   } catch {
-    line.hidden = true; // nothing to say
+    return null; // nothing to say
+  }
+  const state = { installType: info.installType, firefox: isFirefox, own: api.runtime.getManifest().version, stamp: null };
+  // Only the Firefox lock writes the stamp; in other browsers there is nothing to read.
+  if (lockInForce(state)) state.stamp = await managedStamp(api.storage);
+  return state;
+})();
+
+async function checkLock() {
+  const line = $('lock');
+  const status = $('lock-status');
+  const state = await lockState;
+  if (!state) {
+    line.hidden = true;
     return;
   }
-  const readme = (anchor, text) => {
+  const readme = ({ anchor, text }) => {
     const link = document.createElement('a');
     link.href = `https://github.com/adviseworn/family-site-blocker#${anchor}`;
     link.target = '_blank';
@@ -153,29 +166,15 @@ async function checkLock() {
     link.textContent = text;
     return link;
   };
-  status.replaceChildren();
-  if (info.installType === 'admin') {
-    status.append(
-      isFirefox
-        ? 'The Firefox lock is in force: Firefox installed the add-on itself and gives no way to switch it off or remove it.'
-        : 'Installed by policy: the browser gives no way to switch the add-on off or remove it.',
-    );
-    markLine('lock', 'ok');
-  } else if (isFirefox && info.installType === 'development') {
-    status.append('Loaded temporarily: Firefox removes the add-on when it quits, and anyone can switch it off before then. ', readme('firefox', 'How to keep it installed, and lock it'), '.');
-    markLine('lock', 'todo');
-  } else if (isFirefox) {
-    status.append('Not under the Firefox lock: anyone who opens the Add-ons Manager can switch the add-on off or remove it. ', readme('firefox', 'How to lock it, on a Mac'), '.');
-    markLine('lock', 'todo');
-  } else {
-    status.append('Anyone who can open the extensions page can switch the add-on off or remove it; the lock covers Firefox only. ', readme('limits', 'What to do about that'), '.');
-    markLine('lock', 'todo');
-  }
+  const described = describeLock(state);
+  status.replaceChildren(...described.parts.map((part) => (typeof part === 'string' ? part : readme(part))));
+  markLine('lock', described.state);
   line.hidden = false;
 }
 
 // Browsers switch extensions off in private windows unless the person allows them there, which would
-// leave an easy way round the blocker. Say so, and point at the switch.
+// leave an easy way round the blocker. Say so, and point at the switch. The Firefox lock turns private
+// windows off altogether, so under it there is nothing to allow.
 async function checkPrivateWindows() {
   const status = $('private-status');
   const windows = isFirefox ? 'Private windows' : 'Private (Incognito) windows';
@@ -183,6 +182,13 @@ async function checkPrivateWindows() {
     ? 'Type about:addons in the address bar, choose Family Site Blocker and set “Run in Private Windows” to Allow.'
     : 'Open this extension’s Details page and turn on “Allow in Incognito”.';
   try {
+    const state = await lockState;
+    if (state && lockInForce(state)) {
+      status.textContent = 'Private windows are turned off by the Firefox lock, so nothing can be opened there.';
+      $('private-open').hidden = true;
+      markLine('private', 'ok');
+      return;
+    }
     const covered = await api.extension.isAllowedIncognitoAccess();
     status.textContent = covered
       ? `${windows} are blocked too.`
