@@ -5,22 +5,43 @@
 //   { at: <milliseconds since 1970>, site: <the listed domain>, opened?: true, from?: 'history' }
 // `opened` means the site's page actually loaded instead of being blocked: the extension had no access
 // to websites, say, or its rules were off. `from: 'history'` means the visit was found in the browser's
-// own history rather than seen as it happened: from before the extension was installed, or before the
-// site was listed (mergeVisits). Nothing on the settings page removes entries; only the oldest go, once
-// there are more than MAX_ATTEMPTS. HISTORY_SCAN holds when the history was last looked through, and
-// what that found.
+// own history rather than seen as it happened: from before the extension was installed, from a time it
+// was off, or from before the site was listed (mergeVisits); which of those, lib/watching.js tells from
+// when the extension was running, and outcome() says. Nothing on the settings page removes entries; only
+// the oldest go, once there are more than MAX_ATTEMPTS. HISTORY_SCAN holds when the history was last
+// looked through, and what that found.
+import { kindOfVisit } from './watching.js';
 
 export const ATTEMPTS = 'attempts';
 export const HISTORY_SCAN = 'historyScan';
 export const MAX_ATTEMPTS = 10_000; // a few hundred kilobytes at most; the browser's history can add hundreds at a time
 
-/** What an entry says happened, and the words the pages use for it. */
-export const outcome = (attempt) => (attempt.from === 'history' ? 'history' : attempt.opened ? 'opened' : 'blocked');
-export const LABELS = { blocked: 'Blocked', opened: 'Opened, not blocked', history: 'Visited (browser history)' };
+/**
+ * What an entry says happened, and the words the pages use for it. A visit found in the browser's history
+ * is 'history' (from before the extension was installed) unless `watching` (lib/watching.js) places it
+ * after that: 'off' (the extension wasn't running then), 'unlisted' (it was running, so the site wasn't
+ * listed yet) or 'unseen' (after the install, but before the extension kept track of when it ran).
+ */
+export function outcome(attempt, watching) {
+  if (attempt.from !== 'history') return attempt.opened ? 'opened' : 'blocked';
+  if (!watching) return 'history';
+  const kind = kindOfVisit(watching, attempt.at);
+  return kind === 'before' ? 'history' : kind;
+}
+export const LABELS = {
+  blocked: 'Blocked',
+  opened: 'Opened, not blocked',
+  history: 'Visited (browser history)',
+  off: 'Visited while the add-on was off',
+  unlisted: 'Visited before the site was listed',
+  unseen: 'Visited after the add-on was installed',
+};
+/** The outcomes that are visits found in the browser's history, however they are placed. */
+export const FROM_HISTORY = ['history', 'off', 'unlisted', 'unseen'];
 
 // Two notes of the same site this close together are one attempt: the browser reports each navigation
 // more than once (see background.js), in no fixed order, and a reload is not a new try.
-const SAME_ATTEMPT_MS = 2000;
+export const SAME_ATTEMPT_MS = 2000;
 // A page that loads this long after the attempt was noted belongs to that attempt.
 const OPENED_WITHIN_MS = 60_000;
 
@@ -91,13 +112,15 @@ export function record(attempts, { at, site, opened = false }) {
  * Adds visits found in the browser's history, { at, site } each, to the record: in time order, marked as
  * from the history, leaving out any that the record already holds (the same site within two seconds: a
  * try seen as it happened, or a visit added by an earlier look) and repeats among the visits themselves.
- * Returns the new list (or the same one when nothing was added), how many distinct visits there were,
- * and how many were new.
+ * `sameWithinMs` widens the two seconds: the sweep after a live try passes a few minutes, because the
+ * page of a site that got through is written to the history when it finishes loading, not when the try
+ * was noted. Returns the new list (or the same one when nothing was added), how many distinct visits
+ * there were, and how many were new.
  */
-export function mergeVisits(attempts, visits) {
+export function mergeVisits(attempts, visits, sameWithinMs = SAME_ATTEMPT_MS) {
   const list = Array.isArray(attempts) ? attempts : [];
   const kept = [...list];
-  const sameTry = (entry, visit) => entry.site === visit.site && Math.abs(entry.at - visit.at) < SAME_ATTEMPT_MS;
+  const sameTry = (entry, visit) => entry.site === visit.site && Math.abs(entry.at - visit.at) < sameWithinMs;
   const distinct = [];
   let added = 0;
   for (const visit of [...visits].filter((v) => Number.isFinite(v.at) && v.site).sort((a, b) => a.at - b.at)) {
@@ -117,23 +140,55 @@ function trim(list) {
 }
 
 /**
- * The record summed up by site, most tries first: { site, tries, first, last, opened, history }, with
- * `first` and `last` the times of the earliest and latest try, `opened` how many got through, and
- * `history` how many came from the browser's history.
+ * The record summed up by site, most tries first: { site, tries, first, last, opened, history, off }, with
+ * `first` and `last` the times of the earliest and latest try, `opened` how many got through, `history`
+ * how many came from the browser's history (however placed), and `off` how many of those are from times
+ * the extension was off (none without `watching`).
  */
-export function bySite(attempts) {
+export function bySite(attempts, watching) {
   const sites = new Map();
   for (const attempt of Array.isArray(attempts) ? attempts : []) {
-    const row = sites.get(attempt.site) ?? { site: attempt.site, tries: 0, first: attempt.at, last: attempt.at, opened: 0, history: 0 };
+    const row = sites.get(attempt.site) ?? { site: attempt.site, tries: 0, first: attempt.at, last: attempt.at, opened: 0, history: 0, off: 0 };
     row.tries += 1;
     row.first = Math.min(row.first, attempt.at);
     row.last = Math.max(row.last, attempt.at);
-    const what = outcome(attempt);
+    const what = outcome(attempt, watching);
     if (what === 'opened') row.opened += 1;
-    if (what === 'history') row.history += 1;
+    if (FROM_HISTORY.includes(what)) row.history += 1;
+    if (what === 'off') row.off += 1;
     sites.set(attempt.site, row);
   }
   return [...sites.values()].sort((a, b) => b.tries - a.tries || b.last - a.last || a.site.localeCompare(b.site));
+}
+
+/**
+ * The record counted up for the pages' summary lines: how many tries, at how many sites, the latest, how
+ * many got through, how many came from the browser's history, and of those how many are from times the
+ * extension was off, from before the site was listed, or from after the install but before the extension
+ * kept track of when it ran, with the latest of each kind.
+ */
+export function summarize(attempts, watching) {
+  const counts = { tries: 0, sites: 0, latest: null, opened: 0, history: 0, off: 0, unlisted: 0, unseen: 0, latestOff: null, latestUnseen: null };
+  const sites = new Set();
+  for (const attempt of Array.isArray(attempts) ? attempts : []) {
+    counts.tries += 1;
+    sites.add(attempt.site);
+    counts.latest = Math.max(counts.latest ?? attempt.at, attempt.at);
+    const what = outcome(attempt, watching);
+    if (what === 'opened') counts.opened += 1;
+    if (FROM_HISTORY.includes(what)) counts.history += 1;
+    if (what === 'off') {
+      counts.off += 1;
+      counts.latestOff = Math.max(counts.latestOff ?? attempt.at, attempt.at);
+    }
+    if (what === 'unlisted') counts.unlisted += 1;
+    if (what === 'unseen') {
+      counts.unseen += 1;
+      counts.latestUnseen = Math.max(counts.latestUnseen ?? attempt.at, attempt.at);
+    }
+  }
+  counts.sites = sites.size;
+  return counts;
 }
 
 /**
@@ -154,11 +209,11 @@ export function byDay(attempts) {
 }
 
 /** The record as a CSV file, oldest first: when (ISO 8601, local time zone offset included), site, what happened. */
-export function toCsv(attempts) {
+export function toCsv(attempts, watching) {
   const cell = (text) => (/[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text);
   const lines = ['when,site,result'];
   for (const attempt of Array.isArray(attempts) ? attempts : []) {
-    lines.push([localIso(attempt.at), attempt.site, LABELS[outcome(attempt)]].map(cell).join(','));
+    lines.push([localIso(attempt.at), attempt.site, LABELS[outcome(attempt, watching)]].map(cell).join(','));
   }
   return `${lines.join('\n')}\n`;
 }

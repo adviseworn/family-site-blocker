@@ -83,6 +83,12 @@ function notesAttempts(version) {
   return major > 1 || (major === 1 && minor >= 3);
 }
 
+/** Whether a version of the add-on says on its settings page whether the lock is on (from 1.7.0, #69). */
+function saysWhetherLocked(version) {
+  const [major, minor] = String(version).split('.').map(Number);
+  return major > 1 || (major === 1 && minor >= 7);
+}
+
 /**
  * Another blocker's policies, as Plucky sets them: its own add-on force-installed (and so locked) with
  * ExtensionSettings, and the same switches and locked preference as the lock.
@@ -306,6 +312,25 @@ describe('Firefox lock', { skip: SKIP }, () => {
       };`, ADDON_ID);
     assert.equal(state.locked, true, `Firefox ${firefox.version} locks the website access of add-ons the lock requires`);
     assert.ok(state.origins.includes('<all_urls>'), JSON.stringify(state.origins));
+  });
+
+  test('the add-on can tell that the lock is on: Firefox reports it as installed by policy, with no way to switch it off, and from 1.7.0 its settings page says so (#69)', async () => {
+    const host = await firefox.chrome('return WebExtensionPolicy.getByID(arguments[0])?.mozExtensionHostname ?? null;', ADDON_ID);
+    await firefox.fx.send('WebDriver:Navigate', { url: `moz-extension://${host}/options.html` });
+    const self = await firefox.fx.send('WebDriver:ExecuteAsyncScript', {
+      script: `const done = arguments[arguments.length - 1];
+        browser.management.getSelf().then((info) => done({ installType: info.installType, mayDisable: info.mayDisable }), (e) => done('error: ' + e));`,
+      args: [],
+    });
+    assert.deepEqual(self, { installType: 'admin', mayDisable: false }, `what Firefox ${firefox.version} says about an add-on the lock installed`);
+    if (version && saysWhetherLocked(version)) {
+      let status = '';
+      for (let i = 0; i < 40 && (!status || status === 'Checking…'); i++) {
+        if (i) await sleep(250);
+        status = await firefox.run(`return document.getElementById('lock-status').textContent`);
+      }
+      assert.equal(status, 'The Firefox lock is on: Firefox installed this add-on itself and gives no way to switch it off or remove it.');
+    }
   });
 
   test('private windows are turned off: the shortcut is gone, and asking for one opens an ordinary window, which blocks', async () => {
