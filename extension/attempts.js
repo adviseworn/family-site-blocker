@@ -3,9 +3,10 @@
 // tries on tries.html (which also lists every try of all, grouped by day), and a button that saves the
 // whole record as a CSV file. The other two parts of the record, the pictures hidden and the sites that
 // might belong on the list, have pages of their own (pictures.html, unlisted.html), summed up here in a
-// line each. Like the settings page, this page only reads the record; nothing here can clear it (see
+// line each. The look through the browser's history (background.js scanHistory) is reported and started
+// from here. Like the settings page, this page only reads the record; nothing here can clear it (see
 // lib/attempts.js).
-import { ATTEMPTS, bySite, outcome, toCsv } from './lib/attempts.js';
+import { ATTEMPTS, HISTORY_SCAN, bySite, outcome, toCsv } from './lib/attempts.js';
 import { element, plural, showVersion, whenFormat } from './lib/page.js';
 import { PICTURES, countHidden, hiddenBySite } from './lib/pictures.js';
 import { UNLISTED } from './lib/suspects.js';
@@ -45,6 +46,24 @@ function renderSites() {
   }
 }
 
+// When the browser's history was last looked through for visits to listed sites, and what that found.
+function renderHistoryScan(scan) {
+  const line = $('history-scan');
+  if (!scan) {
+    line.textContent = "This browser's history hasn't been looked through yet.";
+    return;
+  }
+  const date = whenFormat.format(scan.at);
+  if (scan.error) {
+    line.textContent = `Couldn't look through this browser's history on ${date}: ${scan.error}`;
+    return;
+  }
+  const found = scan.found ? `found ${plural(scan.found, 'visit')} to listed sites` : 'found no visits to listed sites';
+  const added = scan.added ? `, ${scan.added === scan.found ? 'all' : scan.added} new` : scan.found ? ', none new' : '';
+  const taken = [scan.removed ? `${plural(scan.removed, 'page')} from this browser's history` : '', scan.bookmarks ? plural(scan.bookmarks, 'bookmark') : ''].filter(Boolean);
+  line.textContent = `Looked through this browser's history on ${date}: ${found}${added}.` + (taken.length ? ` Removed ${taken.join(' and ')}.` : '');
+}
+
 // One line each for the other pages of the record.
 function renderElsewhere(pictures, unlisted) {
   const hidden = Array.isArray(pictures) ? pictures : [];
@@ -60,9 +79,10 @@ function renderElsewhere(pictures, unlisted) {
 }
 
 async function render() {
-  const stored = await api.storage.local.get([ATTEMPTS, UNLISTED, PICTURES]);
+  const stored = await api.storage.local.get([ATTEMPTS, HISTORY_SCAN, UNLISTED, PICTURES]);
   attempts = Array.isArray(stored[ATTEMPTS]) ? stored[ATTEMPTS] : [];
   renderSummary();
+  renderHistoryScan(stored[HISTORY_SCAN]);
   $('save-file').hidden = attempts.length === 0;
   $('every-try').hidden = attempts.length === 0;
   $('every-try').textContent = `See every try (${attempts.length})`;
@@ -86,9 +106,13 @@ function saveFile() {
 }
 
 $('save-file').addEventListener('click', saveFile);
+$('history-scan-now').addEventListener('click', () => {
+  $('history-scan').textContent = "Looking through this browser's history…";
+  api.runtime.sendMessage({ type: 'scan-history' }).catch(() => {});
+});
 // Keep the record current while the page is open.
 api.storage.onChanged.addListener((changes, area) => {
-  if (area === 'local' && (changes[ATTEMPTS] || changes[UNLISTED] || changes[PICTURES])) render();
+  if (area === 'local' && (changes[ATTEMPTS] || changes[HISTORY_SCAN] || changes[UNLISTED] || changes[PICTURES])) render();
 });
 
 showVersion(api);

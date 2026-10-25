@@ -1008,7 +1008,7 @@ test("the installer package for the launch agent: what pkgbuild and productbuild
 
 test('every file the pages reference exists', () => {
   const pages = readdirSync(EXT).filter((name) => name.endsWith('.html'));
-  assert.deepEqual(pages.sort(), ['attempts.html', 'blocked.html', 'options.html', 'pictures.html', 'tries.html', 'unlisted.html']);
+  assert.deepEqual(pages.sort(), ['attempts.html', 'blocked.html', 'lockbox.html', 'options.html', 'pictures.html', 'tries.html', 'unlisted.html']);
   for (const page of pages) {
     const html = readFileSync(join(EXT, page), 'utf8');
     for (const [, ref] of html.matchAll(/(?:src|href)="([^"#:]+)"/g)) {
@@ -1018,7 +1018,7 @@ test('every file the pages reference exists', () => {
 });
 
 test('module imports resolve', () => {
-  for (const file of ['background.js', 'options.js', 'attempts.js', 'tries.js', 'pictures.js', 'unlisted.js', 'lockbox.js', 'lockbox-worker.js', 'lib/attempts.js', 'lib/domains.js', 'lib/mylist.js', 'lib/page.js', 'lib/rules.js', 'lib/safesearch.js', 'lib/suspects.js', 'lib/timelock.js']) {
+  for (const file of ['background.js', 'options.js', 'attempts.js', 'tries.js', 'pictures.js', 'unlisted.js', 'lockbox.js', 'lockbox-worker.js', 'lib/attempts.js', 'lib/domains.js', 'lib/lockbox.js', 'lib/mylist.js', 'lib/page.js', 'lib/pictures.js', 'lib/rules.js', 'lib/safesearch.js', 'lib/suspects.js', 'lib/timelock.js']) {
     const source = readFileSync(join(EXT, file), 'utf8');
     for (const [, specifier] of source.matchAll(/from\s+'(\.{1,2}\/[^']+)'/g)) {
       assert.ok(existsSync(resolve(EXT, dirname(file), specifier)), `${file} imports missing ${specifier}`);
@@ -1027,7 +1027,7 @@ test('module imports resolve', () => {
 });
 
 test('extension scripts have no syntax errors', () => {
-  for (const file of ['background.js', 'blocked.js', 'options.js', 'attempts.js', 'tries.js', 'pictures.js', 'unlisted.js', 'lockbox.js', 'lockbox-worker.js', 'lib/attempts.js', 'lib/domains.js', 'lib/mylist.js', 'lib/page.js', 'lib/rules.js', 'lib/safesearch.js', 'lib/suspects.js', 'lib/timelock.js']) {
+  for (const file of ['background.js', 'blocked.js', 'options.js', 'attempts.js', 'tries.js', 'pictures.js', 'unlisted.js', 'lockbox.js', 'lockbox-worker.js', 'lib/attempts.js', 'lib/domains.js', 'lib/lockbox.js', 'lib/mylist.js', 'lib/page.js', 'lib/pictures.js', 'lib/rules.js', 'lib/safesearch.js', 'lib/suspects.js', 'lib/timelock.js']) {
     const run = spawnSync(process.execPath, ['--check', join(EXT, file)], { encoding: 'utf8' });
     assert.equal(run.status, 0, `${file}: ${run.stderr}`);
   }

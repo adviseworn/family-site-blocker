@@ -1,31 +1,19 @@
-// The "Locked-away password" section of the settings page. The password is kept only inside a time-lock
-// puzzle (lib/timelock.js); getting it back means letting lockbox-worker.js work through the puzzle with
-// this page open. Progress is saved as it goes, so closing the page pauses the work rather than losing it.
+// The locked-away password, on a page of its own (lockbox.html; the settings page shows one line on where
+// it stands and links here). The password is kept only inside a time-lock puzzle (lib/timelock.js);
+// getting it back means letting lockbox-worker.js work through the puzzle with this page open. Progress
+// is saved as it goes, so closing the page pauses the work rather than losing it.
+import { BOX, PROGRESS, duration, loadBox } from './lib/lockbox.js';
+import { showVersion } from './lib/page.js';
 import { START, isBox, modulusOf, open, seal } from './lib/timelock.js';
 
 const api = globalThis.browser ?? globalThis.chrome;
 const store = api.storage.local;
 const $ = (id) => document.getElementById(id);
 
-const BOX = 'lockbox';
-const PROGRESS = 'lockboxProgress'; // { n, x, done }: the box being worked on, the number reached so far, steps done
 const SAVE_EVERY_MS = 5000;
 
 let worker = null;
 let lastSaved = 0;
-
-const plural = (count, word) => `${count} ${word}${count === 1 ? '' : 's'}`;
-
-function duration(seconds) {
-  seconds = Math.max(1, Math.round(seconds));
-  if (seconds < 60) return plural(seconds, 'second');
-  const minutes = Math.round(seconds / 60);
-  if (minutes < 60) return plural(minutes, 'minute');
-  const hours = Math.floor(minutes / 60);
-  if (hours < 48) return [plural(hours, 'hour'), minutes % 60 ? plural(minutes % 60, 'minute') : ''].filter(Boolean).join(' ');
-  const days = Math.floor(hours / 24);
-  return [plural(days, 'day'), hours % 24 ? plural(hours % 24, 'hour') : ''].filter(Boolean).join(' ');
-}
 
 function say(text) {
   $('lockbox-status').textContent = text;
@@ -45,12 +33,7 @@ function measureRate() {
   }).finally(() => measuring.terminate());
 }
 
-async function load() {
-  const { [BOX]: box, [PROGRESS]: progress } = await store.get([BOX, PROGRESS]);
-  if (!isBox(box)) return { box: null, progress: null };
-  // Progress only counts for the box it was made on.
-  return { box, progress: progress?.n === box.n ? progress : null };
-}
+const load = () => loadBox(store);
 
 function showOnly(id) {
   for (const part of ['lockbox-empty', 'lockbox-locked', 'lockbox-open']) $(part).hidden = part !== id;
@@ -268,4 +251,5 @@ $('lockbox-restore').addEventListener('change', restore);
 $('lockbox-hide').addEventListener('click', hide);
 $('lockbox-copy').addEventListener('click', copy);
 
+showVersion(api);
 render().catch((error) => say(`Couldn’t read the locked-away password: ${error.message}`));

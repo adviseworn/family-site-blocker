@@ -410,10 +410,11 @@ describe('real browser', () => {
         await page.waitForFunction(() => document.querySelector('#check-note')?.textContent.length > 0);
         assert.equal(
           await page.locator('#check-note').innerText(),
-          "This browser doesn't let extensions run this check automatically, so use the button above.",
+          "This browser doesn't let extensions check the addresses automatically, so open the test site.",
         );
-        assert.equal(await page.locator('#check-intro').isVisible(), false, 'no sentence promising a check that cannot run');
+        assert.equal(await page.locator('#check-details').isVisible(), false, 'no list promising a check that cannot run');
         assert.equal(await page.locator('#results li').count(), 0);
+        assert.ok(await page.evaluate(() => document.getElementById('check').classList.contains('ok')), 'nothing known to be wrong');
         assert.match(await page.locator('#summary').innerText(), new RegExp(`^${BUILT_IN} sites on the built-in list`));
       } finally {
         await page.close();
@@ -424,8 +425,29 @@ describe('real browser', () => {
       const page = await openSettings();
       try {
         assert.match(await page.locator('#check-note').innerText(), /^All \d+ checks passed\.$/);
-        assert.equal(await page.locator('#check-intro').isVisible(), true, 'the sentence introducing the results is shown');
+        assert.equal(await page.locator('#check-details').isVisible(), true, 'the checks can be opened');
+        assert.equal(await page.locator('#check-details').evaluate((details) => details.open), false, 'but are folded away: six Passed rows say nothing new');
+        assert.equal(await page.locator('#results li').count(), 6);
+        assert.ok(await page.evaluate(() => document.getElementById('check').classList.contains('ok')), 'ticked');
         assert.deepEqual(page.errors, []);
+      } finally {
+        await page.close();
+      }
+    });
+
+    test('the board says whether anything stops the person switching the add-on off: nothing does, for an extension loaded unpacked', async () => {
+      const page = await openSettings();
+      try {
+        await page.locator('#lock').waitFor({ state: 'visible' });
+        assert.match(await page.locator('#lock-status').innerText(), /^Anyone who can open the extensions page can switch the add-on off or remove it; the lock covers Firefox only\. What to do about that\.$/);
+        assert.ok(await page.evaluate(() => document.getElementById('lock').classList.contains('todo')), 'marked as something to do');
+        assert.equal(await page.locator('#lock-status a').getAttribute('href'), 'https://github.com/adviseworn/family-site-blocker#limits');
+        // The page is short again (#70): the explanations live in the README, linked from each section.
+        const words = await page.evaluate(() => document.body.innerText.split(/\s+/).filter(Boolean).length);
+        assert.ok(words < 450, `${words} words on the settings page`);
+        assert.ok((await page.locator('a[href^="https://github.com/adviseworn/family-site-blocker#"]').count()) >= 4, 'links to the README');
+        assert.equal(await page.locator('#lockbox-page').getAttribute('href'), 'lockbox.html');
+        assert.equal(await page.locator('#lockbox-line').innerText(), 'No password is locked away.');
       } finally {
         await page.close();
       }
@@ -467,6 +489,7 @@ describe('real browser', () => {
         await page.waitForFunction(() => document.getElementById('private-status').textContent !== 'Checking…');
         assert.match(await page.locator('#private-status').innerText(), /Private \(Incognito\) windows are not blocked yet/);
         assert.equal(await page.locator('#private-open').isVisible(), true);
+        assert.ok(await page.evaluate(() => document.getElementById('private').classList.contains('todo')), 'marked as something to do');
 
         // The button takes the person to this extension's page in the browser's extensions list.
         const [details] = await Promise.all([browser.context.waitForEvent('page'), page.click('#private-open')]);
@@ -618,8 +641,19 @@ describe('real browser', () => {
       }
     });
 
+    /** The record page, where the browser's history is looked through from (#70). */
+    async function openRecord() {
+      const record = await browser.context.newPage();
+      record.errors = [];
+      record.on('pageerror', (error) => record.errors.push(error.message));
+      await record.goto(`chrome-extension://${browser.extensionId}/attempts.html`);
+      await record.waitForFunction(() => document.getElementById('history-scan').textContent.length > 0);
+      return record;
+    }
+
     test("visits found in this browser's history are added once, marked as such, with their own time, then taken out of the history with any bookmarks", async () => {
       const page = await freshRecord();
+      const record = await openRecord();
       // Pages of a site (or its subdomains) in the browser's history and bookmarks; look-alikes such as
       // exampleadultsite.co, which earlier tests opened, are not its pages and stay.
       const ofSite = (site) => (urls) => urls.filter((url) => new URL(url).hostname === site || new URL(url).hostname.endsWith(`.${site}`));
@@ -632,8 +666,9 @@ describe('real browser', () => {
         await page.evaluate(() => chrome.history.addUrl({ url: 'http://allowed.test/not-listed' }));
         await page.evaluate(() => chrome.bookmarks.create({ title: 'saved', url: 'https://www.exampleadultsite.com/saved' }));
         await page.evaluate(() => chrome.bookmarks.create({ title: 'kept', url: 'http://allowed.test/kept' }));
-        await page.click('#history-scan-now');
-        await page.waitForFunction(() => /^Looked through this browser's history on .+: found \d+ visits? to listed sites/.test(document.getElementById('history-scan').textContent));
+        assert.equal(await page.locator('#history-scan-now').count(), 0, 'the look through the history is started from the record page now');
+        await record.click('#history-scan-now');
+        await record.waitForFunction(() => /^Looked through this browser's history on .+: found \d+ visits? to listed sites/.test(document.getElementById('history-scan').textContent));
         const list = await stored(page);
         const fromHistory = list.filter((entry) => entry.from === 'history');
         assert.ok(fromHistory.length >= 1, JSON.stringify(list));
@@ -646,7 +681,7 @@ describe('real browser', () => {
 
         // Once in the record, listed pages are taken out of the browser's history, and bookmarks to listed
         // sites removed, so the address bar has nothing to suggest; everything else is left alone.
-        const line = await page.locator('#history-scan').innerText();
+        const line = await record.locator('#history-scan').innerText();
         assert.match(line, / Removed \d+ pages? from this browser's history and 1 bookmark\.$/, line);
         assert.deepEqual(await inHistory(SITE), []);
         assert.deepEqual(await bookmarked(SITE), []);
@@ -655,18 +690,20 @@ describe('real browser', () => {
 
         // Looking again finds nothing left, and adds nothing.
         const before = (await stored(page)).length;
-        await page.click('#history-scan-now');
-        await page.waitForFunction(() => /found no visits to listed sites\.$/.test(document.getElementById('history-scan').textContent));
+        await record.click('#history-scan-now');
+        await record.waitForFunction(() => /found no visits to listed sites\.$/.test(document.getElementById('history-scan').textContent));
         assert.equal((await stored(page)).length, before);
         assert.deepEqual(page.errors, []);
+        assert.deepEqual(record.errors, []);
       } finally {
         await page.evaluate(() => chrome.bookmarks.search('allowed.test').then((items) => Promise.all(items.map((item) => chrome.bookmarks.remove(item.id))))).catch(() => {});
         await page.evaluate(() => chrome.storage.local.remove(['attempts', 'historyScan'])).catch(() => {});
+        await record.close();
         await page.close();
       }
     });
 
-    test('the latest 10 are shown, with a link to the whole record on a page of its own', async () => {
+    test('the latest 3 are shown, with a link to the whole record on a page of its own', async () => {
       const page = await freshRecord();
       let record = null;
       try {
@@ -678,9 +715,9 @@ describe('real browser', () => {
           attempts[59].opened = true;
           return chrome.storage.local.set({ attempts });
         });
-        await page.waitForFunction(() => document.querySelectorAll('#attempts-table tbody tr').length === 10);
+        await page.waitForFunction(() => document.querySelectorAll('#attempts-table tbody tr').length === 3);
         assert.equal((await shown(page))[0][1], 'site3.test', 'newest first');
-        assert.equal(await page.locator('#attempts-table caption').innerText(), 'The latest 10');
+        assert.equal(await page.locator('#attempts-table caption').innerText(), 'The latest 3');
         await page.locator('#attempts-all').waitFor({ state: 'visible' });
         assert.equal(await page.locator('#attempts-all').innerText(), 'See the whole record (60)');
 
@@ -781,13 +818,13 @@ describe('real browser', () => {
             chrome.history.addUrl({ url: 'http://exampleadultsite.com/listed-already' }),
           ]),
         );
-        await page.click('#history-scan-now');
+        await record.goto(`chrome-extension://${browser.extensionId}/attempts.html`);
+        await record.click('#history-scan-now');
         await page.waitForFunction(() => !document.getElementById('unlisted-note').hidden);
         assert.equal(await page.locator('#unlisted-note').innerText(), "1 site in this browser's history looks adult but isn't on either list: see which.");
         assert.equal(await page.locator('#unlisted-note a').getAttribute('href'), 'unlisted.html');
 
         // The record page sums them up in a line; the unlisted page lists them (#54).
-        await record.goto(`chrome-extension://${browser.extensionId}/attempts.html`);
         await record.waitForFunction(() => /^1 site in this browser's history looks adult but isn't on either list\./.test(document.querySelector('#unlisted-line span').textContent));
         assert.equal(await record.locator('#unlisted-line a').getAttribute('href'), 'unlisted.html');
         await record.goto(`chrome-extension://${browser.extensionId}/unlisted.html`);
@@ -977,7 +1014,7 @@ describe('real browser', () => {
         assert.equal(await drawnRow.locator('button').innerText(), 'Copied');
 
         await settings.waitForFunction(() => /pictures? judged, \d+ hidden/.test(document.getElementById('picture-status').textContent));
-        assert.match(await settings.locator('#picture-status').innerText(), /^Since the browser started: \d+ pictures judged, \d+ hidden; judging runs stand-in\.$/);
+        assert.match(await settings.locator('#picture-status').innerText(), /^Pictures and videos are judged before they show: since the browser started, \d+ pictures judged, \d+ hidden \(stand-in\)\.$/);
         assert.equal(await settings.locator('#picture-strictness').inputValue(), 'strict', 'the default');
         assert.deepEqual(await settings.evaluate(() => [...document.getElementById('picture-strictness').options].map((o) => o.value)), ['strict', 'nudity']);
       } finally {
@@ -1123,7 +1160,7 @@ describe('real browser', () => {
         assert.equal(await record.locator('#hidden-pictures-table tbody tr', { hasText: '/pics/nude.jpg' }).locator('.kind-mark').count(), 0, 'pictures carry no mark');
 
         await settings.waitForFunction(() => /video frames judged/.test(document.getElementById('picture-status').textContent));
-        assert.match(await settings.locator('#picture-status').innerText(), /^Since the browser started: \d+ pictures judged, \d+ hidden; \d+ video frames judged, \d+ videos hidden; judging runs stand-in\.$/);
+        assert.match(await settings.locator('#picture-status').innerText(), /^Pictures and videos are judged before they show: since the browser started, \d+ pictures judged, \d+ hidden; \d+ video frames judged, \d+ videos hidden \(stand-in\)\.$/);
       } finally {
         await record.close();
         await settings.close();
@@ -1152,8 +1189,12 @@ describe('real browser', () => {
   describe('locked-away password', () => {
     const SECRET = 'Admin-Password-4-Tests';
 
+    // The password has a page of its own since #70; the settings page shows one line on where it stands.
     async function freshSettings() {
-      const page = await openSettings();
+      const page = await browser.context.newPage();
+      page.errors = [];
+      page.on('pageerror', (error) => page.errors.push(error.message));
+      await page.goto(`chrome-extension://${browser.extensionId}/lockbox.html`);
       await page.evaluate(() => chrome.storage.local.clear());
       await page.reload();
       await page.locator('#lockbox-empty').waitFor({ state: 'visible' });
@@ -1189,7 +1230,18 @@ describe('real browser', () => {
         assert.ok(!JSON.stringify(stored).includes(SECRET));
         assert.equal(stored.lockbox.delay, 3);
         assert.ok(stored.lockbox.steps > 1000, `steps: ${stored.lockbox.steps}`);
+        assert.match(await page.locator('#version').innerText(), /^Version \d+\.\d+\.\d+$/);
         assert.deepEqual(page.errors, []);
+        // The settings page says where it stands, and follows along.
+        const settings = await openSettings();
+        try {
+          await settings.waitForFunction(() => /^A password is locked away/.test(document.getElementById('lockbox-line').textContent));
+          assert.match(await settings.locator('#lockbox-line').innerText(), /^A password is locked away \(since .+\); getting it back takes about [1-4] seconds\.$/);
+          await settings.evaluate(() => chrome.storage.local.remove(['lockbox', 'lockboxProgress']));
+          await settings.waitForFunction(() => document.getElementById('lockbox-line').textContent === 'No password is locked away.');
+        } finally {
+          await settings.close();
+        }
       } finally {
         await page.close();
       }
@@ -1234,8 +1286,15 @@ describe('real browser', () => {
         await progressSaved(page);
         await page.close();
 
-        page = await openSettings();
+        page = await browser.context.newPage();
+        page.errors = [];
+        page.on('pageerror', (error) => page.errors.push(error.message));
+        await page.goto(`chrome-extension://${browser.extensionId}/lockbox.html`);
         await page.waitForFunction(() => document.getElementById('lockbox-start').textContent === 'Carry on unlocking');
+        // Meanwhile the settings page says so in its line.
+        const settings = await openSettings();
+        await settings.waitForFunction(() => /unlocking it is \d+% done\.$/.test(document.getElementById('lockbox-line').textContent));
+        await settings.close();
         assert.match(await page.locator('#lockbox-progress-text').innerText(), /^\d+% done, about \d+ seconds? to go\.$/);
         assert.equal(await page.locator('#lockbox-stop').isVisible(), true);
         await page.click('#lockbox-start');
