@@ -1,12 +1,13 @@
 // The locked-away password, on a page of its own (lockbox.html; the settings page shows one line on where
 // it stands and links here). The password is kept only inside a time-lock puzzle (lib/timelock.js);
-// getting it back means letting lockbox-worker.js work through the puzzle with this page open. Progress
-// is saved as it goes, so closing the page pauses the work rather than losing it. Everything done here is
-// written to a record (lib/lockbox.js, EVENTS) that the page shows below the password, newest first, and
-// that stays when the password is deleted or replaced (#75).
-import { BOX, PROGRESS, describeEvent, duration, loadBox, recordEvent, sinceOf } from './lib/lockbox.js';
+// getting it back means letting lockbox-worker.js work through the puzzle with this page open: layer by
+// layer when the wait has been lengthened, each layer's puzzle giving the box inside it and the last the
+// password. Progress is saved as it goes, so closing the page pauses the work rather than losing it.
+// Everything done here is written to a record (lib/lockbox.js, EVENTS) that the page shows below the
+// password, newest first, and that stays when the password is deleted or replaced (#75).
+import { BOX, PROGRESS, describeEvent, duration, fractionDone, layerUnderWork, loadBox, recordEvent, sinceText } from './lib/lockbox.js';
 import { element, showVersion, whenFormat } from './lib/page.js';
-import { START, isBox, modulusOf, open, seal } from './lib/timelock.js';
+import { START, isBox, lengthen, modulusOf, open, seal, secondsOf, stepsOf, waitOf } from './lib/timelock.js';
 
 const api = globalThis.browser ?? globalThis.chrome;
 const store = api.storage.local;
@@ -15,11 +16,15 @@ const $ = (id) => document.getElementById(id);
 const SAVE_EVERY_MS = 5000;
 /** How many entries of the record the page shows before "Show all". */
 const EVENTS_SHOWN = 10;
+// What a longer wait can't undo, said when the password is locked away again with one from the open panel
+// (the locked panel's note says it before the wait is lengthened there).
+const OLD_BACKUPS =
+  'A backup file saved before this still opens after the old wait: delete it (and empty the Trash) or make up a new password, and save a new backup file.';
 
 let worker = null;
 let lastSaved = 0;
 let startedAt = null; // when the unlocking under way was started, for the progress record and the `shown` entry
-let latestDone = 0; // the steps done so far by the worker, which is ahead of the progress saved
+let latestDone = 0; // the squarings done so far by the worker, over every layer, which is ahead of the progress saved
 // A failure to write the record must not stop what the person asked for; it is noted in the console.
 const record = (event, details) =>
   recordEvent(store, event, details).catch((error) => {
@@ -51,11 +56,40 @@ function showOnly(id) {
   for (const part of ['lockbox-empty', 'lockbox-locked', 'lockbox-open']) $(part).hidden = part !== id;
 }
 
-function showProgress(box, done, rate) {
+/** Times this computer, locks `secret` away with a wait of `delay` seconds in place of whatever is stored, and throws any unlocking progress away. */
+async function lockAway(secret, delay) {
+  const rate = await measureRate();
+  const box = await seal(secret, { steps: Math.max(1, Math.round(delay * rate)), delay, rate });
+  await store.set({ [BOX]: box });
+  await store.remove(PROGRESS);
+  return box;
+}
+
+/** Picks the option of `select` worth `seconds`, when there is one. */
+function choose(select, seconds) {
+  const option = [...select.options].find((candidate) => Number(candidate.value) === seconds);
+  if (option) option.selected = true;
+}
+
+/** Leaves only the waits longer than `present` seconds to choose from in `select`; false when there is none. */
+function offerLonger(select, present) {
+  const longer = [...select.options].filter((option) => {
+    option.disabled = Number(option.value) <= Math.round(present);
+    return !option.disabled;
+  });
+  if (longer.length && select.selectedOptions[0]?.disabled !== false) longer[0].selected = true;
+  return longer.length > 0;
+}
+
+/** The progress bar and its line: how far through all the squarings, and about how long to go at `rate`. */
+function showProgress(box, progress, rate) {
+  const layer = layerUnderWork({ box, progress });
+  const fraction = fractionDone({ box, progress });
   $('lockbox-progress-area').hidden = false;
-  $('lockbox-progress').value = done / box.steps;
-  const percent = Math.floor((done / box.steps) * 100);
-  $('lockbox-progress-text').textContent = `${percent}% done, about ${duration((box.steps - done) / rate)} to go.`;
+  $('lockbox-progress').value = fraction;
+  // The rest of this layer at the rate seen, then the layers inside it at the rates they were timed at.
+  const toGo = (layer.steps - progress.done) / rate + secondsOf(layer.inside ?? []);
+  $('lockbox-progress-text').textContent = `${Math.floor(fraction * 100)}% done, about ${duration(toGo)} to go.`;
 }
 
 /** The record, newest first: the latest few entries, and a button that shows the rest. */
@@ -88,9 +122,8 @@ async function render() {
     return;
   }
   showOnly('lockbox-locked');
-  const locked = new Date(sinceOf({ box, events })).toLocaleDateString(undefined, { dateStyle: 'medium' });
   $('lockbox-summary').textContent =
-    `A password is locked away (since ${locked}). Getting it back takes about ${duration(box.steps / box.rate)} ` +
+    `A password is locked away (${sinceText({ box, events })}). Getting it back takes about ${duration(waitOf(box))} ` +
     'of computing with this page open and the computer awake. If the page is closed or the computer sleeps, ' +
     'the work pauses and carries on where it left off.';
 
@@ -99,7 +132,12 @@ async function render() {
   $('lockbox-start').textContent = progress ? 'Carry on unlocking' : 'Start unlocking';
   $('lockbox-stop').hidden = !running && !progress;
   $('lockbox-delete').hidden = running;
-  if (progress) showProgress(box, progress.done, box.rate);
+  $('lockbox-lengthen-area').hidden = running;
+  const canLengthen = offerLonger($('lockbox-longer'), waitOf(box));
+  $('lockbox-longer').disabled = !canLengthen;
+  $('lockbox-lengthen').disabled = !canLengthen;
+  $('lockbox-longest').hidden = canLengthen;
+  if (progress) showProgress(box, progress, layerUnderWork({ box, progress }).rate);
   else $('lockbox-progress-area').hidden = true;
 }
 
@@ -113,10 +151,7 @@ async function lock() {
   $('lockbox-lock').disabled = true;
   say('Timing this computer to set the wait…');
   try {
-    const rate = await measureRate();
-    const box = await seal(secret, { steps: Math.max(1, Math.round(delay * rate)), delay, rate });
-    await store.set({ [BOX]: box });
-    await store.remove(PROGRESS);
+    await lockAway(secret, delay);
     await record('locked', { delay });
     $('lockbox-secret').value = '';
     await render();
@@ -128,35 +163,93 @@ async function lock() {
   }
 }
 
+// Locks the stored box inside a longer puzzle, so that the whole wait becomes the one chosen. The password
+// isn't needed for that, so there is no unlocking; any unlocking under way would have to start again.
+async function lengthenWait() {
+  const { box, progress } = await load();
+  if (!box || worker) return;
+  const target = Number($('lockbox-longer').value);
+  const present = waitOf(box);
+  if (!(target > Math.round(present))) {
+    say('Choose a wait longer than the present one.');
+    return;
+  }
+  if (progress && !confirm('Lengthening the wait throws away the unlocking done so far. Carry on?')) return;
+  $('lockbox-lengthen').disabled = true;
+  say('Timing this computer to set the wait…');
+  let note;
+  try {
+    const rate = await measureRate();
+    if (worker) throw new Error('unlocking was started meanwhile');
+    const longer = await lengthen(box, { steps: Math.max(1, Math.round((target - present) * rate)), delay: target, rate });
+    await store.set({ [BOX]: longer });
+    await store.remove(PROGRESS);
+    await record('lengthened', { from: box.delay, to: target });
+    note = `The wait is now ${duration(waitOf(longer))}. Save a new backup file: one saved before this still opens after the old wait.`;
+  } catch (error) {
+    note = `Couldn’t lengthen the wait: ${error.message}`;
+  }
+  await render();
+  say(note);
+}
+
 async function startUnlocking() {
   const { box, progress } = await load();
   if (!box || worker) return;
-  const n = modulusOf(box);
   worker = startWorker();
   // The record says it was started, or carried on and from where. Work carried on keeps the time it was
   // first started (progress saved before 1.9.0 has none: then the time it was carried on stands in).
-  latestDone = progress?.done ?? 0;
+  latestDone = progress ? progress.before + progress.done : 0;
   if (progress) {
-    const resumed = await record('resumed', { done: progress.done, steps: box.steps });
+    const resumed = await record('resumed', { done: latestDone, steps: stepsOf(box) });
     startedAt = typeof progress.startedAt === 'string' ? progress.startedAt : resumed.at;
   } else {
     startedAt = (await record('started')).at;
   }
   say('');
   await render();
-  showProgress(box, progress?.done ?? 0, box.rate);
+  work(box, progress?.before ?? 0, progress?.inner, progress ? BigInt(`0x${progress.x}`) : START, progress?.done ?? 0);
+}
 
+/**
+ * Sets the worker on one layer of the stored `box`: the box itself, or `inner`, a box inside it that the
+ * work has reached; from the number `x` reached after `done` of its squarings, with `before` squarings done
+ * in the layers already opened. Once the layer's puzzle is solved, carries on with the box inside it, or
+ * shows the password.
+ */
+function work(box, before, inner, x, done) {
+  const layer = inner ?? box;
+  const progressOf = (reached, count) => ({ n: box.n, ...(inner && { inner }), x: reached.toString(16), done: count, before, startedAt, workedAt: new Date().toISOString() });
   worker.onmessage = async ({ data }) => {
     if (data.type === 'progress') {
-      latestDone = data.done;
-      showProgress(box, data.done, data.rate || box.rate);
+      latestDone = before + data.done;
+      showProgress(box, { before, inner, done: data.done }, data.rate || layer.rate);
       if (Date.now() - lastSaved >= SAVE_EVERY_MS) {
         lastSaved = Date.now();
-        await store.set({ [PROGRESS]: { n: box.n, x: data.x.toString(16), done: data.done, startedAt, workedAt: new Date().toISOString() } });
+        await store.set({ [PROGRESS]: progressOf(data.x, data.done) });
       }
     } else if (data.type === 'finished') {
-      stopWorker();
-      await reveal(box, data.x);
+      let found;
+      try {
+        found = await open(layer, data.x);
+      } catch {
+        stopWorker();
+        await store.remove(PROGRESS);
+        await render();
+        say('The puzzle’s answer didn’t open the box, so the saved progress was wrong. Start unlocking again.');
+        return;
+      }
+      if (typeof found === 'string') {
+        stopWorker();
+        await reveal(box, found);
+        return;
+      }
+      // A box inside: its puzzle comes next. Saved at once, so that closing the page now keeps the layer just done.
+      const opened = before + layer.steps;
+      latestDone = opened;
+      lastSaved = Date.now();
+      await store.set({ [PROGRESS]: { n: box.n, inner: found, x: START.toString(16), done: 0, before: opened, startedAt, workedAt: new Date().toISOString() } });
+      work(box, opened, found, START, 0);
     }
   };
   worker.onerror = async (event) => {
@@ -164,13 +257,7 @@ async function startUnlocking() {
     await render();
     say(`Unlocking stopped: ${event.message || 'the worker failed'}. Progress so far is kept.`);
   };
-  worker.postMessage({
-    type: 'run',
-    n,
-    x: progress ? BigInt(`0x${progress.x}`) : START,
-    done: progress?.done ?? 0,
-    steps: box.steps,
-  });
+  worker.postMessage({ type: 'run', n: modulusOf(layer), x, done, steps: layer.steps });
 }
 
 function stopWorker() {
@@ -179,26 +266,16 @@ function stopWorker() {
 }
 
 // Shows the password, and locks it away again straight away with the same wait, timed afresh.
-async function reveal(box, answer) {
-  let secret;
-  try {
-    secret = await open(box, answer);
-  } catch {
-    await store.remove(PROGRESS);
-    await render();
-    say('The puzzle’s answer didn’t open the password, so the saved progress was wrong. Start unlocking again.');
-    return;
-  }
+async function reveal(box, secret) {
   $('lockbox-revealed').value = secret;
   showOnly('lockbox-open');
+  choose($('lockbox-new-wait'), box.delay);
   await record('shown', { startedAt });
   say('Locking it away again…');
   try {
-    const rate = await measureRate();
-    const again = await seal(secret, { steps: Math.max(1, Math.round(box.delay * rate)), delay: box.delay, rate });
-    await store.set({ [BOX]: again });
-    await store.remove(PROGRESS);
+    await lockAway(secret, box.delay);
     await record('sealed', { delay: box.delay });
+    $('lockbox-again').textContent = `It’s already locked away again with the same wait (${duration(box.delay)}). It stays on this page until you click Hide or close the page.`;
     say('');
   } catch (error) {
     // The old box is still stored, so the password stays locked away, but unlocking it starts from the beginning.
@@ -209,13 +286,35 @@ async function reveal(box, answer) {
   renderEvents((await load()).events);
 }
 
+// Locks the password shown away again with the wait chosen on the open panel, in place of the box just made.
+async function relock() {
+  const secret = $('lockbox-revealed').value;
+  if (!secret) return;
+  const delay = Number($('lockbox-new-wait').value);
+  const { box } = await load();
+  const longer = box !== null && delay > Math.round(waitOf(box));
+  $('lockbox-relock').disabled = true;
+  say('Timing this computer to set the wait…');
+  try {
+    await lockAway(secret, delay);
+    await record('sealed', { delay, previous: box?.delay });
+    $('lockbox-again').textContent = `It’s locked away again with a wait of ${duration(delay)}. It stays on this page until you click Hide or close the page.`;
+    say(`Locked away again with a wait of ${duration(delay)}.${longer ? ` ${OLD_BACKUPS}` : ''}`);
+  } catch (error) {
+    say(`Couldn’t lock it away again with that wait: ${error.message}`);
+  } finally {
+    $('lockbox-relock').disabled = false;
+  }
+  renderEvents((await load()).events);
+}
+
 async function stopUnlocking() {
   const { box, progress } = await load();
   const sofar = progress || worker ? ' The work done so far will be lost.' : '';
   if (!confirm(`Stop unlocking?${sofar}`)) return;
   stopWorker();
   await store.remove(PROGRESS);
-  await record('stopped', { done: Math.max(progress?.done ?? 0, latestDone), steps: box?.steps ?? 0 });
+  await record('stopped', { done: Math.max(progress ? progress.before + progress.done : 0, latestDone), steps: box ? stepsOf(box) : 0 });
   await render();
   say('Unlocking stopped. The password is still locked away.');
 }
@@ -296,6 +395,7 @@ async function copy() {
 
 $('lockbox-lock').addEventListener('click', lock);
 $('lockbox-make').addEventListener('click', makeOne);
+$('lockbox-lengthen').addEventListener('click', lengthenWait);
 $('lockbox-start').addEventListener('click', startUnlocking);
 $('lockbox-stop').addEventListener('click', stopUnlocking);
 $('lockbox-delete').addEventListener('click', remove);
@@ -303,6 +403,7 @@ $('lockbox-backup').addEventListener('click', backup);
 $('lockbox-restore').addEventListener('change', restore);
 $('lockbox-hide').addEventListener('click', hide);
 $('lockbox-copy').addEventListener('click', copy);
+$('lockbox-relock').addEventListener('click', relock);
 $('lockbox-events-more').addEventListener('click', showAllEvents);
 
 showVersion(api);
