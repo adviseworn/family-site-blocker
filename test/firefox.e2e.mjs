@@ -713,7 +713,6 @@ describe('Firefox', { skip: findFirefox() ? false : 'no Firefox found (set FIREF
       await waitUntilShown('lockbox-open', 30_000);
       assert.ok(Date.now() - started >= 2500, 'not sooner than the wait allows');
       assert.equal(await browser.run("return document.getElementById('lockbox-revealed').value"), 'Firefox-Admin-Password');
-      assert.match(await browser.run("return document.getElementById('lockbox-again').textContent"), /^It’s already locked away again with the same wait \(5 seconds\)\./);
 
       // The record of what happened (#75): under the password, newest first, once it has been locked away again.
       const recordUntil = Date.now() + 15_000;
@@ -732,6 +731,7 @@ describe('Firefox', { skip: findFirefox() ? false : 'no Firefox found (set FIREF
         args: [],
       });
       assert.deepEqual(events, ['locked', 'lengthened', 'started', 'shown', 'sealed']);
+      assert.match(await browser.run("return document.getElementById('lockbox-again').textContent"), /^It’s already locked away again with the same wait \(5 seconds\)\./);
 
       await browser.run("document.getElementById('lockbox-hide').click()");
       await waitUntilShown('lockbox-locked');

@@ -268,6 +268,7 @@ function stopWorker() {
 // Shows the password, and locks it away again straight away with the same wait, timed afresh.
 async function reveal(box, secret) {
   $('lockbox-revealed').value = secret;
+  $('lockbox-again').textContent = `Locking it away again with the same wait (${duration(box.delay)})…`;
   showOnly('lockbox-open');
   choose($('lockbox-new-wait'), box.delay);
   await record('shown', { startedAt });
@@ -279,6 +280,7 @@ async function reveal(box, secret) {
     say('');
   } catch (error) {
     // The old box is still stored, so the password stays locked away, but unlocking it starts from the beginning.
+    $('lockbox-again').textContent = 'The old puzzle is kept, so it’s still locked away. It stays on this page until you click Hide or close the page.';
     await store.remove(PROGRESS).catch(() => {});
     await record('seal-failed');
     say(`Couldn’t lock it away again with a fresh puzzle (${error.message}), so the old one is kept.`);
