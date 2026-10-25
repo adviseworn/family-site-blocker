@@ -1,21 +1,27 @@
 // Blocking is done by the browser itself from the rules in rules/adult.json and the list saved from the
 // settings page. This script opens the settings page (right after the extension is installed, so the
-// person can see whether anything still needs switching on, and when the toolbar button is clicked) and
-// keeps the record of blocked attempts. Chrome, Edge and Brave run it as a service worker; Firefox runs
-// it as an event page. Both load it as a module (manifest.json: background.type).
+// person can see whether anything still needs switching on, and when the toolbar button is clicked),
+// keeps the record of blocked attempts, and keeps track of when it is running (lib/watching.js), so the
+// record can say whether the extension was ever off. Chrome, Edge and Brave run it as a service worker;
+// Firefox runs it as an event page. Both load it as a module (manifest.json: background.type).
 import { ATTEMPTS, HISTORY_SCAN, bookmarksTo, hostOf, listedDomain, mergeVisits, record } from './lib/attempts.js';
 import { PICTURES, STRICTNESS, recordHidden, strictnessOf, verdict } from './lib/pictures.js';
 import { domainsOf } from './lib/rules.js';
 import { UNLISTED, tallyUnlisted } from './lib/suspects.js';
+import { BEAT_EVERY_MINUTES, WATCHING, beat, earliestLiveTry, gapsOf, normalize, noteGaps, started } from './lib/watching.js';
 import { backendInUse, judgeBytes } from './classifier.js';
 
 const api = globalThis.browser ?? globalThis.chrome;
 
 api.runtime.onInstalled.addListener(({ reason }) => {
   if (reason === 'install') api.runtime.openOptionsPage();
-  // A new or updated copy may list sites that were visited before it was watching: find them in the history.
-  if (reason === 'install' || reason === 'update') scanHistory();
+  // Note when the extension first started watching here (lib/watching.js), then look through the history:
+  // a new or updated copy may list sites that were visited before it was watching.
+  if (reason === 'install' || reason === 'update') firstStart(reason).then(() => scanHistory());
 });
+// Each time the browser starts, too: the history may hold visits from a time the extension was off (in
+// Firefox's Troubleshoot Mode, say, which a restart ends).
+api.runtime.onStartup.addListener(() => scanHistory());
 api.action.onClicked.addListener(() => api.runtime.openOptionsPage());
 
 // --- Blocked attempts ---------------------------------------------------------------------------------
@@ -47,6 +53,11 @@ function listedDomains() {
 api.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message?.type === 'list-changed') domains = null;
   if (message?.type === 'scan-history') scanHistory();
+  if (message?.type === 'check-gaps') {
+    // The record page asks before it shows when the extension was off, so the answer is current.
+    checkGaps().then(() => sendResponse({ ok: true }), (error) => sendResponse({ error: String(error?.message ?? error) }));
+    return true;
+  }
   if (message?.type === 'judge-picture') {
     judgePicture(message.url, sender).then(sendResponse, (error) => sendResponse({ error: String(error?.message ?? error) }));
     return true; // the answer comes later
@@ -73,6 +84,85 @@ function note(attempt) {
     })
     .catch(() => {});
   return writing;
+}
+
+// --- When the extension is running ---------------------------------------------------------------------
+// Firefox keeps no history of an add-on being switched off and on, so the extension keeps its own (see
+// lib/watching.js): the moment it first started watching in this profile, and the stretches of time this
+// script is known to have been running, from a note when it starts, on every page load it sees (tried,
+// below) and once a minute from an alarm, which also wakes this script when the browser has put it to
+// sleep. A silence longer than lib/watching.js's gap ends a stretch; what the browser's history holds from
+// inside the silence then says whether the browser was in use while the extension wasn't running
+// (checkGaps). When a silence ends, the history is looked through for what was missed meanwhile.
+const HEARTBEAT = 'heartbeat';
+const BEAT_FROM_PAGES_EVERY_MS = 5000; // page loads come in bursts; one look at the stored state in five seconds is plenty
+
+/** Notes when the extension first started watching here: now on an install; for a profile updated from an earlier version, the first try that version noted. */
+function firstStart(reason) {
+  return (writing = writing
+    .then(async () => {
+      const stored = await api.storage.local.get([WATCHING, ATTEMPTS]);
+      const now = Date.now();
+      let state = stored[WATCHING];
+      // On an install, this script's first beat came a moment before this event: the start is that beat.
+      if (reason === 'install') state = started(state, Math.min(now, normalize(state).periods[0]?.from ?? now));
+      else state = started(state, earliestLiveTry(stored[ATTEMPTS]) ?? now, { atLeast: true });
+      await api.storage.local.set({ [WATCHING]: beat(state, now).state });
+    })
+    .catch(() => {}));
+}
+
+let lastBeatFromPage = 0;
+/** Notes that this script is running now; the state is written when lib/watching.js says it is worth it. */
+function noteRunning({ fromPage = false } = {}) {
+  const now = Date.now();
+  if (fromPage && now - lastBeatFromPage < BEAT_FROM_PAGES_EVERY_MS) return writing;
+  lastBeatFromPage = now;
+  return (writing = writing
+    .then(async () => {
+      const stored = (await api.storage.local.get(WATCHING))[WATCHING];
+      const { state, changed } = beat(stored, Date.now());
+      if (!changed) return;
+      await api.storage.local.set({ [WATCHING]: state });
+      // A silence has just ended: the extension was off, or the browser closed. The history says which, and holds what was missed.
+      if (state.periods.length > (stored?.periods?.length ?? 0) && state.periods.length > 1 && !scanning) scanHistory();
+    })
+    .catch(() => {}));
+}
+
+api.alarms.onAlarm.addListener(({ name }) => {
+  if (name === HEARTBEAT) noteRunning();
+});
+api.alarms
+  .get(HEARTBEAT)
+  .then((alarm) => alarm ?? api.alarms.create(HEARTBEAT, { periodInMinutes: BEAT_EVERY_MINUTES }))
+  .catch(() => {});
+noteRunning(); // this script has just started (or been woken)
+
+/**
+ * Looks at each silence between the stretches this script was running: the pages the browser's history
+ * holds from it, and the visits to listed sites the record holds from it (taken out of the history once
+ * noted). lib/watching.js then notes the silences with something in them as times the extension was off,
+ * and closes up the empty ones.
+ */
+async function checkGaps() {
+  await noteRunning();
+  const stored = await api.storage.local.get([WATCHING, ATTEMPTS]);
+  const attempts = Array.isArray(stored[ATTEMPTS]) ? stored[ATTEMPTS] : [];
+  const findings = [];
+  for (const gap of gapsOf(stored[WATCHING])) {
+    const items = await api.history.search({ text: '', startTime: gap.from, endTime: gap.to, maxResults: 100_000 });
+    const pages = items.filter((item) => hostOf(item.url)).length; // web pages; not the block page or the settings pages
+    const listed = attempts.filter((attempt) => attempt.from === 'history' && attempt.at > gap.from && attempt.at < gap.to).length;
+    findings.push({ ...gap, pages, listed });
+  }
+  await (writing = writing
+    .then(async () => {
+      const current = (await api.storage.local.get(WATCHING))[WATCHING];
+      const updated = noteGaps(current, findings);
+      if (updated !== current) await api.storage.local.set({ [WATCHING]: updated });
+    })
+    .catch(() => {}));
 }
 
 // --- The browser's history -------------------------------------------------------------------------------
@@ -113,17 +203,20 @@ function scanHistory() {
     }
     await (writing = writing
       .then(async () => {
-        const stored = (await api.storage.local.get(ATTEMPTS))[ATTEMPTS];
-        const { attempts, found, added } = mergeVisits(stored, visits);
+        const stored = await api.storage.local.get([ATTEMPTS, WATCHING]);
+        const { attempts, found, added } = mergeVisits(stored[ATTEMPTS], visits);
         const taken = error ? { removed: 0, bookmarks: 0 } : await takeOut(pages, await listedDomains().catch(() => new Set()));
         const scan = { at: started, found, added, ...taken, ...(error ? { error } : {}) };
         await api.storage.local.set({
-          ...(added ? { [ATTEMPTS]: attempts } : {}),
+          // Visits found a moment ago fall inside the current stretch of running only if its end is written along with them.
+          ...(added ? { [ATTEMPTS]: attempts, [WATCHING]: beat(stored[WATCHING], Date.now()).state } : {}),
           ...(unlisted ? { [UNLISTED]: unlisted } : {}),
           [HISTORY_SCAN]: scan,
         });
       })
       .catch(() => {}));
+    // The same history says whether the browser was in use while the extension wasn't running.
+    if (!error) await checkGaps();
   })().finally(() => {
     scanning = null;
     if (scanAgain) {
@@ -140,7 +233,12 @@ function scanHistory() {
 // try is in the record, the site's pages are taken out of the browser's history, and bookmarks to listed
 // sites are removed; the record keeps them, with their times. A live try is swept a moment after it is
 // noted, because the browser writes the history entry while the page loads, not when the navigation starts.
+// The sweep finds every page of the site, so the history may hold earlier visits the extension never saw
+// (from a time it was off, say) that no look through the history has recorded yet: those go into the
+// record first, as the scan does it, so nothing leaves the history unrecorded. Visits from the last few
+// minutes are the try just noted (a page that got through is written to the history when it has loaded).
 const SWEEP_AFTER_MS = 2500;
+const SWEEP_SAME_MS = 300_000;
 const sweeps = new Map(); // site -> timer, so a burst of tries at one site is one sweep
 
 function sweepSoon(site) {
@@ -157,8 +255,24 @@ function sweepSoon(site) {
 async function sweep(site) {
   const listed = await listedDomains();
   const pages = [];
+  const visits = [];
+  const recent = Date.now() - SWEEP_SAME_MS;
   for (const item of await api.history.search({ text: site, startTime: 0, maxResults: 100_000 })) {
-    if (listedDomain(hostOf(item.url), listed)) pages.push(item.url);
+    const found = listedDomain(hostOf(item.url), listed);
+    if (!found) continue;
+    pages.push(item.url);
+    for (const visit of await api.history.getVisits({ url: item.url }).catch(() => [])) {
+      if (visit.visitTime < recent && !/subframe/.test(visit.transition ?? '')) visits.push({ at: visit.visitTime, site: found });
+    }
+  }
+  if (visits.length) {
+    await (writing = writing
+      .then(async () => {
+        const stored = await api.storage.local.get([ATTEMPTS, WATCHING]);
+        const { attempts, added } = mergeVisits(stored[ATTEMPTS], visits, SWEEP_SAME_MS);
+        if (added) await api.storage.local.set({ [ATTEMPTS]: attempts, [WATCHING]: beat(stored[WATCHING], Date.now()).state });
+      })
+      .catch(() => {}));
   }
   await takeOut(pages, listed);
 }
@@ -190,6 +304,7 @@ async function listedSite({ frameId, url, documentLifecycle }) {
 }
 
 async function tried(details) {
+  noteRunning({ fromPage: true }); // every page load the extension sees says it is running
   const site = await listedSite(details);
   if (!site) return;
   await note({ at: details.timeStamp ?? Date.now(), site });
