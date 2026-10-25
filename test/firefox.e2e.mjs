@@ -17,7 +17,7 @@ import { BLOCKLIST_DIR } from '../scripts/build-rules.mjs';
 import { filterEntries, filterSites } from '../scripts/firefox-lock.mjs';
 import { EXTENSION_DIR, startStubInternet } from './helpers/browser.mjs';
 import { findFirefox, launchFirefox } from './helpers/firefox.mjs';
-import { MARKS, extensionWithStandInClassifier, galleryPage, servePictures } from './helpers/pictures.mjs';
+import { MARKS, extensionWithStandInClassifier, galleryPage, servePictures, serveVideos, videoPage } from './helpers/pictures.mjs';
 
 const VERSION = JSON.parse(readFileSync(join(EXTENSION_DIR, 'manifest.json'), 'utf8')).version;
 const BUILT_IN = JSON.parse(readFileSync(join(EXTENSION_DIR, 'rules', 'domains.json'), 'utf8')).length;
@@ -632,6 +632,18 @@ describe('Firefox', { skip: findFirefox() ? false : 'no Firefox found (set FIREF
       servePictures(stub, ['cat', 'coffee', 'photo', 'nude', 'lingerie', 'drawn']);
       stub.page('allowed.test/real', galleryPage(['cat', 'coffee']));
       stub.page('allowed.test/gallery', galleryPage(['photo', 'nude', 'lingerie', 'drawn']));
+      // Videos: red is "nude" to the stand-in, blue a photo; blue-then-red turns after a second.
+      serveVideos(stub);
+      stub.page(
+        'allowed.test/videos',
+        videoPage([
+          'id="red" src="/videos/red.webm" autoplay muted loop',
+          'id="blue" src="/videos/blue.webm" autoplay muted loop',
+          'id="turns" src="/videos/blue-then-red.webm" autoplay muted loop',
+          'id="poster-bad" src="/videos/blue.webm" poster="http://pics.test/pics/lingerie.jpg?poster" preload="none"',
+          'id="foreign" src="http://videos.test/videos/red.webm" autoplay muted loop',
+        ]),
+      );
     });
 
     test('the real classifier, through WebAssembly, finds two ordinary photos neutral and shows them', async () => {
@@ -686,6 +698,46 @@ describe('Firefox', { skip: findFirefox() ? false : 'no Firefox found (set FIREF
         await judge.visit('http://allowed.test/gallery');
         marks = await waitForMarks(judge, ['photo', 'nude', 'lingerie', 'drawn']);
         assert.deepEqual([marks.photo[0], marks.nude[0], marks.lingerie[0], marks.drawn[0]], ['ok', 'hidden', 'ok', 'hidden'], JSON.stringify(marks));
+      } finally {
+        await judge.close();
+        standIn.remove();
+      }
+    });
+
+    test('with the stand-in classifier: a video is judged by its poster and frames as it plays, hidden and paused when one shows something, and noted as a video', async () => {
+      const standIn = extensionWithStandInClassifier();
+      const judge = await launchFirefox(stub, { extensionDir: standIn.dir });
+      try {
+        const settings = (await judge.tabs()).find(({ url }) => url.endsWith('/options.html'));
+        await judge.newTab();
+        await judge.visit('http://allowed.test/videos');
+        const marks = await waitForMarks(judge, ['red', 'blue', 'poster-bad', 'foreign']);
+        // Firefox lets an add-on read the frames of a video from another site, which the page itself may not
+        // (Chromium doesn't), so the video from videos.test is judged by its frames too, and hidden.
+        assert.deepEqual(
+          [marks.red, marks.blue, marks['poster-bad'], marks.foreign],
+          [['hidden', 'hidden'], ['ok', 'visible'], ['hidden', 'hidden'], ['hidden', 'hidden']],
+          JSON.stringify(marks),
+        );
+        // Neither hidden video was ever shown; the blue one was judged out of sight, then shown.
+        const seen = await judge.run('return window.__marks');
+        assert.ok(!seen.red.includes('ok'), JSON.stringify(seen.red));
+        assert.deepEqual(seen.blue, ['checking', 'ok'], JSON.stringify(seen.blue));
+        // The one that turns is shown first, then hidden within a moment; hidden videos are paused, the rest play.
+        const until = Date.now() + 20_000;
+        while (!(await judge.run("return document.getElementById('turns').getAttribute('data-family-site-blocker') === 'hidden'")) && Date.now() < until) await sleep(250);
+        const turns = (await judge.run('return window.__marks')).turns;
+        assert.ok(turns.indexOf('ok') >= 0 && turns.indexOf('ok') < turns.lastIndexOf('hidden'), `shown, then hidden: ${JSON.stringify(turns)}`);
+        await sleep(500);
+        assert.deepEqual(await judge.run("return ['red', 'turns', 'foreign', 'blue'].map((id) => document.getElementById(id).paused)"), [true, true, true, false]);
+        await judge.fx.send('WebDriver:SwitchToWindow', { handle: settings.handle });
+        const record = await judge.fx.send('WebDriver:ExecuteAsyncScript', {
+          script: `const done = arguments[arguments.length - 1]; browser.storage.local.get('pictures').then((got) => done(got.pictures ?? []), (e) => done([]));`,
+          args: [],
+        });
+        const videos = record.filter((entry) => entry.kind === 'video').map((entry) => [entry.url.replace('http://', ''), entry.reason]).sort();
+        assert.deepEqual(videos, [['allowed.test/videos/blue-then-red.webm', 'nudity'], ['allowed.test/videos/red.webm', 'nudity'], ['videos.test/videos/red.webm', 'nudity']], JSON.stringify(record));
+        assert.ok(record.some((entry) => entry.url.endsWith('lingerie.jpg?poster') && !entry.kind), 'the poster is noted as a picture');
       } finally {
         await judge.close();
         standIn.remove();

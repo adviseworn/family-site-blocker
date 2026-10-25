@@ -1,24 +1,39 @@
 // The picture filter's half that runs in every page (and every frame): keeps each picture hidden until
 // the background script has judged it, then shows it or keeps it hidden. content.css does the hiding,
-// by the attribute this script sets on each <img>:
+// by the attribute this script sets on each <img> and <video>:
 //   (none) or "checking"  hidden, not judged yet
 //   "small"               shown without being judged: an icon, a button, a tracking pixel
 //   "ok"                  judged and shown
 //   "hidden"              judged and kept hidden
-// Pictures are judged when they come near the view, so a long page costs only what is looked at. Only
-// <img> pictures are covered: backgrounds set in CSS, video, and pictures inside shadow roots are not.
+// Pictures are judged when they come near the view, so a long page costs only what is looked at. A video
+// is judged by its poster and by its frames: the first frame before it can be seen, then one every so
+// often while it plays, so a video that turns out to show something is hidden, and paused, within a
+// moment. Only <img> and <video> are covered: backgrounds set in CSS and pictures inside shadow roots
+// are not, and a video whose frames the page itself isn't allowed to read (served from another site
+// without permission) is judged by its poster alone.
 (() => {
   const api = globalThis.browser ?? globalThis.chrome;
   const ATTR = 'data-family-site-blocker';
   const MIN_AREA = 64 * 64; // lib/pictures.js MIN_SIZE squared: smaller pictures are icons, not pictures
+  const FRAME_SIZE = 224; // classifier.js SIZE: a frame is sent at the size the classifier scales to anyway
+  const FRAME_EVERY_MS = 1500; // while a video plays, one frame in this long is judged
+  const FRAME_RETRY_MS = 100; // how soon to ask again for a frame the browser hadn't handed over yet
+  const FRAME_WAIT_MS = 3000; // a video that promised a frame and shows none in this long has nothing to see
+  const HAVE_NOTHING = 0; // HTMLMediaElement.readyState: nothing is known yet
+  const HAVE_METADATA = 1; // the size and length are known, no frame yet
+  const HAVE_CURRENT_DATA = 2; // the frame at the current position is there
+  const NETWORK_LOADING = 2; // HTMLMediaElement.networkState: fetching
   const judged = new WeakMap(); // img -> the address it was last judged by
-  const marked = new WeakMap(); // img -> the mark this script set last, to tell its own writes from the page's
+  const marked = new WeakMap(); // element -> the mark this script set last, to tell its own writes from the page's
   const pending = new Map(); // address -> the judgment under way, shared by pictures with the same address
+  const videos = new WeakMap(); // video -> what is known about judging its current source (videoState)
 
-  const mark = (img, state) => {
-    marked.set(img, state);
-    if (img.getAttribute(ATTR) !== state) img.setAttribute(ATTR, state);
+  const mark = (element, state) => {
+    marked.set(element, state);
+    if (element.getAttribute(ATTR) !== state) element.setAttribute(ATTR, state);
   };
+
+  const fetchable = (url) => /^(?:https?|data):/i.test(url); // what the background script can fetch
 
   function judge(url) {
     if (!pending.has(url)) {
@@ -29,6 +44,8 @@
     }
     return pending.get(url);
   }
+
+  // --- Pictures ----------------------------------------------------------------------------------------
 
   async function check(img) {
     const url = img.currentSrc || img.src || '';
@@ -44,7 +61,7 @@
       return;
     }
     // Only addresses the background script can fetch; a blob: picture made by the page is shown as it is.
-    if (!/^(?:https?|data):/i.test(url)) {
+    if (!fetchable(url)) {
       mark(img, 'ok');
       return;
     }
@@ -54,42 +71,239 @@
     mark(img, result?.hide ? 'hidden' : 'ok');
   }
 
+  // --- Video -------------------------------------------------------------------------------------------
+  // What a video shows changes as it plays, so it is judged more than once: its poster (by address, like
+  // a picture) and its first frame out of sight, then a frame every FRAME_EVERY_MS while it plays and one
+  // after each seek. A verdict to hide sticks for as long as the video keeps its source, and a hidden
+  // video is paused: what can't be seen shouldn't play on.
+
+  let frameCanvas = null; // one small canvas frames are copied through, shared by the page's videos
+
+  /** What is known about judging a video's current source; a new source starts afresh. */
+  function videoState(video) {
+    const src = video.currentSrc || video.src || '';
+    let state = videos.get(video);
+    if (!state || state.src !== src) {
+      clearTimeout(state?.waiting);
+      clearTimeout(state?.retry);
+      state = {
+        src,
+        near: state?.near ?? false, // within a screen of the view (the observer below)
+        hidden: false, // judged and kept hidden: sticks for this source
+        settled: false, // something of this source (poster or frame) has been judged, or nothing can be
+        firstFrameJudged: false,
+        posterJudged: null, // the poster address judged, so it is judged once
+        unreadable: false, // the page may not read this source's frames: judged by its poster alone
+        lastFrameAt: 0,
+        busy: null, // the judgment under way
+        waiting: null, // the timer that gives up waiting for a first frame
+        retry: null, // the timer that asks again for a frame the browser hadn't handed over yet
+      };
+      videos.set(video, state);
+    }
+    return state;
+  }
+
+  /**
+   * A small JPEG of the video's current frame, as a data: address. Null when the browser drew nothing: it
+   * has no frame to hand over yet (the first one takes a moment after the data is there), or never will
+   * (protected video). Throws when the page may not read this video's frames.
+   */
+  function frameOf(video) {
+    if (!frameCanvas) {
+      frameCanvas = document.createElement('canvas');
+      frameCanvas.width = frameCanvas.height = FRAME_SIZE;
+    }
+    const context = frameCanvas.getContext('2d', { willReadFrequently: true });
+    context.clearRect(0, 0, FRAME_SIZE, FRAME_SIZE);
+    context.drawImage(video, 0, 0, FRAME_SIZE, FRAME_SIZE);
+    let pixels;
+    try {
+      pixels = context.getImageData(0, 0, FRAME_SIZE, FRAME_SIZE).data;
+    } catch (error) {
+      frameCanvas = null; // a frame the page may not read taints the canvas for good: the next one is new
+      throw error;
+    }
+    // A frame covers the whole canvas; where nothing was drawn, every pixel is still clear.
+    let drawn = false;
+    for (let i = 3; i < pixels.length && !drawn; i += 4 * 101) drawn = pixels[i] !== 0;
+    return drawn ? frameCanvas.toDataURL('image/jpeg', 0.85) : null;
+  }
+
+  function hideVideo(video) {
+    mark(video, 'hidden');
+    if (!video.paused) video.pause();
+  }
+
+  // Nothing more is coming for a video that isn't fetching and hasn't been told to: a preload="none" video
+  // before anyone presses play. It shows an empty box (with the controls, if any), and is judged when it loads.
+  const idle = (video) => video.readyState === HAVE_NOTHING && video.networkState !== NETWORK_LOADING && video.preload === 'none' && !video.autoplay;
+
+  /** Gives up waiting for a first frame: when none is coming, there is nothing to see, and nothing to hide. */
+  function giveUp(video, state) {
+    state.waiting = null;
+    if (videos.get(video) !== state || state.hidden || state.settled) return;
+    if (video.networkState === NETWORK_LOADING && video.readyState < HAVE_CURRENT_DATA) {
+      state.waiting = setTimeout(() => giveUp(video, state), FRAME_WAIT_MS); // still on its way
+      return;
+    }
+    state.settled = true;
+    mark(video, 'ok');
+  }
+
+  async function checkVideo(video) {
+    const state = videoState(video);
+    if (state.hidden) {
+      hideVideo(video); // the page started it again: it stays hidden, and stops again
+      return;
+    }
+    if (state.busy) return; // one judgment at a time; the next tick looks again
+    const hasFrame = video.readyState >= HAVE_CURRENT_DATA && video.videoWidth > 0;
+    const checks = [];
+    const poster = video.poster || '';
+    if (poster && fetchable(poster) && state.posterJudged !== poster) {
+      state.posterJudged = poster;
+      checks.push(judge(poster));
+    }
+    let frame = null;
+    if (hasFrame && !state.unreadable) {
+      try {
+        frame = frameOf(video);
+      } catch {
+        state.unreadable = true; // judged by its poster alone, like a picture the background script can't fetch
+      }
+      if (frame) {
+        state.lastFrameAt = performance.now();
+        checks.push(Promise.resolve(api.runtime.sendMessage({ type: 'judge-video-frame', frame, src: state.src, poster })).catch(() => null));
+      } else if (!state.settled && !state.unreadable) {
+        // The browser drew nothing yet: ask again in a moment.
+        state.retry ??= setTimeout(() => {
+          state.retry = null;
+          if (videos.get(video) === state && !state.busy) checkVideo(video);
+        }, FRAME_RETRY_MS);
+      }
+    }
+    if (checks.length === 0) {
+      if (state.settled) return; // judged already, and there is no new frame
+      if (state.unreadable) {
+        state.settled = true; // frames the page may not read, and no poster: shown as it is
+        mark(video, 'ok');
+      } else if (idle(video)) {
+        mark(video, 'ok');
+      } else {
+        // A frame is on its way (or the browser is still to hand the first one over): stay hidden until
+        // it has been judged, or until it is clear that none is coming.
+        mark(video, 'checking');
+        state.waiting ??= setTimeout(() => giveUp(video, state), FRAME_WAIT_MS);
+      }
+      return;
+    }
+    // The first look at a source, and the first frame, happen out of sight; later frames are judged
+    // while the video shows.
+    if (!state.settled || (frame && !state.firstFrameJudged)) mark(video, 'checking');
+    state.busy = Promise.all(checks);
+    const results = await state.busy;
+    state.busy = null;
+    if (videos.get(video) !== state) return; // the source changed meanwhile; the new one is being judged
+    if (results.some((result) => result?.hide)) {
+      state.hidden = true;
+      hideVideo(video);
+      return;
+    }
+    if (frame) {
+      state.settled = true;
+      state.firstFrameJudged = true;
+    } else if (!(video.readyState >= HAVE_METADATA || video.networkState === NETWORK_LOADING) || idle(video) || video.videoWidth === 0) {
+      state.settled = true; // the poster was judged, and no frame is coming
+    } else {
+      state.waiting ??= setTimeout(() => giveUp(video, state), FRAME_WAIT_MS); // the poster was judged; a frame is still to come
+    }
+    mark(video, 'ok');
+  }
+
+  // Media events don't bubble, so they are caught on the way down. A video is looked at again when it has
+  // a frame, starts, is seeked, or plays on; a new source starts over.
+  const VIDEO_EVENTS = ['loadstart', 'emptied', 'loadedmetadata', 'loadeddata', 'play', 'playing', 'seeked', 'timeupdate'];
+  function onVideoEvent(event) {
+    const video = event.target;
+    if (!(video instanceof HTMLVideoElement) || !videos.has(video)) return; // scan() looks at new ones
+    if (event.type === 'loadstart' || event.type === 'emptied') {
+      rewatch(video);
+      return;
+    }
+    const state = videoState(video);
+    if (state.hidden) {
+      hideVideo(video);
+      return;
+    }
+    if (!state.near) return; // judged when it comes near the view
+    if (state.unreadable && state.settled) return; // only the poster could be judged, and it has been
+    if (event.type === 'timeupdate' && (video.paused || performance.now() - state.lastFrameAt < FRAME_EVERY_MS)) return;
+    checkVideo(video);
+  }
+  for (const type of VIDEO_EVENTS) document.addEventListener(type, onVideoEvent, true);
+
+  // --- Watching the page ---------------------------------------------------------------------------------
+
   // Judge a picture when it comes within a screen's height of the view, and again whenever its address
-  // or state changes.
+  // or state changes. A video is judged while it is that near, as it plays.
   const near = new IntersectionObserver(
     (entries) => {
-      for (const entry of entries) if (entry.isIntersecting) check(entry.target);
+      for (const entry of entries) {
+        if (entry.target instanceof HTMLVideoElement) {
+          videoState(entry.target).near = entry.isIntersecting;
+          if (entry.isIntersecting) checkVideo(entry.target);
+        } else if (entry.isIntersecting) {
+          check(entry.target);
+        }
+      }
     },
     { rootMargin: '100% 0px' },
   );
 
-  function watch(img) {
-    if (!img.hasAttribute(ATTR)) mark(img, 'checking');
-    near.observe(img);
+  function watch(element) {
+    if (!element.hasAttribute(ATTR)) mark(element, 'checking');
+    if (element instanceof HTMLVideoElement) videoState(element);
+    near.observe(element);
   }
 
-  // Judge again from scratch: a new address, a new load, or the page's script touching the mark.
-  function rewatch(img) {
-    judged.delete(img);
-    near.unobserve(img); // observing again makes the observer report the picture once more
-    watch(img);
+  // Judge again from scratch: a new address, a new load, or the page's script touching the mark. A hidden
+  // video whose source hasn't changed stays hidden: taking the mark off doesn't bring it back.
+  function rewatch(element) {
+    judged.delete(element);
+    if (element instanceof HTMLVideoElement) {
+      const state = videos.get(element);
+      if (state?.src === (element.currentSrc || element.src || '') && state.hidden) {
+        hideVideo(element);
+      } else {
+        clearTimeout(state?.waiting);
+        clearTimeout(state?.retry);
+        videos.delete(element);
+        videoState(element).near = state?.near ?? false;
+        mark(element, 'checking');
+      }
+    }
+    near.unobserve(element); // observing again makes the observer report the element once more
+    watch(element);
   }
+
+  const isPicture = (node) => node instanceof HTMLImageElement || node instanceof HTMLVideoElement;
 
   function scan(root) {
-    if (root instanceof HTMLImageElement) watch(root);
-    if (root.querySelectorAll) for (const img of root.querySelectorAll('img')) watch(img);
+    if (isPicture(root)) watch(root);
+    if (root.querySelectorAll) for (const element of root.querySelectorAll('img, video')) watch(element);
   }
 
   new MutationObserver((records) => {
     for (const record of records) {
       if (record.type === 'attributes') {
-        const img = record.target;
-        if (!(img instanceof HTMLImageElement)) continue;
+        const element = record.target;
+        if (!isPicture(element)) continue;
         // A mark this script set itself is nothing new. The page taking the mark off or changing it, or
         // giving the picture a new address, means judging again (the background script remembers
         // verdicts, so a known picture costs nothing).
-        if (record.attributeName === ATTR && img.getAttribute(ATTR) === marked.get(img)) continue;
-        rewatch(img);
+        if (record.attributeName === ATTR && element.getAttribute(ATTR) === marked.get(element)) continue;
+        rewatch(element);
         continue;
       }
       for (const node of record.addedNodes) if (node.nodeType === Node.ELEMENT_NODE) scan(node);
@@ -98,7 +312,7 @@
     childList: true,
     subtree: true,
     attributes: true,
-    attributeFilter: ['src', 'srcset', ATTR],
+    attributeFilter: ['src', 'srcset', 'poster', ATTR],
   });
 
   // A picture that finishes loading while near the view is judged straight away; load events don't

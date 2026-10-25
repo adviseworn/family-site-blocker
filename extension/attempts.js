@@ -7,7 +7,7 @@
 // lib/attempts.js).
 import { ATTEMPTS, bySite, outcome, toCsv } from './lib/attempts.js';
 import { element, plural, showVersion, whenFormat } from './lib/page.js';
-import { PICTURES, hiddenBySite } from './lib/pictures.js';
+import { PICTURES, countHidden, hiddenBySite } from './lib/pictures.js';
 import { UNLISTED } from './lib/suspects.js';
 
 const api = globalThis.browser ?? globalThis.chrome;
@@ -49,7 +49,7 @@ function renderSites() {
 function renderElsewhere(pictures, unlisted) {
   const hidden = Array.isArray(pictures) ? pictures : [];
   $('pictures-line').firstElementChild.textContent = hidden.length
-    ? `${plural(hidden.length, 'picture')} hidden on ${plural(hiddenBySite(hidden).length, 'site')}, the latest at ${whenFormat.format(Math.max(...hidden.map((entry) => entry.at)))}.`
+    ? `${countHidden(hidden)} hidden on ${plural(hiddenBySite(hidden).length, 'site')}, the latest at ${whenFormat.format(Math.max(...hidden.map((entry) => entry.at)))}.`
     : 'No picture hidden so far.';
   const count = unlisted?.sites?.length ?? 0;
   $('unlisted-line').firstElementChild.textContent = !unlisted
