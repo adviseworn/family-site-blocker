@@ -2,13 +2,15 @@
 // record page (attempts.html) shows the record summed up and links here, for the whole record or for one
 // site (tries.html#site=<the site>, from the by-site table there). Like the other pages, this one only
 // reads the record; nothing here can clear it (see lib/attempts.js).
-import { ATTEMPTS, LABELS, byDay, outcome, toCsv } from './lib/attempts.js';
+import { ATTEMPTS, LABELS, byDay, outcome, summarize, toCsv } from './lib/attempts.js';
 import { dayFormat, element, plural, showVersion, timeFormat, tries as triesWord, whenFormat } from './lib/page.js';
+import { WATCHING } from './lib/watching.js';
 
 const api = globalThis.browser ?? globalThis.chrome;
 const $ = (id) => document.getElementById(id);
 
 let attempts = []; // the record as stored: oldest first
+let watching = null; // when the extension was running (lib/watching.js), which places the visits from the history
 
 /** The site named in the address (tries.html#site=example.com), or null for every site. */
 function onlySite() {
@@ -42,8 +44,9 @@ function renderDays(shown) {
     head.append(headRow);
     const body = element('tbody');
     for (const attempt of list) {
-      const row = element('tr', null, { class: outcome(attempt) });
-      row.append(element('td', timeFormat.format(attempt.at)), element('td', attempt.site), element('td', LABELS[outcome(attempt)]));
+      const what = outcome(attempt, watching);
+      const row = element('tr', null, { class: what });
+      row.append(element('td', timeFormat.format(attempt.at)), element('td', attempt.site), element('td', LABELS[what]));
       body.append(row);
     }
     table.append(head, body);
@@ -62,18 +65,17 @@ function renderSummary(shown, site) {
     $('summary').textContent = `No tries at ${site} in the record.`;
     return;
   }
-  const latest = shown[shown.length - 1];
-  const opened = shown.filter((attempt) => outcome(attempt) === 'opened').length;
-  const fromHistory = shown.filter((attempt) => outcome(attempt) === 'history').length;
+  const counts = summarize(shown, watching);
   $('summary').textContent =
-    `${triesWord(shown.length)}${site ? '' : ` at ${plural(new Set(shown.map((attempt) => attempt.site)).size, 'site')}`}, the latest at ${whenFormat.format(latest.at)}.` +
-    (opened ? ` ${plural(opened, 'page')} opened instead of being blocked.` : '') +
-    (fromHistory ? ` ${fromHistory} from this browser's history.` : '');
+    `${triesWord(counts.tries)}${site ? '' : ` at ${plural(counts.sites, 'site')}`}, the latest at ${whenFormat.format(counts.latest)}.` +
+    (counts.opened ? ` ${plural(counts.opened, 'page')} opened instead of being blocked.` : '') +
+    (counts.history ? ` ${counts.history} from this browser's history${counts.off ? `, ${counts.off} of them from times the extension was off` : ''}.` : '');
 }
 
 async function render() {
-  const stored = await api.storage.local.get(ATTEMPTS);
+  const stored = await api.storage.local.get([ATTEMPTS, WATCHING]);
   attempts = Array.isArray(stored[ATTEMPTS]) ? stored[ATTEMPTS] : [];
+  watching = stored[WATCHING] ?? null;
   const site = onlySite();
   const shown = site ? attempts.filter((attempt) => attempt.site === site) : attempts;
   $('filter').hidden = !site;
@@ -90,7 +92,7 @@ function saveFile() {
   const pad = (n) => String(n).padStart(2, '0');
   const name = `family-site-blocker-record-${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}.csv`;
   const link = document.createElement('a');
-  link.href = URL.createObjectURL(new Blob([toCsv(attempts)], { type: 'text/csv' }));
+  link.href = URL.createObjectURL(new Blob([toCsv(attempts, watching)], { type: 'text/csv' }));
   link.download = name;
   document.body.append(link);
   link.click();
@@ -101,7 +103,8 @@ function saveFile() {
 
 $('save-file').addEventListener('click', saveFile);
 window.addEventListener('hashchange', () => render().catch(() => {}));
-// Keep the record current while the page is open.
+// Keep the record current while the page is open. (The extension's running time is written every minute;
+// a redraw for that would place a visit from the last minute no differently, so only the record counts.)
 api.storage.onChanged.addListener((changes, area) => {
   if (area === 'local' && changes[ATTEMPTS]) render();
 });

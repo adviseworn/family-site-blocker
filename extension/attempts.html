@@ -22,6 +22,20 @@
       <p><button id="history-scan-now" class="secondary" type="button">Look through this browser’s history again</button></p>
     </header>
 
+    <section id="watching" aria-labelledby="watching-heading">
+      <h2 id="watching-heading">Was it ever off?</h2>
+      <p id="since" aria-live="polite">Loading…</p>
+      <p id="off-summary" aria-live="polite"></p>
+      <p id="off-intro" hidden>Times this browser was in use while the extension wasn’t running, newest first: it was switched off, Firefox was in Troubleshoot Mode, or it had been removed. <strong>Pages</strong> is how many pages this browser’s history held from that time when it was last looked at; <strong>Listed sites</strong> how many visits to listed sites from then are in the record.</p>
+      <table id="off-table" class="attempts" hidden>
+        <thead>
+          <tr><th scope="col">From</th><th scope="col">Until</th><th scope="col">Pages</th><th scope="col">Listed sites</th></tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+      <p id="off-note">The extension notes the time whenever it is running: when it starts, on every page it sees, and once a minute. A silence means it wasn’t running; this browser’s own history says whether the browser was in use meanwhile, since a closed browser or a sleeping computer leaves the same silence. A visit to a listed site found in the history is placed the same way: from before the extension was installed, from a time it was off, or from a time it was running, so the site wasn’t on a list yet. The settings page says whether the Firefox lock, which takes the switch away, is in force.</p>
+    </section>
+
     <section id="sites" aria-labelledby="sites-heading" hidden>
       <h2 id="sites-heading">By site</h2>
       <p>Most tries first. Choose a site to see its tries, one by one, grouped by day.</p>
