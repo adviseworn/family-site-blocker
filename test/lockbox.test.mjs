@@ -1,14 +1,16 @@
-// Run with: npm test. The record of what has happened to the locked-away password (extension/lib/lockbox.js, #75):
-// how entries are kept, what the settings page's line says from them, and the words for each entry.
+// Run with: npm test. What the locked-away password's page and the settings page share (extension/lib/lockbox.js):
+// the record of what has happened to the password (#75): how entries are kept, what the settings page's line
+// says from them, and the words for each entry; and, with the wait lengthened (#76), how the stored box and
+// the unlocking progress are read, layer by layer, and how the line sums them up.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { webcrypto } from 'node:crypto';
 
 globalThis.crypto ??= webcrypto; // Node 18 has Web Crypto, but not on globalThis
 
-const { BOX, EVENTS, EVENTS_KEPT, EVENT_NAMES, PROGRESS, describeBox, describeEvent, duration, isEvent, loadBox, recordEvent, sinceOf, thisPassword, times } =
+const { BOX, EVENTS, EVENTS_KEPT, EVENT_NAMES, PROGRESS, describeBox, describeEvent, duration, fractionDone, isEvent, layerUnderWork, loadBox, recordEvent, sinceOf, sinceText, thisPassword, times } =
   await import('../extension/lib/lockbox.js');
-const { seal } = await import('../extension/lib/timelock.js');
+const { lengthen, seal } = await import('../extension/lib/timelock.js');
 
 /** A stand-in for storage.local: get, set and remove over a plain object. */
 function fakeStore(initial = {}) {
@@ -145,6 +147,9 @@ test('every entry has words, with its times and its share of the work', () => {
   assert.equal(describeEvent(at(T.shown, 'shown')), 'The password was shown.');
   assert.equal(describeEvent(at(T.shown, 'sealed', { delay: 60 })), 'Locked away again, with the same wait of 1 minute.');
   assert.equal(describeEvent(at(T.shown, 'sealed')), 'Locked away again, with the same wait.');
+  assert.equal(describeEvent(at(T.shown, 'sealed', { delay: 172800, previous: 60 })), 'Locked away again, with a wait of 2 days in place of 1 minute.', 'a wait of the person\'s choosing (#76)');
+  assert.equal(describeEvent(at(T.locked, 'lengthened', { from: 60, to: 3600 })), 'The wait was lengthened from 1 minute to 1 hour, without unlocking.');
+  assert.equal(describeEvent(at(T.locked, 'lengthened')), 'The wait was lengthened, without unlocking.');
   assert.equal(describeEvent(at(T.shown, 'seal-failed')), 'Couldn’t be locked away again with a fresh puzzle, so the old one was kept.');
   assert.equal(describeEvent(at(T.deleted, 'restored', { lockedAt: T.locked })), `Restored from a backup file, sealed ${when(T.locked)}.`);
   assert.equal(describeEvent(at(T.deleted, 'restored')), 'Restored from a backup file.');
@@ -158,4 +163,63 @@ test('the small words: times, and the keys the pages share', () => {
   assert.equal(times(2), 'twice');
   assert.equal(times(3), '3 times');
   assert.deepEqual([BOX, PROGRESS, EVENTS], ['lockbox', 'lockboxProgress', 'lockboxEvents']);
+});
+
+// The wait lengthened (#76): a box inside a box, read layer by layer.
+
+test('a wait reads in words, rounded to what matters', () => {
+  assert.equal(duration(0.4), '1 second');
+  assert.equal(duration(45), '45 seconds');
+  assert.equal(duration(60), '1 minute');
+  assert.equal(duration(12 * 60 + 20), '12 minutes');
+  assert.equal(duration(3 * 3600 + 20 * 60), '3 hours 20 minutes');
+  assert.equal(duration(47 * 3600), '47 hours');
+  assert.equal(duration(2 * 86400), '2 days');
+  assert.equal(duration(2 * 86400 + 3600), '2 days 1 hour');
+});
+
+const inner = await seal('secret', { steps: 1000, delay: 10, rate: 100 });
+const outer = await lengthen(inner, { steps: 4000, delay: 30, rate: 200 });
+
+test('the line gives the whole wait of a lengthened box, says when it was lengthened, and counts every layer towards the work done', () => {
+  const locked = at(T.locked, 'locked', { delay: 10 });
+  const lengthened = at(T.started, 'lengthened', { from: 10, to: 30 });
+  assert.equal(sinceText({ box: inner, events: [] }), `since ${day(inner.lockedAt)}`);
+  assert.equal(sinceText({ box: outer, events: [] }), `since ${day(inner.lockedAt)}, wait lengthened ${day(outer.lengthenedAt)}`, 'the box says when the password was locked away and when the wait grew');
+  assert.equal(sinceText({ box: outer, events: [locked, lengthened] }), `since ${day(T.locked)}, wait lengthened ${day(outer.lengthenedAt)}`, 'the record says when it was locked away here');
+  assert.equal(describeBox({ box: inner, progress: null, events: [] }), `A password is locked away (since ${day(inner.lockedAt)}); getting it back takes about 10 seconds.`);
+  assert.equal(
+    describeBox({ box: outer, progress: null, events: [locked, lengthened] }),
+    `A password is locked away (since ${day(T.locked)}, wait lengthened ${day(outer.lengthenedAt)}), never unlocked; getting it back takes about 30 seconds.`,
+    'the whole wait: lengthening is not an unlock',
+  );
+  // In the inner layer of the lengthened box: the outer puzzle's 4000 squarings done, and 500 of the 1000 inside.
+  const progress = { n: outer.n, inner, x: '2', done: 500, before: 4000, startedAt: T.started };
+  assert.equal(
+    describeBox({ box: outer, progress, events: [locked, lengthened] }),
+    `A password is locked away (since ${day(T.locked)}, wait lengthened ${day(outer.lengthenedAt)}), never unlocked; unlocking it is 90% done, started ${day(T.started)}.`,
+  );
+  assert.equal(fractionDone({ box: outer, progress }), 0.9);
+  assert.equal(fractionDone({ box: outer, progress: { ...progress, done: 5000 } }), 1, 'never past the end');
+  assert.equal(fractionDone({ box: inner, progress: { n: inner.n, x: '2', done: 250 } }), 0.25, 'progress saved before 1.10.0 has no layers before it');
+  assert.equal(fractionDone({ box: outer, progress: null }), 0);
+});
+
+test('reading storage gives the box and the progress made on it, layer and all, or nothing', async () => {
+  assert.deepEqual(await loadBox(fakeStore({ [BOX]: { format: 'family-site-blocker-lockbox', version: 1 } })), { box: null, progress: null, events: [] }, 'not a box');
+  assert.deepEqual(await loadBox(fakeStore({ [BOX]: inner })), { box: inner, progress: null, events: [] });
+  assert.deepEqual(await loadBox(fakeStore({ [BOX]: outer })), { box: outer, progress: null, events: [] });
+  const progress = { n: outer.n, x: 'ff', done: 7, before: 0 };
+  assert.deepEqual((await loadBox(fakeStore({ [BOX]: outer, [PROGRESS]: progress }))).progress, progress);
+  assert.equal((await loadBox(fakeStore({ [BOX]: outer, [PROGRESS]: { n: inner.n, x: 'ff', done: 7 } }))).progress, null, 'progress on another box does not count');
+  assert.deepEqual((await loadBox(fakeStore({ [BOX]: inner, [PROGRESS]: { n: inner.n, x: 'ff', done: 7 } }))).progress, { n: inner.n, x: 'ff', done: 7, before: 0 }, 'progress saved before 1.10.0 has no layers before it');
+  const deeper = { n: outer.n, inner, x: 'ff', done: 7, before: 4000 };
+  assert.deepEqual((await loadBox(fakeStore({ [BOX]: outer, [PROGRESS]: deeper }))).progress, deeper);
+  assert.equal((await loadBox(fakeStore({ [BOX]: outer, [PROGRESS]: { ...deeper, inner: { n: 'abc' } } }))).progress, null, 'the layer being worked on has to be a box');
+});
+
+test('the layer being worked on is the stored box until that has been opened to one inside', () => {
+  assert.equal(layerUnderWork({ box: outer, progress: null }), outer);
+  assert.equal(layerUnderWork({ box: outer, progress: { n: outer.n, x: '2', done: 1, before: 0 } }), outer);
+  assert.equal(layerUnderWork({ box: outer, progress: { n: outer.n, inner, x: '2', done: 1, before: 4000 } }), inner);
 });
