@@ -118,14 +118,25 @@ const recordedEvents = async (page) => ((await storedLockbox(page)).lockboxEvent
 const shownRecord = (page) =>
   page.evaluate(() => Array.from(document.querySelectorAll('#lockbox-events tbody tr'), (row) => ({ when: row.cells[0].textContent, what: row.cells[1].textContent, hidden: row.hidden })));
 
-/** Waits until the settings page has saved some unlocking progress. */
-async function progressSaved(page) {
-  const until = Date.now() + 10_000;
-  while (!((await storedLockbox(page)).lockboxProgress?.done > 0)) {
-    if (Date.now() > until) throw new Error('no unlocking progress was saved');
+/** Waits until the page has saved some unlocking progress (progress that passes `reached`), and gives back what is stored. */
+async function progressSaved(page, reached = (progress) => progress?.done > 0, what = 'no unlocking progress was saved') {
+  const until = Date.now() + 15_000;
+  let stored;
+  while (!reached((stored = await storedLockbox(page)).lockboxProgress)) {
+    if (Date.now() > until) throw new Error(what);
     await new Promise((done) => setTimeout(done, 100));
   }
+  return stored;
 }
+
+/** Lengthens the wait of the password locked away on the page to `seconds`, which the tests add to the choices offered. */
+async function lengthenTo(page, seconds) {
+  await page.evaluate((wait) => document.getElementById('lockbox-longer').append(new Option(`${wait} seconds`, String(wait), true, true)), seconds);
+  await page.click('#lockbox-lengthen');
+  await page.waitForFunction(() => /^The wait is now/.test(document.getElementById('lockbox-status').textContent));
+}
+
+const lockboxStatus = (page) => page.locator('#lockbox-status').innerText();
 
 describe('real browser', () => {
   before(async () => {
@@ -1195,6 +1206,8 @@ describe('real browser', () => {
 
   describe('locked-away password', () => {
     const SECRET = 'Admin-Password-4-Tests';
+    // A test that solves puzzles and seals the password again more than once needs longer on a GitHub machine.
+    const slowTest = (name, fn) => it(name, { timeout: 60_000 }, fn);
 
     // The password has a page of its own since #70; the settings page shows one line on where it stands.
     async function freshSettings() {
@@ -1459,6 +1472,251 @@ describe('real browser', () => {
         } finally {
           await settings.close();
         }
+        assert.deepEqual(page.errors, []);
+      } finally {
+        await page.close();
+      }
+    });
+
+    // The wait can be lengthened without unlocking (#76): the stored box goes inside a longer puzzle.
+    slowTest('lengthening the wait needs no unlocking: the box goes inside a longer puzzle, a backup of that restores, and unlocking takes both', async () => {
+      const page = await freshSettings();
+      try {
+        await lockAway(page, SECRET, 2);
+        const before = (await storedLockbox(page)).lockbox;
+        assert.equal(await page.locator('#lockbox-lengthen-area').isVisible(), true);
+        assert.deepEqual(await page.$$eval('#lockbox-longer option', (options) => options.filter((option) => option.disabled).map((option) => option.value)), [], 'every wait offered is longer than 2 seconds');
+
+        await lengthenTo(page, 5);
+        assert.match(await lockboxStatus(page), /^The wait is now [4-6] seconds\. Save a new backup file: one saved before this still opens after the old wait\.$/);
+        const longer = (await storedLockbox(page)).lockbox;
+        assert.equal(longer.version, 2);
+        assert.equal(longer.holds, 'box');
+        assert.notEqual(longer.n, before.n, 'a puzzle of its own');
+        assert.deepEqual(longer.inside, [{ steps: before.steps, rate: before.rate }], 'says what the box inside takes');
+        assert.equal(longer.delay, 5, 'the whole wait');
+        assert.equal(longer.lockedAt, before.lockedAt, 'still says when the password was locked away');
+        assert.ok(longer.lengthenedAt, 'and when the wait was lengthened');
+        const text = JSON.stringify(await storedLockbox(page));
+        assert.ok(!text.includes(before.n) && !text.includes(before.data), 'the old box is inside the new puzzle, not beside it');
+        assert.ok(!text.includes(SECRET));
+        assert.equal((await storedLockbox(page)).lockboxProgress, undefined);
+        assert.match(await page.locator('#lockbox-summary').innerText(), /^A password is locked away \(since .+, wait lengthened .+\)\. Getting it back takes about [4-6] seconds of computing/);
+        // The record says so (#75), and lengthening is not an unlock.
+        assert.deepEqual(await recordedEvents(page), ['locked', 'lengthened']);
+        assert.equal((await shownRecord(page))[0].what, 'The wait was lengthened from 2 seconds to 5 seconds, without unlocking.');
+        // The settings page's line says so too.
+        const settings = await openSettings();
+        try {
+          await settings.waitForFunction(() => /wait lengthened/.test(document.getElementById('lockbox-line').textContent));
+          assert.match(await settings.locator('#lockbox-line').innerText(), /^A password is locked away \(since .+, wait lengthened .+\), never unlocked; getting it back takes about [4-6] seconds\.$/);
+        } finally {
+          await settings.close();
+        }
+
+        // A backup file of the lengthened box is one too, and restores as one.
+        const [download] = await Promise.all([page.waitForEvent('download'), page.click('#lockbox-backup')]);
+        const file = await download.path();
+        const { readFileSync } = await import('node:fs');
+        const backup = JSON.parse(readFileSync(file, 'utf8'));
+        assert.equal(backup.version, 2);
+        assert.deepEqual(backup, longer);
+        page.once('dialog', (dialog) => dialog.accept());
+        await page.click('#lockbox-delete');
+        await page.locator('#lockbox-empty').waitFor({ state: 'visible' });
+        await page.setInputFiles('#lockbox-restore', file);
+        await page.locator('#lockbox-locked').waitFor({ state: 'visible' });
+        assert.match(await page.locator('#lockbox-summary').innerText(), /wait lengthened .+\)\. Getting it back takes about [4-6] seconds of computing/);
+        assert.deepEqual((await storedLockbox(page)).lockbox, longer);
+
+        // Unlocking solves the outer puzzle, then the inner one, and ends in the password.
+        const started = Date.now();
+        await page.click('#lockbox-start');
+        await page.locator('#lockbox-progress-area').waitFor({ state: 'visible' });
+        assert.equal(await page.locator('#lockbox-lengthen-area').isVisible(), false, 'no lengthening while it unlocks');
+        await page.locator('#lockbox-open').waitFor({ state: 'visible', timeout: 30_000 });
+        const took = (Date.now() - started) / 1000;
+        assert.ok(took >= 2.5, `opened after ${took} s, sooner than the 5-second wait allows`);
+        assert.equal(await page.inputValue('#lockbox-revealed'), SECRET);
+        await page.waitForFunction(() => document.getElementById('lockbox-status').textContent === '');
+        const after = (await storedLockbox(page)).lockbox;
+        assert.equal(after.version, 1, 'locked away again as one puzzle');
+        assert.equal(after.delay, 5, 'with the whole wait');
+        assert.equal(after.inside, undefined);
+        assert.equal((await storedLockbox(page)).lockboxProgress, undefined);
+        assert.match(await page.locator('#lockbox-again').innerText(), /^It’s already locked away again with the same wait \(5 seconds\)\. It stays on this page/);
+        assert.deepEqual(await recordedEvents(page), ['locked', 'lengthened', 'deleted', 'restored', 'started', 'shown', 'sealed']);
+        assert.equal((await shownRecord(page))[0].what, 'Locked away again, with the same wait of 5 seconds.');
+        assert.deepEqual(page.errors, []);
+      } finally {
+        await page.close();
+      }
+    });
+
+    slowTest('closing the page once the outer puzzle is solved pauses in the inner one, and carries on from there', async () => {
+      let page = await freshSettings();
+      try {
+        await lockAway(page, SECRET, 6);
+        await lengthenTo(page, 8); // 2 seconds around the 6
+        const { lockbox: box } = await storedLockbox(page);
+        await page.click('#lockbox-start');
+        const stored = await progressSaved(page, (progress) => progress?.inner !== undefined, 'the work never reached the box inside');
+        assert.equal(stored.lockboxProgress.n, box.n, 'progress on the stored box');
+        assert.equal(stored.lockboxProgress.before, box.steps, 'the outer puzzle done');
+        assert.equal(stored.lockboxProgress.inner.version, 1, 'now working on the box inside');
+        assert.deepEqual(stored.lockbox, box, 'the stored box is untouched');
+        await page.close();
+
+        page = await browser.context.newPage();
+        page.errors = [];
+        page.on('pageerror', (error) => page.errors.push(error.message));
+        await page.goto(`chrome-extension://${browser.extensionId}/lockbox.html`);
+        await page.waitForFunction(() => document.getElementById('lockbox-start').textContent === 'Carry on unlocking');
+        const [, percent] = /^(\d+)% done, about \d+ seconds? to go\.$/.exec(await page.locator('#lockbox-progress-text').innerText()) ?? [];
+        assert.ok(Number(percent) >= 20 && Number(percent) < 100, `the outer 2 of 8 seconds done: ${percent}%`);
+        const settings = await openSettings();
+        try {
+          await settings.waitForFunction(() => /unlocking it is \d+% done, started .+\.$/.test(document.getElementById('lockbox-line').textContent));
+        } finally {
+          await settings.close();
+        }
+        await page.click('#lockbox-start');
+        await page.locator('#lockbox-open').waitFor({ state: 'visible', timeout: 20_000 });
+        assert.equal(await page.inputValue('#lockbox-revealed'), SECRET);
+        assert.deepEqual(page.errors, []);
+      } finally {
+        await page.close();
+      }
+    });
+
+    slowTest('stopping in the inner puzzle throws both away, and lengthening while paused asks first', async () => {
+      let page = await freshSettings();
+      try {
+        await lockAway(page, SECRET, 30);
+        await lengthenTo(page, 32);
+        const { lockbox: box } = await storedLockbox(page);
+        await page.click('#lockbox-start');
+        await progressSaved(page, (progress) => progress?.inner !== undefined, 'the work never reached the box inside');
+        page.once('dialog', (dialog) => dialog.accept());
+        await page.click('#lockbox-stop');
+        await page.waitForFunction(() => /^Unlocking stopped/.test(document.getElementById('lockbox-status').textContent));
+        assert.equal((await storedLockbox(page)).lockboxProgress, undefined, 'nothing of either layer kept');
+        assert.deepEqual((await storedLockbox(page)).lockbox, box, 'still the lengthened box');
+        assert.equal(await page.locator('#lockbox-start').innerText(), 'Start unlocking');
+        const [, stoppedAt] = /^Unlocking stopped at (\d+)% done; the work was thrown away\.$/.exec((await shownRecord(page))[0].what) ?? [];
+        assert.ok(Number(stoppedAt) >= 5 && Number(stoppedAt) < 50, `the outer 2 of 32 seconds and a little more: ${stoppedAt}%`);
+
+        // Paused with progress, lengthening asks, since it throws that progress away.
+        await page.click('#lockbox-start');
+        await progressSaved(page, (progress) => progress !== undefined);
+        await page.close();
+        page = await browser.context.newPage();
+        page.errors = [];
+        page.on('pageerror', (error) => page.errors.push(error.message));
+        await page.goto(`chrome-extension://${browser.extensionId}/lockbox.html`);
+        await page.waitForFunction(() => document.getElementById('lockbox-start').textContent === 'Carry on unlocking');
+        assert.equal(await page.locator('#lockbox-lengthen-area').isVisible(), true);
+        await page.selectOption('#lockbox-longer', '600');
+        // The dialog has to be answered as it appears, or the click never settles.
+        const asked = new Promise((resolve) =>
+          page.once('dialog', (dialog) => {
+            resolve(dialog.message());
+            dialog.dismiss();
+          }),
+        );
+        await page.click('#lockbox-lengthen');
+        assert.match(await asked, /throws away the unlocking done so far/);
+        assert.ok((await storedLockbox(page)).lockboxProgress, 'Cancel keeps the progress');
+        assert.deepEqual((await storedLockbox(page)).lockbox, box);
+        page.once('dialog', (dialog) => dialog.accept());
+        await page.click('#lockbox-lengthen');
+        await page.waitForFunction(() => /^The wait is now 10 minutes\./.test(document.getElementById('lockbox-status').textContent));
+        assert.equal((await storedLockbox(page)).lockboxProgress, undefined);
+        const longer = (await storedLockbox(page)).lockbox;
+        assert.deepEqual(longer.inside, [{ steps: box.steps, rate: box.rate }, ...box.inside], 'a third layer around the two');
+        assert.equal(longer.delay, 600);
+        assert.equal(await page.locator('#lockbox-start').innerText(), 'Start unlocking');
+        assert.deepEqual(page.errors, []);
+      } finally {
+        await page.close();
+      }
+    });
+
+    test('only waits longer than the present one are offered for lengthening, and none at the longest', async () => {
+      const page = await freshSettings();
+      try {
+        await lockAway(page, SECRET, 3600);
+        const offered = () => page.$$eval('#lockbox-longer option', (options) => options.map((option) => [option.value, option.disabled, option.selected]));
+        assert.deepEqual(await offered(), [
+          ['600', true, false],
+          ['3600', true, false],
+          ['14400', false, true],
+          ['43200', false, false],
+          ['86400', false, false],
+          ['172800', false, false],
+        ]);
+        assert.equal(await page.locator('#lockbox-longest').isVisible(), false);
+        await page.selectOption('#lockbox-longer', '172800');
+        await page.click('#lockbox-lengthen');
+        await page.waitForFunction(() => /^The wait is now/.test(document.getElementById('lockbox-status').textContent));
+        assert.match(await lockboxStatus(page), /^The wait is now 2 days\./);
+        assert.match(await page.locator('#lockbox-summary').innerText(), /Getting it back takes about 2 days of computing/);
+        const box = (await storedLockbox(page)).lockbox;
+        assert.equal(box.delay, 172_800);
+        const wait = box.steps / box.rate + box.inside[0].steps / box.inside[0].rate;
+        assert.ok(Math.abs(wait - 172_800) < 2, `the layers add up to 2 days: ${wait} s`);
+        assert.ok((await offered()).every(([, disabled]) => disabled), 'nothing longer left');
+        assert.equal(await page.locator('#lockbox-longest').isVisible(), true);
+        assert.equal(await page.locator('#lockbox-lengthen').isDisabled(), true);
+        page.once('dialog', (dialog) => dialog.accept());
+        await page.click('#lockbox-delete');
+        await page.locator('#lockbox-empty').waitFor({ state: 'visible' });
+        assert.deepEqual(page.errors, []);
+      } finally {
+        await page.close();
+      }
+    });
+
+    slowTest('once unlocked, the password can be locked away again with a different wait, longer or shorter', async () => {
+      const page = await freshSettings();
+      try {
+        await lockAway(page, SECRET, 2);
+        await page.click('#lockbox-start');
+        await page.locator('#lockbox-open').waitFor({ state: 'visible', timeout: 20_000 });
+        await page.waitForFunction(() => document.getElementById('lockbox-status').textContent === '');
+        const same = (await storedLockbox(page)).lockbox;
+        assert.equal(same.delay, 2);
+        assert.deepEqual(await page.$$eval('#lockbox-new-wait option', (options) => options.map((option) => option.value)), ['60', '600', '3600', '14400', '43200', '86400', '172800'], 'the same waits as locking away offers');
+
+        // Longer: the warning about older backup files comes with it.
+        await page.evaluate(() => document.getElementById('lockbox-new-wait').append(new Option('4 seconds', '4', true, true)));
+        await page.click('#lockbox-relock');
+        await page.waitForFunction(() => /^Locked away again/.test(document.getElementById('lockbox-status').textContent));
+        assert.match(await lockboxStatus(page), /^Locked away again with a wait of 4 seconds\. A backup file saved before this still opens after the old wait/);
+        const longer = (await storedLockbox(page)).lockbox;
+        assert.equal(longer.delay, 4);
+        assert.equal(longer.version, 1);
+        assert.notEqual(longer.n, same.n, 'a fresh puzzle');
+        assert.equal(await page.inputValue('#lockbox-revealed'), SECRET, 'still shown');
+        assert.match(await page.locator('#lockbox-again').innerText(), /^It’s locked away again with a wait of 4 seconds\. It stays on this page/);
+        assert.deepEqual(await recordedEvents(page), ['locked', 'started', 'shown', 'sealed', 'sealed']);
+        assert.equal((await shownRecord(page))[0].what, 'Locked away again, with a wait of 4 seconds in place of 2 seconds.');
+
+        // Shorter: nothing to warn about.
+        await page.evaluate(() => document.getElementById('lockbox-new-wait').append(new Option('3 seconds', '3', true, true)));
+        await page.click('#lockbox-relock');
+        await page.waitForFunction(() => /wait of 3 seconds/.test(document.getElementById('lockbox-status').textContent));
+        assert.equal(await lockboxStatus(page), 'Locked away again with a wait of 3 seconds.');
+        assert.equal((await storedLockbox(page)).lockbox.delay, 3);
+        assert.equal((await shownRecord(page))[0].what, 'Locked away again, with a wait of 3 seconds in place of 4 seconds.');
+        assert.ok(!JSON.stringify(await storedLockbox(page)).includes(SECRET));
+
+        await page.click('#lockbox-hide');
+        await page.locator('#lockbox-locked').waitFor({ state: 'visible' });
+        assert.match(await page.locator('#lockbox-summary').innerText(), /^A password is locked away \(since .+\)\. Getting it back takes about [2-4] seconds of computing/);
+        await page.click('#lockbox-start');
+        await page.locator('#lockbox-open').waitFor({ state: 'visible', timeout: 20_000 });
+        assert.equal(await page.inputValue('#lockbox-revealed'), SECRET, 'the same password, after the new wait');
         assert.deepEqual(page.errors, []);
       } finally {
         await page.close();
