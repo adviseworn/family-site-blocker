@@ -673,7 +673,7 @@ describe('Firefox', { skip: findFirefox() ? false : 'no Firefox found (set FIREF
         await sleep(200);
         line = await browser.run("return document.getElementById('lockbox-line').textContent");
       }
-      assert.match(line, /^A password is locked away \(since .+\); getting it back takes about [1-4] seconds\.$/);
+      assert.match(line, /^A password is locked away \(since .+\), never unlocked; getting it back takes about [1-4] seconds\.$/);
       assert.equal(await browser.run("return document.getElementById('lockbox-page').getAttribute('href')"), 'lockbox.html');
       await browser.fx.send('WebDriver:SwitchToWindow', { handle: lockboxHandle });
 
@@ -683,8 +683,34 @@ describe('Firefox', { skip: findFirefox() ? false : 'no Firefox found (set FIREF
       assert.ok(Date.now() - started >= 1500, 'not sooner than the wait allows');
       assert.equal(await browser.run("return document.getElementById('lockbox-revealed').value"), 'Firefox-Admin-Password');
 
+      // The record of what happened (#75): under the password, newest first, once it has been locked away again.
+      const recordUntil = Date.now() + 15_000;
+      let record = [];
+      while (record.length < 4 && Date.now() < recordUntil) {
+        await sleep(200);
+        record = await browser.run("return Array.from(document.querySelectorAll('#lockbox-events tbody tr'), (row) => row.cells[1].textContent)");
+      }
+      assert.equal(record[0], 'Locked away again, with the same wait of 3 seconds.');
+      assert.match(record[1], /^The password was shown \(unlocking started .+\)\.$/);
+      assert.equal(record[2], 'Unlocking started.');
+      assert.equal(record[3], 'Locked away, with a wait of 3 seconds.');
+      const events = await browser.fx.send('WebDriver:ExecuteAsyncScript', {
+        script: `const done = arguments[arguments.length - 1]; browser.storage.local.get('lockboxEvents').then((got) => done((got.lockboxEvents ?? []).map(({ event }) => event)), (e) => done([]));`,
+        args: [],
+      });
+      assert.deepEqual(events, ['locked', 'started', 'shown', 'sealed']);
+
       await browser.run("document.getElementById('lockbox-hide').click()");
       await waitUntilShown('lockbox-locked');
+
+      // And the settings page's line counts the unlock.
+      await browser.fx.send('WebDriver:SwitchToWindow', { handle: settings.handle });
+      const countUntil = Date.now() + 10_000;
+      while (!/unlocked once/.test(line) && Date.now() < countUntil) {
+        await sleep(200);
+        line = await browser.run("return document.getElementById('lockbox-line').textContent");
+      }
+      assert.match(line, /^A password is locked away \(since .+\), unlocked once, last on .+; getting it back takes about [1-4] seconds\.$/);
     });
   });
 
