@@ -239,25 +239,73 @@ describe('Firefox', { skip: findFirefox() ? false : 'no Firefox found (set FIREF
           version: document.getElementById('version').textContent,
           summary: document.getElementById('summary').textContent,
           note: document.getElementById('check-note').textContent,
-          introShown: !document.getElementById('check-intro').hidden,
+          checksShown: !document.getElementById('check-details').hidden,
           results: document.querySelectorAll('#results li').length,
           accessShown: !document.getElementById('access').hidden,
           privateStatus: document.getElementById('private-status').textContent,
           privateButtonShown: !document.getElementById('private-open').hidden,
+          privateMark: document.getElementById('private').className,
+          lockShown: !document.getElementById('lock').hidden,
+          lockStatus: document.getElementById('lock-status').textContent,
+          lockMark: document.getElementById('lock').className,
+          lockLink: document.querySelector('#lock-status a')?.getAttribute('href'),
+          lockboxLine: document.getElementById('lockbox-line').textContent,
+          words: document.body.innerText.split(/\s+/).filter(Boolean).length,
         }`);
-        if (state.note && state.privateStatus !== 'Checking…') break;
+        if (state.note && state.privateStatus !== 'Checking…' && state.lockShown && !state.lockboxLine.startsWith('Loading')) break;
         await sleep(200);
       } while (Date.now() < until);
 
       assert.equal(state.version, `Version ${VERSION}`, 'the installed version, next to the title');
       assert.match(state.summary, new RegExp(`^${BUILT_IN} sites on the built-in list`));
-      assert.equal(state.note, "Firefox doesn't let add-ons run this check automatically, so use the button above.");
-      assert.equal(state.introShown, false, 'no sentence promising a check Firefox cannot run');
+      assert.equal(state.note, "Firefox doesn't let add-ons check the addresses automatically, so open the test site.");
+      assert.equal(state.checksShown, false, 'no list promising a check Firefox cannot run');
       assert.equal(state.results, 0);
       assert.equal(state.accessShown, false, 'no website access warning, because Firefox granted access');
       assert.match(state.privateStatus, /^Private windows are not blocked yet, .*about:addons.*“Run in Private Windows”/);
       assert.equal(state.privateButtonShown, false, 'no "Open Details page" button: Firefox does not let extensions open about:addons');
+      assert.equal(state.privateMark, 'todo');
+      // The board says whether anything stops the person switching the add-on off (#70): a temporary add-on, nothing.
+      assert.equal(state.lockStatus, 'Loaded temporarily: Firefox removes the add-on when it quits, and anyone can switch it off before then. How to keep it installed, and lock it.');
+      assert.equal(state.lockMark, 'todo');
+      assert.equal(state.lockLink, 'https://github.com/adviseworn/family-site-blocker#firefox');
+      assert.equal(state.lockboxLine, 'No password is locked away.');
+      assert.ok(state.words < 450, `${state.words} words on the settings page`);
     });
+
+    /** The record page in a tab of its own, where the browser's history is looked through from (#70); its handle. */
+    let recordHandle = null;
+    async function openRecordTab() {
+      const settings = tabsAfterInstall.find(({ url }) => url.endsWith('/options.html'));
+      const address = `moz-extension://${new URL(settings.url).host}/attempts.html`;
+      const existing = recordHandle && (await browser.tabs()).find(({ handle }) => handle === recordHandle);
+      if (existing) {
+        await browser.fx.send('WebDriver:SwitchToWindow', { handle: recordHandle });
+        if (!existing.url.endsWith('/attempts.html')) await browser.visit(address); // a test left it on another page
+        return recordHandle;
+      }
+      recordHandle = await browser.newTab();
+      await browser.visit(address);
+      return recordHandle;
+    }
+    /** Looks through the history from the record page and waits for its line to say what was found. */
+    async function scanHistory(done) {
+      await openRecordTab();
+      await browser.run("document.getElementById('history-scan-now').click()");
+      const until = Date.now() + 15_000;
+      let status = '';
+      while (!done(status) && Date.now() < until) {
+        await sleep(200);
+        status = await browser.run("return document.getElementById('history-scan').textContent");
+      }
+      return status;
+    }
+    /** The record as stored, read from the settings page. */
+    const storedAttempts = () =>
+      browser.fx.send('WebDriver:ExecuteAsyncScript', {
+        script: `const done = arguments[arguments.length - 1]; browser.storage.local.get('attempts').then((got) => done(got.attempts ?? []), (e) => done([]));`,
+        args: [],
+      });
 
     test('the tries at the test site so far are noted on the settings page, and a new one appears while the page is open', async () => {
       const settings = tabsAfterInstall.find(({ url }) => url.endsWith('/options.html'));
@@ -275,15 +323,24 @@ describe('Firefox', { skip: findFirefox() ? false : 'no Firefox found (set FIREF
       await browser.fx.send('WebDriver:SwitchToWindow', { handle: settings.handle });
       // The tests above open the site many times, but tries less than two seconds apart count as one.
       const before = await waitForRows((found) => found.length > 0);
-      assert.ok(before.length >= 1 && before.every((row) => row[1] === SITE && row[2] === 'Blocked'), JSON.stringify(before));
-      assert.match(await browser.run(`return document.getElementById('attempts-summary').textContent`), /^\d+ attempts?, the latest at .+\.$/);
+      assert.ok(before.length >= 1 && before.length <= 3 && before.every((row) => row[1] === SITE && row[2] === 'Blocked'), JSON.stringify(before));
+      const summary = await browser.run(`return document.getElementById('attempts-summary').textContent`);
+      assert.match(summary, /^\d+ attempts?, the latest at .+\.$/);
+      const countBefore = Number(summary.match(/^\d+/)[0]);
 
       await sleep(2100); // more than the two seconds that make two notes one try
       await browser.newTab();
       await assertBlocked(BLOCKED_URL);
       await browser.fx.send('WebDriver:SwitchToWindow', { handle: settings.handle });
-      const after = await waitForRows((found) => found.length === before.length + 1);
-      assert.equal(after.length, before.length + 1, `a new note while the page was open: ${JSON.stringify(after.slice(0, 3))}`);
+      const grown = Date.now() + 10_000;
+      let count = countBefore;
+      while (count !== countBefore + 1 && Date.now() < grown) {
+        await sleep(250);
+        count = Number((await browser.run(`return document.getElementById('attempts-summary').textContent`)).match(/^\d+/)[0]);
+      }
+      assert.equal(count, countBefore + 1, 'a new note while the page was open');
+      const after = await waitForRows((found) => found.length === Math.min(3, countBefore + 1));
+      assert.equal(after.length, Math.min(3, countBefore + 1), `the latest three at most: ${JSON.stringify(after)}`);
       assert.deepEqual(after[0].slice(1), [SITE, 'Blocked'], 'newest first');
 
       // Stand in for a Firefox where the blocking is off: switch the built-in rules off for a moment.
@@ -301,7 +358,7 @@ describe('Firefox', { skip: findFirefox() ? false : 'no Firefox found (set FIREF
         await browser.newTab();
         assert.equal((await browser.visit(BLOCKED_URL)).outcome, 'site loaded');
         await browser.fx.send('WebDriver:SwitchToWindow', { handle: settings.handle });
-        const got = await waitForRows((found) => found.length === after.length + 1 && found[0][2] !== 'Blocked');
+        const got = await waitForRows((found) => found.length > 0 && found[0][2] !== 'Blocked');
         assert.deepEqual(got[0].slice(1), [SITE, 'Opened, not blocked'], JSON.stringify(got.slice(0, 2)));
         assert.match(await browser.run(`return document.getElementById('attempts-summary').textContent`), / 1 page opened instead of being blocked\.$/);
       } finally {
@@ -326,21 +383,20 @@ describe('Firefox', { skip: findFirefox() ? false : 'no Firefox found (set FIREF
         args: [threeDaysAgo],
       });
       assert.equal(seeded, 'ok');
-      await browser.run("document.getElementById('history-scan-now').click()");
-      const until = Date.now() + 15_000;
-      let status = '';
-      while (!/^Looked through this browser's history on .+: found \d+ visits? to listed sites/.test(status) && Date.now() < until) {
-        await sleep(200);
-        status = await browser.run("return document.getElementById('history-scan').textContent");
-      }
+      const status = await scanHistory((text) => /^Looked through this browser's history on .+: found \d+ visits? to listed sites/.test(text));
       assert.match(status, /found \d+ visits? to listed sites, (all|\d+) new\.( Removed .+\.)?$/, status);
+      assert.equal(await browser.run("return document.getElementById('history-scan-now').textContent"), 'Look through this browser’s history again', 'started from the record page');
+      await browser.fx.send('WebDriver:SwitchToWindow', { handle: settings.handle });
+      assert.equal(await browser.run("return document.getElementById('history-scan-now')"), null, 'and no longer from the settings page (#70)');
+      const list = await storedAttempts();
+      const fromHistory = list.filter((entry) => entry.from === 'history');
+      assert.ok(fromHistory.length >= 1, JSON.stringify(list.slice(0, 5)));
+      assert.ok(fromHistory.every((entry) => entry.site === SITE), 'only listed sites');
+      assert.ok(fromHistory.some((entry) => Math.abs(entry.at - threeDaysAgo) < 60_000), `an entry dated three days ago: ${JSON.stringify(fromHistory)}`);
+      assert.equal(list[0].from, 'history', 'the oldest entry is the one from three days ago');
+      // The settings page shows the latest three, which the old visit is not among; every try has its page.
       const rows = await browser.run(`return [...document.querySelectorAll('#attempts-table tbody tr')].map((row) => [...row.cells].map((cell) => cell.textContent))`);
-      const fromHistory = rows.filter((row) => row[2] === 'Visited (browser history)');
-      assert.ok(fromHistory.length >= 1, JSON.stringify(rows.slice(0, 5)));
-      assert.ok(fromHistory.every((row) => row[1] === SITE), 'only listed sites');
-      const expected = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(threeDaysAgo);
-      assert.ok(fromHistory.some((row) => row[0] === expected), `a row dated ${expected}: ${JSON.stringify(fromHistory)}`);
-      assert.equal(rows.at(-1)[2], 'Visited (browser history)', 'the oldest entry is the one from three days ago');
+      assert.ok(rows.length <= 3 && rows.every((row) => row[2] !== 'Visited (browser history)'), JSON.stringify(rows));
     });
 
     test("listed sites are taken out of Firefox's history and bookmarks once they are in the record, so the address bar stops suggesting them", async () => {
@@ -397,19 +453,14 @@ describe('Firefox', { skip: findFirefox() ? false : 'no Firefox found (set FIREF
       assert.equal(await autofill('exa'), 'exampleadultsite.com/', 'Firefox suggests the site from its history and bookmarks');
 
       // The scan notes the visit, then takes the page and the bookmark away.
-      await browser.run("document.getElementById('history-scan-now').click()");
-      const until = Date.now() + 15_000;
-      let status = '';
-      while (!/Removed/.test(status) && Date.now() < until) {
-        await sleep(200);
-        status = await browser.run("return document.getElementById('history-scan').textContent");
-      }
+      const status = await scanHistory((text) => /Removed/.test(text));
       assert.match(status, /: found 1 visit to listed sites, all new\. Removed 1 page from this browser's history and 1 bookmark\.$/, status);
+      await browser.fx.send('WebDriver:SwitchToWindow', { handle: settings.handle });
       assert.deepEqual(await inHistory(), []);
       assert.deepEqual(await bookmarked(), []);
       assert.equal(await autofill('exa'), 'exa', 'nothing left to suggest');
-      const rows = await browser.run(`return [...document.querySelectorAll('#attempts-table tbody tr')].map((row) => [...row.cells].map((cell) => cell.textContent))`);
-      assert.ok(rows.some((row) => row[1] === SITE && row[2] === 'Visited (browser history)'), 'the visit stays in the record');
+      const list = await storedAttempts();
+      assert.ok(list.some((entry) => entry.site === SITE && entry.from === 'history' && Math.abs(entry.at - (Date.now() - 7 * 86_400_000)) < 120_000), 'the visit stays in the record');
 
       // Live: the site typed into the address bar, as a person would. Firefox puts the typed address into
       // its history as the block page takes over; a moment later the add-on has taken it out again.
@@ -444,7 +495,7 @@ describe('Firefox', { skip: findFirefox() ? false : 'no Firefox found (set FIREF
       assert.equal(link.target, '_blank');
       const count = Number(link.text.match(/\d+/)[0]);
       const shownOnSettings = await browser.run(`return document.querySelectorAll('#attempts-table tbody tr').length`);
-      assert.ok(shownOnSettings <= 10 && shownOnSettings <= count, 'the settings page shows the latest ten at most');
+      assert.ok(shownOnSettings <= 3 && shownOnSettings <= count, 'the settings page shows the latest three at most');
 
       const before = (await browser.tabs()).map(({ handle }) => handle); // tabs() leaves another tab current
       await browser.fx.send('WebDriver:SwitchToWindow', { handle: settings.handle });
@@ -541,7 +592,8 @@ describe('Firefox', { skip: findFirefox() ? false : 'no Firefox found (set FIREF
         args: [Date.now() - 2 * 86_400_000],
       });
       assert.equal(seeded, 'ok');
-      await browser.run("document.getElementById('history-scan-now').click()");
+      await scanHistory((text) => /^Looked through/.test(text));
+      await browser.fx.send('WebDriver:SwitchToWindow', { handle: settings.handle });
       const until = Date.now() + 15_000;
       let note = { hidden: true };
       while (note.hidden && Date.now() < until) {
@@ -551,8 +603,7 @@ describe('Firefox', { skip: findFirefox() ? false : 'no Firefox found (set FIREF
       assert.equal(note.text, "1 site in this browser's history looks adult but isn't on either list: see which.");
 
       // The unlisted page (#54), opened in the record page's tab.
-      const recordTab = (await browser.tabs()).find(({ url }) => url.endsWith('/attempts.html'));
-      await browser.fx.send('WebDriver:SwitchToWindow', { handle: recordTab.handle });
+      const recordTab = { handle: await openRecordTab() };
       await browser.visit(`moz-extension://${new URL(await browser.currentUrl()).host}/unlisted.html`);
       const rows = () =>
         browser.run(`return [...document.querySelectorAll('#unlisted-table tbody tr')].map((row) => [...row.cells].map((cell) => cell.textContent))`);
@@ -574,17 +625,30 @@ describe('Firefox', { skip: findFirefox() ? false : 'no Firefox found (set FIREF
         summary = await browser.run("return document.getElementById('summary').textContent");
       }
       assert.match(summary, /^None found when the history was last looked through/, summary);
+      // The unblocked visit a moment ago went into the history and from there into the record; a try less
+      // than two seconds after it would count as the same one.
+      await sleep(2100);
       await browser.newTab();
       await assertBlocked('http://hentai-example.test/three');
       await browser.fx.send('WebDriver:SwitchToWindow', { handle: settings.handle });
       assert.equal(await browser.run("return document.getElementById('custom').value"), 'hentai-example.test', "the settings page's box shows the addition");
-      const record = await browser.run(`return [...document.querySelectorAll('#attempts-table tbody tr')].map((row) => [...row.cells].map((cell) => cell.textContent))`);
-      assert.ok(record.some((row) => row[1] === 'hentai-example.test' && row[2] === 'Visited (browser history)'), JSON.stringify(record.slice(0, 4)));
+      let record = await storedAttempts();
+      assert.ok(record.some((entry) => entry.site === 'hentai-example.test' && entry.from === 'history'), JSON.stringify(record.slice(-4)));
+      const noted = Date.now() + 10_000;
+      while (!record.some((entry) => entry.site === 'hentai-example.test' && !entry.from) && Date.now() < noted) {
+        await sleep(250);
+        record = await storedAttempts();
+      }
+      assert.ok(record.some((entry) => entry.site === 'hentai-example.test' && !entry.from), `the try just made: ${JSON.stringify(record.slice(-5))}`);
     });
 
-    test('a password locked away with a short wait comes back after it, and is locked away again', async () => {
+    test('a password locked away with a short wait comes back after it, and is locked away again; the settings page says where it stands', async () => {
       const settings = tabsAfterInstall.find(({ url }) => url.endsWith('/options.html'));
-      await browser.fx.send('WebDriver:SwitchToWindow', { handle: settings.handle });
+      // The password has a page of its own (#70).
+      await browser.newTab();
+      await browser.visit(`moz-extension://${new URL(settings.url).host}/lockbox.html`);
+      const lockboxHandle = (await browser.tabs()).find(({ url }) => url.endsWith('/lockbox.html')).handle;
+      await browser.fx.send('WebDriver:SwitchToWindow', { handle: lockboxHandle });
       const shown = () =>
         browser.run(`return ['lockbox-empty', 'lockbox-locked', 'lockbox-open'].find((id) => !document.getElementById(id).hidden)`);
       const waitUntilShown = async (id, ms = 20_000) => {
@@ -602,6 +666,16 @@ describe('Firefox', { skip: findFirefox() ? false : 'no Firefox found (set FIREF
         document.getElementById('lockbox-lock').click();`);
       await waitUntilShown('lockbox-locked');
       assert.equal(await browser.run("return document.getElementById('lockbox-secret').value"), '');
+      await browser.fx.send('WebDriver:SwitchToWindow', { handle: settings.handle });
+      const lineUntil = Date.now() + 10_000;
+      let line = '';
+      while (!/^A password is locked away/.test(line) && Date.now() < lineUntil) {
+        await sleep(200);
+        line = await browser.run("return document.getElementById('lockbox-line').textContent");
+      }
+      assert.match(line, /^A password is locked away \(since .+\); getting it back takes about [1-4] seconds\.$/);
+      assert.equal(await browser.run("return document.getElementById('lockbox-page').getAttribute('href')"), 'lockbox.html');
+      await browser.fx.send('WebDriver:SwitchToWindow', { handle: lockboxHandle });
 
       const started = Date.now();
       await browser.run("document.getElementById('lockbox-start').click()");
@@ -667,7 +741,7 @@ describe('Firefox', { skip: findFirefox() ? false : 'no Firefox found (set FIREF
         await sleep(300);
         line = await browser.run("return document.getElementById('picture-status').textContent");
       }
-      assert.match(line, /^Since the browser started: \d+ pictures judged, 0 hidden; judging runs through WebAssembly\.$/);
+      assert.match(line, /^Pictures and videos are judged before they show: since the browser started, \d+ pictures judged, 0 hidden \(through WebAssembly\)\.$/);
     });
 
     test('with the stand-in classifier: nudity and suggestive pictures are hidden, a photo shown, the record filled, and "Nudity only" lets the suggestive one through', async () => {

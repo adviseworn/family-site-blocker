@@ -251,8 +251,106 @@ textarea {
 }
 
 #history-scan,
-#safe-search-note {
+.muted {
   color: var(--muted);
+}
+
+.muted {
+  font-size: 0.95rem;
+}
+
+/* The board on the settings page: one line for each thing that has to be right, with a mark. */
+
+.board {
+  margin: 0 0 1rem;
+  padding: 0;
+  list-style: none;
+  border-top: 1px solid var(--line);
+}
+
+.board li {
+  display: grid;
+  grid-template-columns: 1.5rem minmax(0, 1fr);
+  gap: 0 0.6rem;
+  padding: 0.8rem 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.board li:last-child {
+  border-bottom: 0;
+}
+
+.board a:not(.button),
+.muted a,
+#pictures a,
+#lock-status a,
+.record header p a {
+  color: var(--gate);
+  font-weight: 600;
+}
+
+.board .mark {
+  font-weight: 700;
+  text-align: center;
+}
+
+.board .ok .mark::before {
+  content: "✓";
+  color: var(--ok);
+}
+
+.board .todo .mark::before {
+  content: "!";
+  color: var(--bad);
+}
+
+.board .checking .mark::before {
+  content: "…";
+  color: var(--muted);
+}
+
+.board .what {
+  max-width: 60ch;
+}
+
+.board .what small {
+  display: block;
+  margin-top: 0.35rem;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.board .what .button,
+.board .what button {
+  margin: 0.2rem 0.2rem 0.2rem 0;
+  vertical-align: baseline;
+}
+
+.board details {
+  margin-top: 0.3rem;
+}
+
+.board summary {
+  color: var(--gate);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.board .results {
+  margin: 0.5rem 0 0;
+  font-size: 0.95rem;
+}
+
+.board .results li {
+  display: grid;
+  padding: 0.5rem 0;
+  border-bottom: 0;
+}
+
+.board #check-intro {
+  margin: 0.5rem 0 0;
+  color: var(--muted);
+  font-size: 0.95rem;
 }
 
 code {
@@ -382,6 +480,7 @@ button:disabled {
   cursor: progress;
 }
 
+.button.small,
 button.small {
   padding: 0.35em 0.8em;
   font-size: 0.9rem;
@@ -393,12 +492,16 @@ button.small {
   overflow-wrap: anywhere;
 }
 
-#picture-status,
-#elsewhere p {
+#elsewhere p,
+#pictures-line,
+#unlisted-note,
+#lockbox-line {
   color: var(--muted);
 }
 
-#elsewhere a {
+#elsewhere a,
+#pictures-line a,
+#unlisted-note a {
   color: var(--gate);
   font-weight: 600;
 }
@@ -417,7 +520,6 @@ button.small {
 
 #pictures label {
   display: block;
-  margin-top: 1rem;
   font-weight: 600;
 }
 
