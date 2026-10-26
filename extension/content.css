@@ -7,3 +7,9 @@ img:not([data-family-site-blocker="ok"]):not([data-family-site-blocker="small"])
 video:not([data-family-site-blocker="ok"]) {
   visibility: hidden !important;
 }
+/* A picture an element's own style sets as its background is judged the same way (X shows a tweet's
+   picture like that: the <img> over it is see-through, the picture is the background behind it). Until
+   then the element has no background; its size, and whatever is in it, stay as they are. */
+[style*="url(" i]:not([data-family-site-blocker="ok"]):not([data-family-site-blocker="small"]) {
+  background-image: none !important;
+}
