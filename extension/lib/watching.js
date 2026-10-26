@@ -7,7 +7,7 @@
 //
 // `since` is when the add-on first started watching in this browser profile: the moment it was installed
 // (background.js, runtime.onInstalled) or, in a profile that had a version from before this was kept
-// (1.8.0), the earliest try that version noted as it happened, which proves it was running then; such a
+// (1.11.0), the earliest try that version noted as it happened, which proves it was running then; such a
 // `since` is marked `atLeast`, because the add-on may well have been installed earlier.
 //
 // `periods` are the stretches of time the background script is known to have been running, oldest first:

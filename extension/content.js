@@ -8,9 +8,11 @@
 // Pictures are judged when they come near the view, so a long page costs only what is looked at. A video
 // is judged by its poster and by its frames: the first frame before it can be seen, then one every so
 // often while it plays, so a video that turns out to show something is hidden, and paused, within a
-// moment. Only <img> and <video> are covered: backgrounds set in CSS and pictures inside shadow roots
-// are not, and a video whose frames the page itself isn't allowed to read (served from another site
-// without permission) is judged by its poster alone.
+// moment. A picture an element's own style sets as its background is judged like an <img>, and the
+// element has no background until then (X shows a tweet's picture that way, under a see-through <img>).
+// Backgrounds set in stylesheets and pictures inside shadow roots are not covered, and a video whose
+// frames the page itself isn't allowed to read (served from another site without permission) is judged
+// by its poster alone.
 (() => {
   const api = globalThis.browser ?? globalThis.chrome;
   const ATTR = 'data-family-site-blocker';
@@ -70,6 +72,101 @@
     if (judged.get(img) !== url) return; // the picture changed meanwhile; the new one is being judged
     mark(img, result?.hide ? 'hidden' : 'ok');
   }
+
+  // --- Backgrounds -------------------------------------------------------------------------------------
+  // An element whose style attribute names a url( is treated by content.css as having a background picture:
+  // no background until it is marked. The addresses in its own background-image are judged as a picture's
+  // is, each of them (gradients and image-set() included), and the element is hidden if any is. A url( in
+  // a mask or a custom property, or a background from a stylesheet, gives no address here: such an element
+  // is marked ok, and a stylesheet's background isn't seen at all.
+
+  const backgrounds = new WeakMap(); // element -> the addresses (joined) it was last judged by
+  const smallBackgrounds = new WeakMap(); // element -> the addresses it was found too small for
+  const checkingBackgrounds = new WeakMap(); // element -> the addresses a check is under way for
+  const CSS_URL = /url\(\s*(?:"((?:[^"\\]|\\.)*)"|'((?:[^'\\]|\\.)*)'|([^)]*))\s*\)/gi;
+
+  /** Whether content.css treats an element as having a background picture: its style attribute names a url(. */
+  const hasBackground = (node) => node instanceof HTMLElement && /url\(/i.test(node.getAttribute('style') ?? '');
+
+  /** The addresses in an element's own background-image that the background script can fetch, resolved. */
+  function backgroundUrls(element) {
+    const urls = [];
+    for (const match of (element.style.backgroundImage || '').matchAll(CSS_URL)) {
+      const raw = (match[1] ?? match[2] ?? match[3] ?? '').trim();
+      if (!raw) continue;
+      try {
+        const url = new URL(raw, document.baseURI).href;
+        if (fetchable(url)) urls.push(url);
+      } catch {
+        // not an address
+      }
+    }
+    return urls;
+  }
+
+  const areas = new Map(); // address -> the picture's area in pixels, once looked up (a sprite shared by many icons is looked up once)
+
+  /** A picture's area in pixels, found by loading it (the browser has it already, as the element's background); 0 if it can't be loaded. */
+  function naturalArea(url) {
+    if (!areas.has(url)) {
+      areas.set(
+        url,
+        new Promise((resolve) => {
+          const probe = new Image();
+          probe.onload = () => resolve(probe.naturalWidth * probe.naturalHeight);
+          probe.onerror = () => resolve(0);
+          probe.src = url;
+        }),
+      );
+    }
+    return areas.get(url);
+  }
+
+  function forgetBackground(element) {
+    backgrounds.delete(element);
+    smallBackgrounds.delete(element);
+  }
+
+  async function checkBackground(element) {
+    const urls = backgroundUrls(element);
+    if (urls.length === 0) {
+      // Nothing of ours in it: a url( in a mask or a custom property, a gradient, a blob: picture the page made.
+      forgetBackground(element);
+      mark(element, 'ok');
+      return;
+    }
+    const key = urls.join(' ');
+    if (backgrounds.get(element) === key || checkingBackgrounds.get(element) === key) return; // judged, or being judged
+    // Small as an <img> is small: an element under 64 by 64 showing pictures that are all under 64 by 64 (an
+    // icon, a sprite) is shown without being judged; a small box showing a big picture is judged.
+    const bigBox = element.offsetWidth * element.offsetHeight >= MIN_AREA;
+    if (!bigBox && smallBackgrounds.get(element) === key) return; // found small already, and no bigger now
+    checkingBackgrounds.set(element, key);
+    try {
+      mark(element, 'checking');
+      const picture = bigBox || (await Promise.all(urls.map(naturalArea))).some((area) => area >= MIN_AREA);
+      if (backgroundUrls(element).join(' ') !== key) return; // changed meanwhile; the new one is being judged
+      if (!picture) {
+        smallBackgrounds.set(element, key);
+        mark(element, 'small');
+        return;
+      }
+      backgrounds.set(element, key);
+      const results = await Promise.all(urls.map(judge));
+      if (backgrounds.get(element) !== key) return;
+      mark(element, results.some((result) => result?.hide) ? 'hidden' : 'ok');
+    } finally {
+      if (checkingBackgrounds.get(element) === key) checkingBackgrounds.delete(element);
+    }
+  }
+
+  // An element found too small to be a picture is looked at again if it grows.
+  const grown =
+    typeof ResizeObserver === 'function'
+      ? new ResizeObserver((entries) => {
+          for (const entry of entries) if (smallBackgrounds.has(entry.target)) checkBackground(entry.target);
+        })
+      : null;
 
   // --- Video -------------------------------------------------------------------------------------------
   // What a video shows changes as it plays, so it is judged more than once: its poster (by address, like
@@ -254,7 +351,8 @@
           videoState(entry.target).near = entry.isIntersecting;
           if (entry.isIntersecting) checkVideo(entry.target);
         } else if (entry.isIntersecting) {
-          check(entry.target);
+          if (entry.target instanceof HTMLImageElement) check(entry.target);
+          else checkBackground(entry.target);
         }
       }
     },
@@ -264,6 +362,7 @@
   function watch(element) {
     if (!element.hasAttribute(ATTR)) mark(element, 'checking');
     if (element instanceof HTMLVideoElement) videoState(element);
+    else if (!(element instanceof HTMLImageElement)) grown?.observe(element);
     near.observe(element);
   }
 
@@ -271,6 +370,7 @@
   // video whose source hasn't changed stays hidden: taking the mark off doesn't bring it back.
   function rewatch(element) {
     judged.delete(element);
+    forgetBackground(element);
     if (element instanceof HTMLVideoElement) {
       const state = videos.get(element);
       if (state?.src === (element.currentSrc || element.src || '') && state.hidden) {
@@ -287,18 +387,37 @@
     watch(element);
   }
 
-  const isPicture = (node) => node instanceof HTMLImageElement || node instanceof HTMLVideoElement;
+  const isMedia = (node) => node instanceof HTMLImageElement || node instanceof HTMLVideoElement;
+  const isWatched = (node) => isMedia(node) || hasBackground(node);
+  const WATCHED = 'img, video, [style*="url(" i]';
 
   function scan(root) {
-    if (isPicture(root)) watch(root);
-    if (root.querySelectorAll) for (const element of root.querySelectorAll('img, video')) watch(element);
+    if (isWatched(root)) watch(root);
+    if (root.querySelectorAll) for (const element of root.querySelectorAll(WATCHED)) watch(element);
   }
 
   new MutationObserver((records) => {
     for (const record of records) {
       if (record.type === 'attributes') {
         const element = record.target;
-        if (!isPicture(element)) continue;
+        if (record.attributeName === 'style') {
+          // A background picture given to an element, changed or taken away. A style change that leaves
+          // the addresses as they were (a transform, say) is nothing new.
+          if (isMedia(element) || !(element instanceof HTMLElement)) continue;
+          if (!hasBackground(element)) {
+            if (backgrounds.has(element) || smallBackgrounds.has(element) || checkingBackgrounds.has(element)) {
+              forgetBackground(element);
+              mark(element, 'ok');
+            }
+            continue;
+          }
+          const key = backgroundUrls(element).join(' ');
+          if (backgrounds.get(element) === key || smallBackgrounds.get(element) === key || checkingBackgrounds.get(element) === key) continue;
+          mark(element, 'checking');
+          rewatch(element);
+          continue;
+        }
+        if (!isWatched(element)) continue;
         // A mark this script set itself is nothing new. The page taking the mark off or changing it, or
         // giving the picture a new address, means judging again (the background script remembers
         // verdicts, so a known picture costs nothing).
@@ -312,7 +431,7 @@
     childList: true,
     subtree: true,
     attributes: true,
-    attributeFilter: ['src', 'srcset', 'poster', ATTR],
+    attributeFilter: ['src', 'srcset', 'poster', 'style', ATTR],
   });
 
   // A picture that finishes loading while near the view is judged straight away; load events don't

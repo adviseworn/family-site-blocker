@@ -50,6 +50,22 @@
           <button id="lockbox-backup" class="secondary" type="button">Save a backup file</button>
           <button id="lockbox-delete" class="secondary" type="button">Delete it</button>
         </div>
+        <div id="lockbox-lengthen-area" hidden>
+          <label for="lockbox-longer">Lengthen the wait to</label>
+          <select id="lockbox-longer">
+            <option value="600">10 minutes</option>
+            <option value="3600">1 hour</option>
+            <option value="14400">4 hours</option>
+            <option value="43200">12 hours</option>
+            <option value="86400">1 day</option>
+            <option value="172800">2 days</option>
+          </select>
+          <div class="actions">
+            <button id="lockbox-lengthen" class="secondary" type="button">Lengthen the wait</button>
+            <span id="lockbox-longest" class="muted" hidden>The wait is already the longest offered.</span>
+          </div>
+          <p class="note">Making the wait longer needs no unlocking: the locked box goes inside a longer puzzle. Making it shorter needs the password, so that can only be done once it has been unlocked. A backup file saved before the wait was lengthened still opens after the old wait: delete it (and empty the Trash) or make up a new password, and save a new backup file.</p>
+        </div>
         <p class="note">Removing the extension deletes the locked-away password with it, and so does Firefox when it quits if the add-on isn’t signed. Keep a backup file: it stays locked with the same wait.</p>
       </div>
 
@@ -60,10 +76,36 @@
           <button id="lockbox-copy" type="button">Copy</button>
           <button id="lockbox-hide" class="secondary" type="button">Hide</button>
         </div>
-        <p>It’s already locked away again with the same wait. It stays on this page until you click Hide or close the page.</p>
+        <p id="lockbox-again">It’s already locked away again with the same wait. It stays on this page until you click Hide or close the page.</p>
+        <label for="lockbox-new-wait">Lock it away again with a different wait</label>
+        <select id="lockbox-new-wait">
+          <option value="60">1 minute</option>
+          <option value="600">10 minutes</option>
+          <option value="3600">1 hour</option>
+          <option value="14400">4 hours</option>
+          <option value="43200">12 hours</option>
+          <option value="86400">1 day</option>
+          <option value="172800">2 days</option>
+        </select>
+        <div class="actions">
+          <button id="lockbox-relock" class="secondary" type="button">Lock it away again</button>
+        </div>
+        <p class="note">A shorter wait can only be chosen here, once the old one has been served. A longer one can be chosen at any time without unlocking: <strong>Lengthen the wait</strong>, shown while the password is locked away.</p>
       </div>
 
       <p id="lockbox-status" role="status"></p>
+    </section>
+
+    <section id="lockbox-record" aria-labelledby="lockbox-record-heading" hidden>
+      <h2 id="lockbox-record-heading">What has happened</h2>
+      <p>Everything done with the locked-away password on this page, with the time, newest first: locked away, unlocking started, carried on or stopped, the password shown and locked away again, a backup file restored, the password deleted. The record stays when the password is deleted or replaced, and nothing on this page can clear it.</p>
+      <table id="lockbox-events" class="attempts">
+        <thead>
+          <tr><th scope="col">When</th><th scope="col">What happened</th></tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+      <p><button id="lockbox-events-more" class="secondary" type="button" hidden>Show all</button></p>
     </section>
   </main>
   <script type="module" src="lockbox.js"></script>
