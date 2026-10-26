@@ -517,6 +517,22 @@ describe('real browser', () => {
         await page.close();
       }
     });
+
+    test('the board says so when a policy installed the extension, as the Firefox lock does: no switch, no Remove (#69)', async () => {
+      // Chromium can't be put under a policy here: stand in for what the browser then reports.
+      const page = await browser.context.newPage();
+      await page.addInitScript(() => {
+        const real = chrome.management.getSelf;
+        chrome.management.getSelf = async () => ({ ...(await real()), installType: 'admin', mayDisable: false });
+      });
+      try {
+        await page.goto(`chrome-extension://${browser.extensionId}/options.html`);
+        await page.waitForFunction(() => document.getElementById('lock').classList.contains('ok'));
+        assert.equal(await page.locator('#lock-status').innerText(), 'Installed by policy: the browser gives no way to switch the add-on off or remove it.');
+      } finally {
+        await page.close();
+      }
+    });
   });
 
   describe('blocked attempts', () => {
@@ -693,8 +709,10 @@ describe('real browser', () => {
         assert.ok(fromHistory.every((entry) => entry.site === SITE || entry.site === 'custom-blocked.test'), 'only listed sites');
         assert.equal(list.some((entry) => entry.site === 'allowed.test'), false);
         assert.ok(fromHistory.some((entry) => Date.now() - entry.at < 60_000), 'the visit just added');
+        // Dated now, the visit falls in a time the extension was running, so the page says the site can't have been listed then (#69); the
+        // Firefox tests, which can date a visit, see the wording for one from before the install.
         const rows = await shown(page);
-        assert.ok(rows.some((row) => row[1] === SITE && row[2] === 'Visited (browser history)'), JSON.stringify(rows.slice(0, 3)));
+        assert.ok(rows.some((row) => row[1] === SITE && row[2] === 'Visited before the site was listed'), JSON.stringify(rows.slice(0, 3)));
         assert.match(await page.locator('#attempts-summary').innerText(), / \d+ from this browser's history\.$/);
 
         // Once in the record, listed pages are taken out of the browser's history, and bookmarks to listed
@@ -862,9 +880,15 @@ describe('real browser', () => {
         assert.match(await page.locator('#summary').innerText(), / 1 on yours\.$/);
         await page.waitForFunction(() => document.getElementById('unlisted-note').hidden);
         assert.equal((await visit(browser.context, 'http://nsfw-pictures.test/page')).outcome, 'blocked page');
-        const list = await stored(page);
+        let list = await stored(page);
         assert.ok(list.some((entry) => entry.site === 'nsfw-pictures.test' && entry.from === 'history'), JSON.stringify(list));
-        assert.ok(list.some((entry) => entry.site === 'nsfw-pictures.test' && !entry.from), 'the try just made');
+        // The background script notes the try a moment after the page load, behind whatever it is writing.
+        const noted = Date.now() + 10_000;
+        while (!list.some((entry) => entry.site === 'nsfw-pictures.test' && !entry.from) && Date.now() < noted) {
+          await pause(100);
+          list = await stored(page);
+        }
+        assert.ok(list.some((entry) => entry.site === 'nsfw-pictures.test' && !entry.from), `the try just made: ${JSON.stringify(list.slice(-4))}`);
         assert.deepEqual(record.errors, []);
         assert.deepEqual(page.errors, []);
       } finally {
@@ -894,12 +918,149 @@ describe('real browser', () => {
         assert.equal(await record.locator('#every-try').isVisible(), false);
         assert.equal(await record.locator('#sites').isVisible(), false);
         assert.equal(await record.locator('#pictures-line span').innerText(), 'No picture hidden so far.');
+        await record.waitForFunction(() => /^Watching since /.test(document.getElementById('since').textContent));
+        assert.equal(await record.locator('#off-summary').innerText(), 'No visit to a listed site found from a time the extension was off.');
+        assert.equal(await record.locator('#off-table').isVisible(), false);
         for (const [name, text] of [['pictures.html', 'No picture hidden so far.'], ['tries.html', 'No attempts so far.']]) {
           await record.goto(`chrome-extension://${browser.extensionId}/${name}`);
           await record.waitForFunction((want) => document.getElementById('summary').textContent === want, text);
         }
       } finally {
         await record.close();
+        await page.close();
+      }
+    });
+
+    // --- Was it ever off? (#69) ---
+    const watchingStored = (page) => page.evaluate(() => chrome.storage.local.get('watching').then((got) => got.watching));
+
+    test('the extension keeps track of when it is running: the moment it was installed, and the stretch since, kept up by an alarm every minute', async () => {
+      const page = await openSettings();
+      try {
+        const state = await watchingStored(page);
+        assert.ok(state, 'a watching state is stored');
+        const launched = Date.now() - 20 * 60_000;
+        assert.ok(state.since > launched && state.since <= Date.now(), `since the install, earlier in this run: ${JSON.stringify(state)}`);
+        assert.equal(state.atLeast, undefined, 'an install knows its moment exactly');
+        assert.ok(state.periods.length >= 1, JSON.stringify(state.periods));
+        assert.equal(state.periods[0].from, state.since, 'the first stretch starts with the install');
+        const last = state.periods[state.periods.length - 1];
+        assert.ok(Date.now() - last.to < 2 * 60_000, `the stretch is kept up to the minute: ${JSON.stringify(last)}`);
+        assert.ok(state.periods.every((period) => period.from <= period.to));
+        const alarms = await page.evaluate(() => chrome.alarms.getAll());
+        assert.deepEqual(alarms.map(({ name, periodInMinutes }) => ({ name, periodInMinutes })), [{ name: 'heartbeat', periodInMinutes: 1 }]);
+        assert.deepEqual(page.errors, []);
+      } finally {
+        await page.close();
+      }
+    });
+
+    test('a visit from the history is placed by when the extension was running: off, before the site was listed, or before it kept track; the times it was off are listed with the pages visited meanwhile', async () => {
+      const page = await freshRecord();
+      const original = await watchingStored(page);
+      const record = await browser.context.newPage();
+      record.errors = [];
+      record.on('pageerror', (error) => record.errors.push(error.message));
+      const offRows = () => record.evaluate(() => [...document.querySelectorAll('#off-table tbody tr')].map((row) => [...row.cells].map((cell) => cell.textContent)));
+      try {
+        // A page visited now, then a stretch of running made to end just before it: the visit falls in a
+        // silence, as it would had the extension been off. A visit to a listed site from that silence is in
+        // the record (the extension takes those out of the history), one from before the install, and one
+        // from after the install but before version 1.11.0 kept track of when it was running.
+        const before = Date.now();
+        assert.equal((await visit(browser.context, 'http://allowed.test/while-off')).outcome, 'site loaded');
+        const after = Date.now();
+        const hour = 3600_000;
+        await page.evaluate(
+          ([from, to, hour]) =>
+            chrome.storage.local.set({
+              watching: { since: from - 3 * hour, atLeast: true, periods: [{ from: from - hour, to: from - 5000 }, { from: to, to }], off: [] },
+              attempts: [
+                { at: from - 4 * hour, site: 'exampleadultsite.com', from: 'history' },
+                { at: from - 2 * hour, site: 'exampleadultsite.com', from: 'history' },
+                { at: from - 2000, site: 'exampleadultsite.com', from: 'history' },
+                { at: to + 1, site: 'other.test' },
+              ],
+            }),
+          [before, after, hour],
+        );
+        await record.goto(`chrome-extension://${browser.extensionId}/attempts.html`);
+        await record.waitForFunction(() => !document.getElementById('off-table').hidden, null, { timeout: 15_000 });
+        assert.equal(
+          await record.locator('#since').innerText(),
+          `Watching since at least ${new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(before - 3 * hour)}, the first try an earlier version noted as it happened; keeping track of when it is running since ${new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(before - hour)}, when version 1.11.0 or later arrived.`,
+        );
+        assert.match(
+          await record.locator('#off-summary').innerText(),
+          /^1 visit to a listed site while the extension was off, the latest on .+\. 1 visit to a listed site from after the extension was installed but before it kept track of when it was running, the latest on .+: it was off then, or the site wasn't on a list yet\.$/,
+        );
+        const rows = await offRows();
+        assert.equal(rows.length, 1, JSON.stringify(rows));
+        assert.ok(Number(rows[0][2]) >= 1, `the page visited in the silence counts: ${JSON.stringify(rows)}`);
+        assert.equal(rows[0][3], '1', 'the visit to the listed site from the silence');
+        assert.match(await record.locator('#summary').innerText(), /^4 attempts at 2 sites, .+\. 3 from this browser's history, 1 of them from times the extension was off\.$/);
+        const site = await record.evaluate(() => [...document.querySelectorAll('#sites-table tbody tr')].map((row) => [...row.cells].map((cell) => cell.innerText)));
+        assert.equal(site[0][1], '3\n1 while off');
+        const state = await watchingStored(page);
+        assert.equal(state.off.length, 1, JSON.stringify(state));
+        assert.ok(state.off[0].pages >= 1);
+        assert.deepEqual([state.off[0].from, state.off[0].to], [before - 5000, after]);
+
+        // Every try, and the file: each visit from the history is told from the others.
+        await record.goto(`chrome-extension://${browser.extensionId}/tries.html`);
+        await record.waitForFunction(() => document.querySelectorAll('.day tbody tr').length === 4);
+        const labels = await record.evaluate(() => [...document.querySelectorAll('.day tbody tr')].map((row) => [row.className, row.cells[2].textContent]));
+        assert.deepEqual(labels, [
+          ['blocked', 'Blocked'],
+          ['off', 'Visited while the add-on was off'],
+          ['unseen', 'Visited after the add-on was installed'],
+          ['history', 'Visited (browser history)'],
+        ]);
+        assert.match(await record.locator('#summary').innerText(), /3 from this browser's history, 1 of them from times the extension was off\.$/);
+        const [download] = await Promise.all([record.waitForEvent('download'), record.click('#save-file')]);
+        const lines = readFileSync(await download.path(), 'utf8').split('\n');
+        assert.deepEqual(lines.slice(1, 5).map((line) => line.split(',').slice(2).join(',')), ['Visited (browser history)', 'Visited after the add-on was installed', 'Visited while the add-on was off', 'Blocked']);
+
+        // A visit the history holds from a time the extension was running (now), found by a look through
+        // it: the extension noted no try, so the site can't have been listed then.
+        const scannedBefore = await page.evaluate(() => chrome.storage.local.get('historyScan').then((got) => got.historyScan?.at ?? 0));
+        await page.evaluate(() => chrome.history.addUrl({ url: 'http://exampleadultsite.com/listed-later' }));
+        await page.evaluate(() => chrome.runtime.sendMessage({ type: 'scan-history' })); // as the record page's button does
+        await page.waitForFunction((at) => chrome.storage.local.get('historyScan').then((got) => got.historyScan?.at > at && got.historyScan.found >= 1), scannedBefore, { timeout: 15_000 });
+        await record.waitForFunction(() => document.querySelectorAll('.day tbody tr').length === 5);
+        assert.deepEqual(await record.evaluate(() => [...document.querySelectorAll('.day tbody tr')].slice(0, 1).map((row) => [row.className, row.cells[2].textContent])), [['unlisted', 'Visited before the site was listed']]);
+        await record.goto(`chrome-extension://${browser.extensionId}/attempts.html`);
+        await record.waitForFunction(() => /1 visit to a listed site from before the site was listed, while the extension was running\.$/.test(document.getElementById('off-summary').textContent));
+        assert.deepEqual(record.errors, []);
+        assert.deepEqual(page.errors, []);
+      } finally {
+        await page.evaluate((state) => chrome.storage.local.set({ watching: state }).then(() => chrome.storage.local.remove(['attempts', 'historyScan'])), original).catch(() => {});
+        await record.close();
+        await page.close();
+      }
+    });
+
+    test('when a silence ends, the history is looked through for what was missed meanwhile', async () => {
+      const page = await freshRecord();
+      const original = await watchingStored(page);
+      try {
+        // Make the last stretch end ten minutes ago, as if the extension had just come back on. Its next
+        // note of running then starts a new stretch, and a look through the history follows.
+        const scanBefore = await page.evaluate(() => chrome.storage.local.get('historyScan').then((got) => got.historyScan?.at ?? 0));
+        await page.evaluate((state) => {
+          const periods = [...state.periods];
+          const last = periods[periods.length - 1];
+          periods[periods.length - 1] = { from: Math.min(last.from, Date.now() - 20 * 60_000), to: Date.now() - 10 * 60_000 };
+          return chrome.storage.local.set({ watching: { ...state, periods } });
+        }, original);
+        await pause(5100); // past the few seconds in which page loads don't look at the stored state again
+        assert.equal((await visit(browser.context, 'http://allowed.test/back-on')).outcome, 'site loaded');
+        await page.waitForFunction((at) => chrome.storage.local.get('historyScan').then((got) => (got.historyScan?.at ?? 0) > at), scanBefore, { timeout: 15_000 });
+        const state = await watchingStored(page);
+        assert.ok(state.periods.length >= 2, `a new stretch: ${JSON.stringify(state.periods)}`);
+        assert.ok(Date.now() - state.periods[state.periods.length - 1].from < 15_000, 'started just now');
+      } finally {
+        await page.evaluate((state) => chrome.storage.local.set({ watching: state }).then(() => chrome.storage.local.remove(['attempts', 'historyScan'])), original).catch(() => {});
         await page.close();
       }
     });

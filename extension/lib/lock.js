@@ -2,15 +2,16 @@
 // the add-on off, and, under the Firefox lock, which copy of the lock's profile is installed.
 //
 // Firefox reports an add-on a policy requires (the lock's Extensions policy) as installed by an
-// administrator: management.getSelf() gives installType "admin", which needs no permission. That says a
-// lock is on, not which copy: the profile changes whenever the built-in list does, and installing a new
-// copy takes the administrator password, so a Mac can sit on an old one. So the profile also carries a
-// stamp, through Firefox's 3rdparty policy, which hands values to one add-on as its managed storage
-// (browser.storage.managed): the version of the add-on it was built with, and how many entries Firefox's
-// own copy of the list has (scripts/firefox-lock.mjs writes the same stamp into extension/rules/lock.json,
-// so the add-on knows which copy belongs to its own version). Only a policy can write managed storage, so
-// the stamp can be trusted; and Firefox reads policies when it starts, so the line describes the lock as
-// of Firefox's last start.
+// administrator that can't be switched off: management.getSelf() gives installType "admin" with
+// mayDisable false (its source strips the permission to disable from such an add-on), and needs no
+// permission. Either report says a lock is on (#69), not which copy: the profile changes whenever the
+// built-in list does, and installing a new copy takes the administrator password, so a Mac can sit on an
+// old one. So the profile also carries a stamp, through Firefox's 3rdparty policy, which hands values to
+// one add-on as its managed storage (browser.storage.managed): the version of the add-on it was built
+// with, and how many entries Firefox's own copy of the list has (scripts/firefox-lock.mjs writes the same
+// stamp into extension/rules/lock.json, so the add-on knows which copy belongs to its own version). Only a
+// policy can write managed storage, so the stamp can be trusted; and Firefox reads policies when it
+// starts, so the line describes the lock as of Firefox's last start.
 
 /** The key under which the profile's 3rdparty policy sets the stamp, and the add-on reads it. */
 export const STAMP = 'lock';
@@ -52,12 +53,20 @@ const link = (anchor, text) => ({ anchor, text });
 const IN_FORCE = 'The Firefox lock is in force: Firefox installed the add-on itself and gives no way to switch it off or remove it.';
 
 /**
- * What the lock line says and how it is marked. `installType` is management.getSelf()'s; `stamp` the installed
- * profile's (managedStamp), or null; `own` the add-on's version; `firefox` whether this is Firefox. Returns
- * { state: 'ok' | 'todo', parts }, the parts being strings and { anchor, text } links into the README.
+ * Whether the browser reports the add-on as locked: installed by policy (installType "admin"), or with no way
+ * to switch it off (mayDisable false). Firefox reports both under the lock; either is enough.
  */
-export function describeLock({ installType, stamp = null, own, firefox }) {
-  if (installType === 'admin' && firefox) {
+export const locked = ({ installType, mayDisable }) => installType === 'admin' || mayDisable === false;
+
+/**
+ * What the lock line says and how it is marked. `installType` and `mayDisable` are management.getSelf()'s;
+ * `stamp` the installed profile's (managedStamp), or null; `own` the add-on's version; `firefox` whether this
+ * is Firefox. Returns { state: 'ok' | 'todo', parts }, the parts being strings and { anchor, text } links
+ * into the README.
+ */
+export function describeLock({ installType, mayDisable, stamp = null, own, firefox }) {
+  const byPolicy = locked({ installType, mayDisable });
+  if (byPolicy && firefox) {
     if (!stamp) {
       return {
         state: 'todo',
@@ -84,7 +93,7 @@ export function describeLock({ installType, stamp = null, own, firefox }) {
     }
     return { state: 'ok', parts: [`${IN_FORCE} The lock installed is this version's copy (${own}), with ${entries(stamp.entries)} in Firefox's own list.`] };
   }
-  if (installType === 'admin') {
+  if (byPolicy) {
     return { state: 'ok', parts: ['Installed by policy: the browser gives no way to switch the add-on off or remove it.'] };
   }
   if (firefox && installType === 'development') {
@@ -106,7 +115,7 @@ export function describeLock({ installType, stamp = null, own, firefox }) {
 }
 
 /** Whether the lock line describes the Firefox lock in force (so its other settings, private windows off among them, are too). */
-export const lockInForce = ({ installType, firefox }) => firefox && installType === 'admin';
+export const lockInForce = ({ installType, mayDisable, firefox }) => firefox && locked({ installType, mayDisable });
 
 /** The parts of a line as plain text, for tests and messages. */
 export const textOf = (parts) => parts.map((part) => (typeof part === 'string' ? part : part.text)).join('');

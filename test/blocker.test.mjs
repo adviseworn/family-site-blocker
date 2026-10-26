@@ -8,7 +8,8 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { LABELS, MAX_ATTEMPTS, bookmarksTo, byDay, bySite, hostOf, listedDomain, mergeVisits, outcome as whatHappened, record, toCsv } from '../extension/lib/attempts.js';
+import { FROM_HISTORY, LABELS, MAX_ATTEMPTS, SAME_ATTEMPT_MS, bookmarksTo, byDay, bySite, hostOf, listedDomain, mergeVisits, outcome as whatHappened, record, summarize, toCsv } from '../extension/lib/attempts.js';
+import { GAP_MS, MAX_OFF, MAX_PERIODS, WRITE_EVERY_MS, beat, earliestLiveTry, gapsOf, kindOfVisit, normalize, noteGaps, started, wasRunning } from '../extension/lib/watching.js';
 import { normalizeDomain, parseDomainList } from '../extension/lib/domains.js';
 import { MAX_UNLISTED, looksAdult, siteOf, tallyUnlisted } from '../extension/lib/suspects.js';
 import { addToMyList, myList, saveMyList } from '../extension/lib/mylist.js';
@@ -457,10 +458,17 @@ test('blocked attempts: the record page sums the record up by site, most tries f
     { at: noon + 2000, site: 'a.test', opened: true },
   ];
   assert.deepEqual(bySite(attempts), [
-    { site: 'a.test', tries: 3, first: noon - day + 60_000, last: noon + 2000, opened: 1, history: 0 },
-    { site: 'b.test', tries: 2, first: noon - 3 * day, last: noon - day, opened: 1, history: 1 },
-    { site: 'c.test', tries: 1, first: noon + 1000, last: noon + 1000, opened: 0, history: 0 },
+    { site: 'a.test', tries: 3, first: noon - day + 60_000, last: noon + 2000, opened: 1, history: 0, off: 0 },
+    { site: 'b.test', tries: 2, first: noon - 3 * day, last: noon - day, opened: 1, history: 1, off: 0 },
+    { site: 'c.test', tries: 1, first: noon + 1000, last: noon + 1000, opened: 0, history: 0, off: 0 },
   ]);
+  // With the times the extension was running known, a visit from the history in a silence counts as from a time it was off.
+  const watching = { since: noon - 4 * day, periods: [{ from: noon - 4 * day, to: noon - 3 * day - 3600_000 }, { from: noon - 3 * day + 3600_000, to: noon + 5000 }] };
+  assert.equal(bySite(attempts, watching)[1].off, 1, 'b.test was visited while the extension was off');
+  assert.deepEqual(summarize(attempts, watching), {
+    tries: 6, sites: 3, latest: noon + 2000, opened: 2, history: 1, off: 1, unlisted: 0, unseen: 0, latestOff: noon - 3 * day, latestUnseen: null,
+  });
+  assert.deepEqual(summarize([]), { tries: 0, sites: 0, latest: null, opened: 0, history: 0, off: 0, unlisted: 0, unseen: 0, latestOff: null, latestUnseen: null });
   const days = byDay(attempts);
   assert.deepEqual(
     days.map(({ day: start, attempts: list }) => [new Date(start).toDateString(), list.map((a) => a.site)]),
@@ -473,8 +481,142 @@ test('blocked attempts: the record page sums the record up by site, most tries f
   assert.equal(new Date(days[0].day).getHours(), 0, 'each day starts at midnight');
   assert.deepEqual(bySite([]), []);
   assert.deepEqual(byDay(undefined), []);
-  assert.deepEqual(attempts.map(whatHappened), ['history', 'blocked', 'opened', 'blocked', 'blocked', 'opened']);
-  assert.deepEqual(Object.keys(LABELS).sort(), ['blocked', 'history', 'opened']);
+  assert.deepEqual(attempts.map((attempt) => whatHappened(attempt)), ['history', 'blocked', 'opened', 'blocked', 'blocked', 'opened']);
+  assert.deepEqual(Object.keys(LABELS).sort(), ['blocked', 'history', 'off', 'opened', 'unlisted', 'unseen']);
+  assert.deepEqual([...FROM_HISTORY].sort(), ['history', 'off', 'unlisted', 'unseen']);
+});
+
+test('watching: the first start is noted once, exactly on an install and as "at least" for a profile that had an earlier version', () => {
+  const t = 1_700_000_000_000;
+  assert.deepEqual(started(undefined, t), { since: t, periods: [], off: [] });
+  assert.deepEqual(started({ since: t }, t + 5, { atLeast: true }), { since: t, periods: [], off: [] }, 'known already: unchanged');
+  assert.deepEqual(started(null, t - 86_400_000, { atLeast: true }), { since: t - 86_400_000, atLeast: true, periods: [], off: [] });
+  assert.deepEqual(started({}, NaN), { periods: [], off: [] }, 'no time, no start');
+  // The earliest try an earlier version noted as it happened stands in for the install date; visits from the history don't count.
+  assert.equal(earliestLiveTry([{ at: t - 10, site: 'a.test', from: 'history' }, { at: t + 500, site: 'b.test' }, { at: t + 100, site: 'a.test', opened: true }]), t + 100);
+  assert.equal(earliestLiveTry([{ at: t, site: 'a.test', from: 'history' }]), null);
+  assert.equal(earliestLiveTry(undefined), null);
+  // Whatever is stored comes back well formed.
+  assert.deepEqual(normalize({ since: t, atLeast: 1, periods: [{ from: t, to: t - 1 }, { from: t, to: t + 1, extra: true }, 'junk'], off: [{ from: t, to: t + 1 }] }), {
+    since: t, atLeast: true, periods: [{ from: t, to: t + 1 }], off: [{ from: t, to: t + 1, pages: 0 }],
+  });
+  assert.deepEqual(normalize('not a state'), { periods: [], off: [] });
+});
+
+test('watching: beats within the gap extend the current stretch, and a longer silence starts a new one; stretches are written sparingly', () => {
+  const t = 1_700_000_000_000;
+  // The background script writes the state only when `changed` says so, and reads it back before each beat.
+  let stored;
+  const beatAt = (now) => {
+    const { state, changed } = beat(stored, now);
+    if (changed) stored = state;
+    return { state, changed };
+  };
+  let { state, changed } = beatAt(t);
+  assert.deepEqual(state, { periods: [{ from: t, to: t }], off: [] });
+  assert.equal(changed, true, 'a new stretch is always written');
+  ({ state, changed } = beatAt(t + 5000));
+  assert.deepEqual(state.periods, [{ from: t, to: t + 5000 }]);
+  assert.equal(changed, false, 'a stretch that grew by less than WRITE_EVERY_MS can wait');
+  assert.deepEqual(stored.periods, [{ from: t, to: t }]);
+  ({ state, changed } = beatAt(t + WRITE_EVERY_MS));
+  assert.equal(changed, true);
+  assert.deepEqual(stored.periods, [{ from: t, to: t + WRITE_EVERY_MS }]);
+  ({ state, changed } = beatAt(t + WRITE_EVERY_MS + GAP_MS)); // exactly the gap after the stored end: still the same stretch
+  assert.deepEqual(state.periods, [{ from: t, to: t + WRITE_EVERY_MS + GAP_MS }]);
+  assert.equal(changed, true);
+  ({ state, changed } = beatAt(t + WRITE_EVERY_MS + 2 * GAP_MS + 1));
+  const second = t + WRITE_EVERY_MS + 2 * GAP_MS + 1;
+  assert.deepEqual(state.periods, [{ from: t, to: t + WRITE_EVERY_MS + GAP_MS }, { from: second, to: second }], 'a silence longer than the gap ends the stretch');
+  assert.equal(changed, true);
+  assert.deepEqual(beat(state, second - 60_000).state, state, 'a clock set back changes nothing');
+  assert.deepEqual(beat(state, NaN), { state, changed: false });
+  assert.deepEqual(beat({ since: t, periods: [] }, t).state, { since: t, periods: [{ from: t, to: t }], off: [] }, 'what else is known stays');
+  // Only the newest MAX_PERIODS stretches are kept.
+  let many = undefined;
+  for (let i = 0; i < MAX_PERIODS + 3; i += 1) many = beat(many, t + i * (GAP_MS + 1) * 2).state;
+  assert.equal(many.periods.length, MAX_PERIODS);
+  assert.equal(many.periods[0].from, t + 3 * (GAP_MS + 1) * 2, 'the oldest went');
+});
+
+test('watching: the silences between stretches are gaps; one with pages in it is a time the add-on was off, one without is closed up', () => {
+  const t = 1_700_000_000_000;
+  const h = 3600_000;
+  const state = { since: t, periods: [{ from: t, to: t + h }, { from: t + 2 * h, to: t + 3 * h }, { from: t + 4 * h, to: t + 5 * h }, { from: t + 6 * h, to: t + 7 * h }] };
+  assert.deepEqual(gapsOf(state), [{ from: t + h, to: t + 2 * h }, { from: t + 3 * h, to: t + 4 * h }, { from: t + 5 * h, to: t + 6 * h }]);
+  assert.deepEqual(gapsOf(undefined), []);
+  assert.deepEqual(gapsOf({ periods: [{ from: t, to: t + h }] }), []);
+  // The first silence: the browser was closed. The second: 14 pages visited, the add-on off. The third: the
+  // history holds nothing, but the record has a visit to a listed site from then (taken out of the history).
+  const noted = noteGaps(state, [
+    { from: t + h, to: t + 2 * h, pages: 0, listed: 0 },
+    { from: t + 3 * h, to: t + 4 * h, pages: 14, listed: 2 },
+    { from: t + 5 * h, to: t + 6 * h, pages: 0, listed: 1 },
+    { from: t + 8 * h, to: t + 9 * h, pages: 5, listed: 0 }, // not a silence the state has: ignored
+    { from: 'x', to: t, pages: 1 }, // not a span: ignored
+  ]);
+  assert.deepEqual(noted, {
+    since: t,
+    periods: [{ from: t, to: t + 3 * h }, { from: t + 4 * h, to: t + 5 * h }, { from: t + 6 * h, to: t + 7 * h }],
+    off: [{ from: t + 3 * h, to: t + 4 * h, pages: 14 }, { from: t + 5 * h, to: t + 6 * h, pages: 0 }],
+  });
+  assert.deepEqual(gapsOf(noted), [{ from: t + 3 * h, to: t + 4 * h }, { from: t + 5 * h, to: t + 6 * h }], 'the times it was off stay gaps');
+  // Looked at again: the same findings change nothing, and the same object comes back.
+  assert.equal(noteGaps(noted, [{ from: t + 3 * h, to: t + 4 * h, pages: 14, listed: 2 }]), noted);
+  // More pages found (an earlier look happened before the history had been written out): the note is brought up to date.
+  assert.deepEqual(noteGaps(noted, [{ from: t + 3 * h, to: t + 4 * h, pages: 20, listed: 2 }]).off[0], { from: t + 3 * h, to: t + 4 * h, pages: 20 });
+  // The history cleared since: a time the add-on was off is not forgotten, and the silence is not closed up.
+  const cleared = noteGaps(noted, [{ from: t + 3 * h, to: t + 4 * h, pages: 0, listed: 0 }]);
+  assert.equal(cleared, noted);
+  assert.deepEqual(noteGaps(undefined, []), { periods: [], off: [] });
+  // Only the newest MAX_OFF are kept.
+  const manyPeriods = Array.from({ length: MAX_OFF + 4 }, (_, i) => ({ from: t + i * 2 * h, to: t + i * 2 * h + h }));
+  const full = noteGaps({ periods: manyPeriods }, gapsOf({ periods: manyPeriods }).map((gap) => ({ ...gap, pages: 1, listed: 0 })));
+  assert.equal(full.off.length, MAX_OFF);
+  assert.equal(full.off[0].from, manyPeriods[3].to, 'the oldest went');
+});
+
+test('watching: a visit from the history is placed by when the add-on was running: before the install, off, running (so the site was not listed), or not known', () => {
+  const t = 1_700_000_000_000;
+  const h = 3600_000;
+  const exact = { since: t, periods: [{ from: t, to: t + h }, { from: t + 2 * h, to: t + 3 * h }] };
+  assert.equal(wasRunning(exact, t - 1), null, 'before anything was kept');
+  assert.equal(wasRunning(exact, t), true);
+  assert.equal(wasRunning(exact, t + h), true, 'the end of a stretch is in it');
+  assert.equal(wasRunning(exact, t + h + 1), false);
+  assert.equal(wasRunning(exact, t + 3 * h + GAP_MS), true, "just after the last stretch's stored end: the stretch is still going, its end not written yet");
+  assert.equal(wasRunning(exact, t + 3 * h + GAP_MS + 1), false, 'longer after it than the gap: a silence');
+  assert.equal(wasRunning(undefined, t), null);
+  assert.equal(wasRunning(exact, NaN), null);
+  assert.deepEqual([t - 1, t + 30 * 60_000, t + 90 * 60_000, t + 4 * h].map((at) => kindOfVisit(exact, at)), ['before', 'unlisted', 'off', 'off']);
+  // A profile that had an earlier version: the first try it noted is the earliest the add-on is known to
+  // have run, and this version started keeping track later; between the two, nothing is known.
+  const atLeast = { since: t - 5 * h, atLeast: true, periods: [{ from: t, to: t + h }] };
+  assert.deepEqual([t - 6 * h, t - h, t + 1, t + 2 * h].map((at) => kindOfVisit(atLeast, at)), ['before', 'unseen', 'unlisted', 'off']);
+  assert.equal(kindOfVisit(undefined, t), 'before', 'nothing known: as it was before 1.11.0');
+  assert.equal(kindOfVisit({ periods: [{ from: t, to: t + h }] }, t + 1), 'before', 'no first start known either');
+  // outcome() carries the kinds, and toCsv names them.
+  const attempts = [
+    { at: t - 1, site: 'a.test', from: 'history' },
+    { at: t + 1, site: 'a.test', from: 'history' },
+    { at: t + 90 * 60_000, site: 'a.test', from: 'history' },
+    { at: t + 90 * 60_000 + 5000, site: 'a.test' },
+    { at: t + 2 * h + 1, site: 'a.test', opened: true },
+  ];
+  assert.deepEqual(attempts.map((attempt) => whatHappened(attempt, exact)), ['history', 'unlisted', 'off', 'blocked', 'opened']);
+  assert.deepEqual(attempts.map((attempt) => whatHappened(attempt, atLeast)), ['unseen', 'unlisted', 'off', 'blocked', 'opened']);
+  const csv = toCsv(attempts, exact).split('\n');
+  assert.match(csv[1], /,a\.test,Visited \(browser history\)$/);
+  assert.match(csv[2], /,a\.test,Visited before the site was listed$/);
+  assert.match(csv[3], /,a\.test,Visited while the add-on was off$/);
+  assert.match(toCsv(attempts, atLeast).split('\n')[1], /,a\.test,Visited after the add-on was installed$/);
+  // mergeVisits with a wider window, as the sweep after a live try uses: the page of a site that got through
+  // is written to the history when it finishes loading, and that is the same try.
+  const live = [{ at: t, site: 'a.test', opened: true }];
+  assert.equal(mergeVisits(live, [{ at: t + 70_000, site: 'a.test' }]).added, 1, 'two seconds: a new visit');
+  assert.equal(mergeVisits(live, [{ at: t + 70_000, site: 'a.test' }], 300_000).added, 0, 'five minutes: the same try');
+  assert.equal(mergeVisits(live, [{ at: t - 400_000, site: 'a.test' }], 300_000).added, 1);
+  assert.equal(SAME_ATTEMPT_MS, 2000);
 });
 
 test('blocked attempts: the bookmarks to listed sites are picked out of the bookmark tree, folders and all', () => {
@@ -1031,7 +1173,7 @@ test('every file the pages reference exists', () => {
 });
 
 test('module imports resolve', () => {
-  for (const file of ['background.js', 'options.js', 'attempts.js', 'tries.js', 'pictures.js', 'unlisted.js', 'lockbox.js', 'lockbox-worker.js', 'lib/attempts.js', 'lib/domains.js', 'lib/lockbox.js', 'lib/mylist.js', 'lib/page.js', 'lib/pictures.js', 'lib/rules.js', 'lib/safesearch.js', 'lib/suspects.js', 'lib/timelock.js']) {
+  for (const file of ['background.js', 'options.js', 'attempts.js', 'tries.js', 'pictures.js', 'unlisted.js', 'lockbox.js', 'lockbox-worker.js', 'lib/attempts.js', 'lib/domains.js', 'lib/lockbox.js', 'lib/mylist.js', 'lib/page.js', 'lib/pictures.js', 'lib/rules.js', 'lib/safesearch.js', 'lib/suspects.js', 'lib/timelock.js', 'lib/watching.js']) {
     const source = readFileSync(join(EXT, file), 'utf8');
     for (const [, specifier] of source.matchAll(/from\s+'(\.{1,2}\/[^']+)'/g)) {
       assert.ok(existsSync(resolve(EXT, dirname(file), specifier)), `${file} imports missing ${specifier}`);
@@ -1040,7 +1182,7 @@ test('module imports resolve', () => {
 });
 
 test('extension scripts have no syntax errors', () => {
-  for (const file of ['background.js', 'blocked.js', 'options.js', 'attempts.js', 'tries.js', 'pictures.js', 'unlisted.js', 'lockbox.js', 'lockbox-worker.js', 'lib/attempts.js', 'lib/domains.js', 'lib/lockbox.js', 'lib/mylist.js', 'lib/page.js', 'lib/pictures.js', 'lib/rules.js', 'lib/safesearch.js', 'lib/suspects.js', 'lib/timelock.js']) {
+  for (const file of ['background.js', 'blocked.js', 'options.js', 'attempts.js', 'tries.js', 'pictures.js', 'unlisted.js', 'lockbox.js', 'lockbox-worker.js', 'lib/attempts.js', 'lib/domains.js', 'lib/lockbox.js', 'lib/mylist.js', 'lib/page.js', 'lib/pictures.js', 'lib/rules.js', 'lib/safesearch.js', 'lib/suspects.js', 'lib/timelock.js', 'lib/watching.js']) {
     const run = spawnSync(process.execPath, ['--check', join(EXT, file)], { encoding: 'utf8' });
     assert.equal(run.status, 0, `${file}: ${run.stderr}`);
   }

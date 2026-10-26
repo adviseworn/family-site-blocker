@@ -351,6 +351,17 @@ describe('Firefox lock', { skip: SKIP }, () => {
     assert.ok(state.origins.includes('<all_urls>'), JSON.stringify(state.origins));
   });
 
+  test("the add-on can tell that the lock is on: Firefox reports it as installed by policy, with no way to switch it off, which is what the board's line rests on (#69)", async () => {
+    const host = await firefox.chrome('return WebExtensionPolicy.getByID(arguments[0])?.mozExtensionHostname ?? null;', ADDON_ID);
+    await firefox.fx.send('WebDriver:Navigate', { url: `moz-extension://${host}/options.html` });
+    const self = await firefox.fx.send('WebDriver:ExecuteAsyncScript', {
+      script: `const done = arguments[arguments.length - 1];
+        browser.management.getSelf().then((info) => done({ installType: info.installType, mayDisable: info.mayDisable }), (e) => done('error: ' + e));`,
+      args: [],
+    });
+    assert.deepEqual(self, { installType: 'admin', mayDisable: false }, `what Firefox ${firefox.version} says about an add-on the lock installed`);
+  });
+
   test('private windows are turned off: the shortcut is gone, and asking for one opens an ordinary window, which blocks', async () => {
     // Firefox also hides the File menu's New Private Window item, but on GitHub's Mac (Firefox 155) that item
     // stayed. Either way, choosing it asks for a private window, as below, and gets an ordinary one.

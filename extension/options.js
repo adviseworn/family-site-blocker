@@ -1,7 +1,7 @@
 // The settings page: a board that says whether everything is working and what still needs switching on,
 // the two settings (the person's own sites, the pictures setting), the record in a few lines, and where
 // the locked-away password stands. The record and the password have pages of their own.
-import { ATTEMPTS, LABELS, outcome } from './lib/attempts.js';
+import { ATTEMPTS, LABELS, outcome, summarize } from './lib/attempts.js';
 import { parseDomainList } from './lib/domains.js';
 import { describeLock, lockInForce, managedStamp } from './lib/lock.js';
 import { BOX, EVENTS, PROGRESS, describeBox, loadBox } from './lib/lockbox.js';
@@ -9,6 +9,7 @@ import { MY_LIST_CHANGED, myList, saveMyList } from './lib/mylist.js';
 import { PICTURES, STRICTNESS, STRICTNESS_CHOICES, countHidden, hiddenBySite, strictnessOf } from './lib/pictures.js';
 import { ENGINES } from './lib/safesearch.js';
 import { UNLISTED } from './lib/suspects.js';
+import { WATCHING } from './lib/watching.js';
 
 // Firefox provides `browser`; Chrome, Edge and Brave provide `chrome`. Both return promises here.
 const api = globalThis.browser ?? globalThis.chrome;
@@ -135,8 +136,9 @@ async function checkAccess() {
 
 // Whether anything stops the person using the browser from switching the add-on off. Under the Firefox
 // lock (the README's "Lock it" section) Firefox installs the add-on itself and shows no switch; the browser
-// reports that as an installation by an administrator (getSelf needs no permission), and the lock's profile
-// says which copy it is through the add-on's managed storage (lib/lock.js). Read once, for both lines.
+// reports that as an installation by an administrator that can't be disabled (getSelf needs no permission),
+// and the lock's profile says which copy it is through the add-on's managed storage (lib/lock.js). Read
+// once, for both lines.
 const lockState = (async () => {
   let info;
   try {
@@ -144,7 +146,7 @@ const lockState = (async () => {
   } catch {
     return null; // nothing to say
   }
-  const state = { installType: info.installType, firefox: isFirefox, own: api.runtime.getManifest().version, stamp: null };
+  const state = { installType: info.installType, mayDisable: info.mayDisable, firefox: isFirefox, own: api.runtime.getManifest().version, stamp: null };
   // Only the Firefox lock writes the stamp; in other browsers there is nothing to read.
   if (lockInForce(state)) state.stamp = await managedStamp(api.storage);
   return state;
@@ -228,8 +230,9 @@ function renderPicturesLine(pictures) {
 }
 
 async function renderAttempts() {
-  const stored = await api.storage.local.get([ATTEMPTS, UNLISTED, PICTURES]);
+  const stored = await api.storage.local.get([ATTEMPTS, UNLISTED, PICTURES, WATCHING]);
   const attempts = Array.isArray(stored[ATTEMPTS]) ? [...stored[ATTEMPTS]].reverse() : [];
+  const watching = stored[WATCHING] ?? null; // places the visits from the history (lib/watching.js)
   renderUnlisted(stored[UNLISTED]);
   renderPicturesLine(stored[PICTURES]);
   const table = $('attempts-table');
@@ -244,18 +247,18 @@ async function renderAttempts() {
     return;
   }
 
-  const opened = attempts.filter((attempt) => outcome(attempt) === 'opened').length;
-  const fromHistory = attempts.filter((attempt) => outcome(attempt) === 'history').length;
+  const counts = summarize(attempts, watching);
   $('attempts-summary').textContent =
-    `${plural(attempts.length, 'attempt')}, the latest at ${when.format(attempts[0].at)}.` +
-    (opened ? ` ${plural(opened, 'page')} opened instead of being blocked.` : '') +
-    (fromHistory ? ` ${fromHistory} from this browser's history.` : '');
+    `${plural(counts.tries, 'attempt')}, the latest at ${when.format(counts.latest)}.` +
+    (counts.opened ? ` ${plural(counts.opened, 'page')} opened instead of being blocked.` : '') +
+    (counts.history ? ` ${counts.history} from this browser's history${counts.off ? `, ${counts.off} of them from times the extension was off` : ''}.` : '');
   table.caption.textContent = attempts.length > SHOWN ? `The latest ${SHOWN}` : '';
 
   for (const attempt of attempts.slice(0, SHOWN)) {
     const row = document.createElement('tr');
-    row.className = outcome(attempt);
-    for (const text of [when.format(attempt.at), attempt.site, LABELS[outcome(attempt)]]) {
+    const what = outcome(attempt, watching);
+    row.className = what;
+    for (const text of [when.format(attempt.at), attempt.site, LABELS[what]]) {
       const cell = document.createElement('td');
       cell.textContent = text;
       row.append(cell);
