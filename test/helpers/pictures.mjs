@@ -83,6 +83,37 @@ export function galleryPage(names, extra = '') {
 }
 
 /**
+ * A page of elements whose own style sets a picture as their background, the way X shows a tweet's picture
+ * (a div with the picture as its background, under a see-through <img> with the same address): one to
+ * hide, one fine (with words on it), one with three layers, an icon, a small thumbnail of a big picture, a
+ * span whose style names a url( only in its mask, the X-like pair, and one given its background by script
+ * later; the fine one is swapped for one to hide after that, and the hidden one's transform changes.
+ */
+export function backgroundsPage() {
+  const box = 'width: 300px; height: 200px; margin: 4px;';
+  return `<!doctype html><meta charset="utf-8"><title>Backgrounds</title><h1>Backgrounds</h1>
+    <div id="bg-nude" style="${box} background-image: url(http://pics.test/pics/nude.jpg?bg)"></div>
+    <div id="bg-photo" style="${box} background: url('http://pics.test/pics/photo.jpg?bg') center / cover no-repeat"><p id="words">Words on the picture</p></div>
+    <div id="bg-layers" style="${box} background-image: linear-gradient(white, white), url(&quot;http://pics.test/pics/photo.jpg?layer&quot;), url(http://pics.test/pics/lingerie.jpg?layer)"></div>
+    <span id="bg-icon" style="display: inline-block; width: 16px; height: 16px; background-image: url(http://pics.test/icon.gif)"></span>
+    <span id="bg-thumb" style="display: inline-block; width: 40px; height: 40px; background: url(http://pics.test/pics/nude.jpg?thumb) center / cover"></span>
+    <span id="bg-mask" style="display: inline-block; width: 100px; height: 100px; background: red; mask-image: url(http://pics.test/icon.gif)"></span>
+    <div id="x" style="position: relative; ${box}">
+      <div id="x-bg" style="position: absolute; inset: 0px; background-image: url(&quot;http://pics.test/pics/lingerie.jpg?x&quot;); background-size: cover"></div>
+      <img id="x-img" alt="Image" draggable="true" src="http://pics.test/pics/lingerie.jpg?x" style="position: absolute; inset: 0px; width: 100%; height: 100%; opacity: 0">
+    </div>
+    <div id="bg-late" style="${box}"></div>
+    <script>
+      setTimeout(() => { document.getElementById('bg-late').style.backgroundImage = 'url(http://pics.test/pics/nude.jpg?late-bg)'; }, 300);
+      setTimeout(() => { document.getElementById('bg-photo').style.backgroundImage = 'url(http://pics.test/pics/nude.jpg?swapped-bg)'; }, 600);
+      setTimeout(() => { document.getElementById('bg-nude').style.transform = 'translateX(1px)'; }, 600);
+    </script>`;
+}
+
+/** What each element with a background picture on a page is marked as, and what background it shows: { id: [mark, background-image] }. */
+export const BACKGROUND_MARKS = `[...document.querySelectorAll('[style*="url(" i]')].map((el) => [el.id, [el.getAttribute('data-family-site-blocker'), getComputedStyle(el).backgroundImage]])`;
+
+/**
  * A page showing videos, 300 px wide, that also keeps every mark the filter sets on each element (in
  * window.__marks[id], oldest first), so a test can see what a video went through. Each entry of `videos`
  * is one <video>'s attributes, with an id.

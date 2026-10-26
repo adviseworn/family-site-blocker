@@ -17,7 +17,7 @@ import { BLOCKLIST_DIR } from '../scripts/build-rules.mjs';
 import { filterEntries, filterSites } from '../scripts/firefox-lock.mjs';
 import { EXTENSION_DIR, startStubInternet } from './helpers/browser.mjs';
 import { findFirefox, launchFirefox } from './helpers/firefox.mjs';
-import { MARKS, extensionWithStandInClassifier, galleryPage, servePictures, serveVideos, videoPage } from './helpers/pictures.mjs';
+import { BACKGROUND_MARKS, MARKS, backgroundsPage, extensionWithStandInClassifier, galleryPage, servePictures, serveVideos, videoPage } from './helpers/pictures.mjs';
 
 const VERSION = JSON.parse(readFileSync(join(EXTENSION_DIR, 'manifest.json'), 'utf8')).version;
 const BUILT_IN = JSON.parse(readFileSync(join(EXTENSION_DIR, 'rules', 'domains.json'), 'utf8')).length;
@@ -763,11 +763,23 @@ describe('Firefox', { skip: findFirefox() ? false : 'no Firefox found (set FIREF
       }
       throw new Error(`pictures never judged: ${JSON.stringify(marks)}`);
     };
+    /** Waits until the elements with background pictures named are judged, and gives back every such element's mark and background. */
+    const waitForBackgrounds = async (target, want, ms = 30_000) => {
+      const until = Date.now() + ms;
+      let marks = {};
+      while (Date.now() < until) {
+        marks = Object.fromEntries(await target.run(`return ${BACKGROUND_MARKS}`));
+        if (Object.entries(want).every(([id, mark]) => marks[id]?.[0] === mark)) return marks;
+        await sleep(250);
+      }
+      throw new Error(`backgrounds never judged as expected: ${JSON.stringify(marks)}`);
+    };
 
     before(() => {
       servePictures(stub, ['cat', 'coffee', 'photo', 'nude', 'lingerie', 'drawn']);
       stub.page('allowed.test/real', galleryPage(['cat', 'coffee']));
       stub.page('allowed.test/gallery', galleryPage(['photo', 'nude', 'lingerie', 'drawn']));
+      stub.page('allowed.test/backgrounds', backgroundsPage());
       // Videos: red is "nude" to the stand-in, blue a photo; blue-then-red turns after a second.
       serveVideos(stub);
       stub.page(
@@ -819,13 +831,39 @@ describe('Firefox', { skip: findFirefox() ? false : 'no Firefox found (set FIREF
           [['ok', 'visible'], ['hidden', 'hidden'], ['hidden', 'hidden'], ['hidden', 'hidden'], ['small', 'visible']],
           JSON.stringify(marks),
         );
+        // A picture an element's own style sets as its background is judged too (#80): X shows a tweet's
+        // picture that way, under a see-through <img>.
+        await judge.newTab();
+        await judge.visit('http://allowed.test/backgrounds');
+        const backgrounds = await waitForBackgrounds(judge, { 'bg-nude': 'hidden', 'bg-photo': 'hidden', 'bg-layers': 'hidden', 'bg-icon': 'small', 'bg-thumb': 'hidden', 'bg-mask': 'ok', 'x-bg': 'hidden', 'bg-late': 'hidden' });
+        assert.deepEqual(
+          [backgrounds['bg-nude'], backgrounds['bg-icon'], backgrounds['bg-mask'], backgrounds['x-bg']],
+          [['hidden', 'none'], ['small', 'url("http://pics.test/icon.gif")'], ['ok', 'none'], ['hidden', 'none']],
+          JSON.stringify(backgrounds),
+        );
+        const pair = await waitForMarks(judge, ['x-img']);
+        assert.deepEqual(pair['x-img'], ['hidden', 'hidden'], 'the see-through <img> over it is hidden too');
         await judge.fx.send('WebDriver:SwitchToWindow', { handle: settings.handle });
         const record = await judge.fx.send('WebDriver:ExecuteAsyncScript', {
           script: `const done = arguments[arguments.length - 1]; browser.storage.local.get('pictures').then((got) => done(got.pictures ?? []), (e) => done([]));`,
           args: [],
         });
         const names = record.filter((entry) => entry.site === 'allowed.test').map((entry) => [entry.url.split('/').pop(), entry.reason]).sort();
-        assert.deepEqual(names, [['drawn.jpg', 'nudity'], ['lingerie.jpg', 'suggestive'], ['nude.jpg', 'nudity']], JSON.stringify(record));
+        assert.deepEqual(
+          names,
+          [
+            ['drawn.jpg', 'nudity'],
+            ['lingerie.jpg', 'suggestive'],
+            ['lingerie.jpg?layer', 'suggestive'],
+            ['lingerie.jpg?x', 'suggestive'],
+            ['nude.jpg', 'nudity'],
+            ['nude.jpg?bg', 'nudity'],
+            ['nude.jpg?late-bg', 'nudity'],
+            ['nude.jpg?swapped-bg', 'nudity'],
+            ['nude.jpg?thumb', 'nudity'],
+          ],
+          JSON.stringify(record),
+        );
         await judge.fx.send('WebDriver:ExecuteAsyncScript', {
           script: `const done = arguments[arguments.length - 1]; browser.storage.local.set({ pictureStrictness: 'nudity' }).then(() => done('ok'), (e) => done('error ' + e));`,
           args: [],
