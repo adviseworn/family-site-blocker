@@ -44,7 +44,7 @@ function renderWatching() {
     const kept = state.periods[0]?.from;
     since.textContent =
       `Watching since at least ${whenFormat.format(state.since)}, the first try an earlier version noted as it happened` +
-      (kept ? `; keeping track of when it is running since ${whenFormat.format(kept)}, when version 1.8.0 or later arrived.` : '.');
+      (kept ? `; keeping track of when it is running since ${whenFormat.format(kept)}, when version 1.11.0 or later arrived.` : '.');
   } else {
     since.textContent = `Watching since ${whenFormat.format(state.since)}, when the extension was installed in this browser.`;
   }

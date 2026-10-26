@@ -25,8 +25,9 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { parseDomainList } from '../extension/lib/domains.js';
+import { STAMP, STAMP_FROM, compareVersions, describeLock, textOf } from '../extension/lib/lock.js';
 import { BLOCKLIST_DIR } from '../scripts/build-rules.mjs';
-import { ADDON_ID, filterSites, firefoxPolicies, macSettings, plist } from '../scripts/firefox-lock.mjs';
+import { ADDON_ID, filterSites, firefoxPolicies, lockStamp, macSettings, plist } from '../scripts/firefox-lock.mjs';
 import { readZip } from '../scripts/read-zip.mjs';
 import { updatesManifest } from '../scripts/updates-manifest.mjs';
 import { startStubInternet } from './helpers/browser.mjs';
@@ -83,11 +84,10 @@ function notesAttempts(version) {
   return major > 1 || (major === 1 && minor >= 3);
 }
 
-/** Whether a version of the add-on says on its settings page whether the lock is in force (from 1.7.0, #69). */
-function saysWhetherLocked(version) {
-  const [major, minor] = String(version).split('.').map(Number);
-  return major > 1 || (major === 1 && minor >= 7);
-}
+/** Whether a version's settings page starts with the board, "Is it working?", with its lock line (from 1.7.0). */
+const hasBoard = (version) => compareVersions(version, '1.7.0') >= 0;
+/** Whether a version's lock line says which copy of the profile is installed, from the stamp (from STAMP_FROM). */
+const readsStamp = (version) => compareVersions(version, STAMP_FROM) >= 0;
 
 /**
  * Another blocker's policies, as Plucky sets them: its own add-on force-installed (and so locked) with
@@ -299,6 +299,43 @@ describe('Firefox lock', { skip: SKIP }, () => {
     });
   }
 
+  test('the lock hands the add-on its stamp, as managed storage, through the 3rdparty policy', async () => {
+    const seen = await firefox.chrome(`
+      const active = Services.policies.getActivePolicies();
+      return { active: active['3rdparty'], managed: Services.policies.getExtensionPolicy(arguments[0]) };`, ADDON_ID);
+    assert.deepEqual(seen.active, policies.lock['3rdparty'], 'as about:policies lists it');
+    assert.deepEqual(seen.managed, { [STAMP]: lockStamp() }, "what browser.storage.managed gives the add-on");
+  });
+
+  // The board (from 1.7.0) says the lock is in force. From STAMP_FROM its lock line also says which copy of the
+  // profile is installed: the stamp is the repository's (the lock under test is built from it), the add-on the
+  // signed one, so the line says this version's copy, an older or a newer one, as the two versions compare.
+  if (version && hasBoard(version)) {
+    test(`the settings page's board says the lock is in force${readsStamp(version) ? ', which copy of it is installed, and that private windows are off' : ''}`, async () => {
+      const host = await firefox.chrome('return WebExtensionPolicy.getByID(arguments[0])?.mozExtensionHostname ?? null;', ADDON_ID);
+      await firefox.fx.send('WebDriver:Navigate', { url: `moz-extension://${host}/options.html` });
+      const read = () => firefox.run(`
+        const mark = (id) => [...document.getElementById(id).classList].filter((name) => ['ok', 'todo', 'checking'].includes(name)).join();
+        return {
+          lock: { text: document.getElementById('lock-status').textContent, hidden: document.getElementById('lock').hidden, mark: mark('lock') },
+          privateWindows: { text: document.getElementById('private-status').textContent, mark: mark('private') },
+        };`);
+      let lines = await read();
+      for (let i = 0; i < 40 && (lines.lock.hidden || lines.lock.mark === 'checking' || lines.privateWindows.mark === 'checking'); i++) {
+        await sleep(250);
+        lines = await read();
+      }
+      if (readsStamp(version)) {
+        const expected = describeLock({ installType: 'admin', firefox: true, own: version, stamp: lockStamp() });
+        assert.deepEqual({ text: lines.lock.text, mark: lines.lock.mark }, { text: textOf(expected.parts), mark: expected.state });
+        assert.deepEqual(lines.privateWindows, { text: 'Private windows are turned off by the Firefox lock, so nothing can be opened there.', mark: 'ok' });
+      } else {
+        assert.match(lines.lock.text, /^The Firefox lock is in force: Firefox installed the add-on itself and gives no way to switch it off or remove it\.$/);
+        assert.equal(lines.lock.mark, 'ok');
+      }
+    });
+  }
+
   test('in the Add-ons Manager, Family Site Blocker has no on/off switch, and its menu says "Can’t Be Removed"', async () => {
     assert.deepEqual(await firefox.card(ADDON_ID), { name: 'Family Site Blocker', onOffSwitch: 'none', removeItem: CANT_BE_REMOVED });
     await firefox.assertAddonBlocks();
@@ -314,7 +351,7 @@ describe('Firefox lock', { skip: SKIP }, () => {
     assert.ok(state.origins.includes('<all_urls>'), JSON.stringify(state.origins));
   });
 
-  test('the add-on can tell that the lock is on: Firefox reports it as installed by policy, with no way to switch it off, and from 1.7.0 its settings page says so (#69)', async () => {
+  test("the add-on can tell that the lock is on: Firefox reports it as installed by policy, with no way to switch it off, which is what the board's line rests on (#69)", async () => {
     const host = await firefox.chrome('return WebExtensionPolicy.getByID(arguments[0])?.mozExtensionHostname ?? null;', ADDON_ID);
     await firefox.fx.send('WebDriver:Navigate', { url: `moz-extension://${host}/options.html` });
     const self = await firefox.fx.send('WebDriver:ExecuteAsyncScript', {
@@ -323,14 +360,6 @@ describe('Firefox lock', { skip: SKIP }, () => {
       args: [],
     });
     assert.deepEqual(self, { installType: 'admin', mayDisable: false }, `what Firefox ${firefox.version} says about an add-on the lock installed`);
-    if (version && saysWhetherLocked(version)) {
-      let status = '';
-      for (let i = 0; i < 40 && (!status || status === 'Checking…'); i++) {
-        if (i) await sleep(250);
-        status = await firefox.run(`return document.getElementById('lock-status').textContent`);
-      }
-      assert.equal(status, 'The Firefox lock is in force: Firefox installed the add-on itself and gives no way to switch it off or remove it.');
-    }
   });
 
   test('private windows are turned off: the shortcut is gone, and asking for one opens an ordinary window, which blocks', async () => {

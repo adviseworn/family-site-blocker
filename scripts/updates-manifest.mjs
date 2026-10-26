@@ -18,6 +18,7 @@ import { createHash } from 'node:crypto';
 import { copyFileSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { compareVersions } from '../extension/lib/lock.js';
 import { ADDON_ID } from './firefox-lock.mjs';
 import { readZip } from './read-zip.mjs';
 import { LATEST_NAME, LATEST_URL, SITE_URL, UPDATES_REPO, UPDATES_URL } from './updates-site.mjs';
@@ -26,16 +27,9 @@ export { LATEST_NAME, LATEST_URL, SITE_URL, UPDATES_REPO, UPDATES_URL };
 
 const XPI_NAME = /^family-site-blocker-(\d+(?:\.\d+)*)\.xpi$/;
 
-/** Orders versions like 1.3.2 numerically, part by part, as Firefox does. */
-export function compareVersions(a, b) {
-  const as = a.split('.').map(Number);
-  const bs = b.split('.').map(Number);
-  for (let i = 0; i < Math.max(as.length, bs.length); i += 1) {
-    const difference = (as[i] ?? 0) - (bs[i] ?? 0);
-    if (difference) return difference;
-  }
-  return 0;
-}
+// Versions like 1.3.2 are ordered numerically, part by part, as Firefox does: compareVersions, which the
+// settings page shares (extension/lib/lock.js).
+export { compareVersions };
 
 /**
  * Reads a signed .xpi of this add-on: its version, the Firefox it needs, and the file's hash. Throws if the file

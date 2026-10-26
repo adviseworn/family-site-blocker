@@ -105,8 +105,9 @@ test('pictures: the content script runs in every page and frame from the start, 
   const css = readFileSync(join(EXT, 'content.css'), 'utf8');
   assert.match(css, /img:not\(\[data-family-site-blocker="ok"\]\):not\(\[data-family-site-blocker="small"\]\)\s*\{\s*visibility:\s*hidden\s*!important;/);
   assert.match(css, /video:not\(\[data-family-site-blocker="ok"\]\)\s*\{\s*visibility:\s*hidden\s*!important;/, 'a video is hidden until judged, too');
+  assert.match(css, /\[style\*="url\(" i\]:not\(\[data-family-site-blocker="ok"\]\):not\(\[data-family-site-blocker="small"\]\)\s*\{\s*background-image:\s*none\s*!important;/, 'an element whose own style sets a picture as its background has none until judged (#80)');
   const content = readFileSync(join(EXT, 'content.js'), 'utf8');
-  assert.match(content, /querySelectorAll\('img, video'\)/, 'the content script watches videos as well as pictures');
+  assert.match(content, /const WATCHED = 'img, video, \[style\*="url\(" i\]'/, 'the content script watches videos and background pictures as well as pictures');
   assert.match(content, /judge-video-frame/, 'and sends their frames to be judged');
   assert.doesNotMatch(readFileSync(join(EXT, 'vendor/tf.fesm.min.js'), 'utf8').slice(0, 20000), /\bimport\s+[\w$]+\s+from\s*"/, 'the runtime is self-contained');
 });
