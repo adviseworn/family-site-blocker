@@ -9,7 +9,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { EXTENSION_DIR, findPage, launchBrowser, startStubInternet, visit } from './helpers/browser.mjs';
-import { MARKS, STAND_IN_SCORES, extensionWithStandInClassifier, galleryPage, servePictures, serveVideos, videoPage } from './helpers/pictures.mjs';
+import { BACKGROUND_MARKS, MARKS, STAND_IN_SCORES, backgroundsPage, extensionWithStandInClassifier, galleryPage, servePictures, serveVideos, videoPage } from './helpers/pictures.mjs';
 
 const VERSION = JSON.parse(readFileSync(join(EXTENSION_DIR, 'manifest.json'), 'utf8')).version;
 const BUILT_IN = JSON.parse(readFileSync(join(EXTENSION_DIR, 'rules', 'domains.json'), 'utf8')).length;
@@ -924,6 +924,7 @@ describe('real browser', () => {
         setTimeout(() => { document.getElementById('photo').src = 'http://pics.test/pics/lingerie.jpg?swapped'; }, 600);</script>`));
       stub.page('allowed.test/blob', `<!doctype html><img id="made" width="300"><script>fetch('/pics/nude.jpg?blob').then((r) => r.blob()).then((b) => { document.getElementById('made').src = URL.createObjectURL(b); });</script>`);
       stub.page('allowed.test/real', galleryPage(['cat', 'coffee']));
+      stub.page('allowed.test/backgrounds', backgroundsPage());
       // Videos from the page's own site, whose frames it may read: red is "nude" to the stand-in, blue a photo.
       serveVideos(stub);
       stub.page(
@@ -1076,6 +1077,62 @@ describe('real browser', () => {
         // A picture the page made itself (a blob: address) can't be fetched by the background script: shown as it is.
         await page.goto('http://allowed.test/blob', { waitUntil: 'domcontentloaded' });
         await page.waitForFunction(() => document.getElementById('made').getAttribute('data-family-site-blocker') === 'ok', null, { timeout: 20_000 });
+      } finally {
+        await page.close();
+      }
+    });
+
+    // A picture an element's own style sets as its background (#80): X shows a tweet's picture that way,
+    // under a see-through <img>, so hiding the <img> alone left the picture in view.
+    test('a picture set as a background in the element\'s own style is judged like an <img>: no background until judged, then shown or kept hidden', async () => {
+      const page = await judge.context.newPage();
+      const backgrounds = () => page.evaluate(`Object.fromEntries(${BACKGROUND_MARKS})`);
+      try {
+        await page.goto('http://allowed.test/backgrounds', { waitUntil: 'domcontentloaded' });
+        const early = await backgrounds();
+        for (const [id, [mark, background]] of Object.entries(early)) {
+          if (mark === null || mark === 'checking') assert.equal(background, 'none', `${id}: no background while being judged`);
+        }
+        await settled(page, ['bg-nude', 'bg-photo', 'bg-layers', 'bg-icon', 'bg-thumb', 'bg-mask', 'x-bg', 'x-img']);
+        const judgedMarks = await backgrounds();
+        const pick = (id) => judgedMarks[id];
+        assert.deepEqual(pick('bg-nude'), ['hidden', 'none']);
+        assert.deepEqual(pick('bg-photo'), ['ok', 'url("http://pics.test/pics/photo.jpg?bg")'], 'a background: shorthand counts');
+        assert.deepEqual(pick('bg-layers'), ['hidden', 'none'], 'one layer to hide hides them all');
+        assert.deepEqual(pick('bg-icon'), ['small', 'url("http://pics.test/icon.gif")'], 'a small element showing a small picture is an icon');
+        assert.deepEqual(pick('bg-thumb'), ['hidden', 'none'], 'a small element showing a big picture is judged');
+        assert.deepEqual(pick('bg-mask'), ['ok', 'none'], 'a url( that is not a background gives nothing to judge');
+        assert.equal(await page.evaluate(() => getComputedStyle(document.getElementById('bg-mask')).backgroundColor), 'rgb(255, 0, 0)', 'only the background picture goes');
+        // The X-like pair: the background and the see-through <img> carry the same address, and both are hidden.
+        assert.deepEqual(pick('x-bg'), ['hidden', 'none']);
+        assert.deepEqual((await marks(page))['x-img'], ['hidden', 'hidden']);
+        // The element keeps its size, and what is in it stays in view.
+        const box = await page.evaluate(() => { const r = document.getElementById('bg-nude').getBoundingClientRect(); return [r.width, r.height]; });
+        assert.deepEqual(box, [300, 200]);
+        assert.equal(await page.evaluate(() => getComputedStyle(document.getElementById('words')).visibility), 'visible');
+
+        // Given a background later, or another one: judged again; a style change that keeps the address is not.
+        await page.waitForFunction(() => document.getElementById('bg-late').getAttribute('data-family-site-blocker') === 'hidden', null, { timeout: 20_000 });
+        await page.waitForFunction(() => document.getElementById('bg-photo').getAttribute('data-family-site-blocker') === 'hidden', null, { timeout: 20_000 });
+        await page.waitForFunction(() => getComputedStyle(document.getElementById('bg-nude')).transform !== 'none');
+        const later = await backgrounds();
+        assert.deepEqual([later['bg-late'], later['bg-photo'], later['bg-nude']], [['hidden', 'none'], ['hidden', 'none'], ['hidden', 'none']], JSON.stringify(later));
+
+        // The record has each hidden picture once, under the page's site, the X pair's once between them.
+        const settings = await openSettingsIn(judge);
+        try {
+          const stored = await settings.evaluate(() => chrome.storage.local.get('pictures').then((got) => got.pictures ?? []));
+          const here = stored.filter((entry) => entry.site === 'allowed.test' && /\?(bg|layer|thumb|x|late-bg|swapped-bg)$/.test(entry.url)).map((entry) => entry.url.split('/').pop());
+          assert.deepEqual(here.sort(), ['lingerie.jpg?layer', 'lingerie.jpg?x', 'nude.jpg?bg', 'nude.jpg?late-bg', 'nude.jpg?swapped-bg', 'nude.jpg?thumb'], JSON.stringify(stored));
+        } finally {
+          await settings.close();
+        }
+
+        // The page can't bring a hidden background back by taking the mark off: it is judged again at once.
+        await page.evaluate(() => document.getElementById('bg-nude').removeAttribute('data-family-site-blocker'));
+        await page.waitForFunction(() => document.getElementById('bg-nude').getAttribute('data-family-site-blocker') === 'hidden');
+        assert.equal((await backgrounds())['bg-nude'][1], 'none');
+        assert.deepEqual(page.errors ?? [], []);
       } finally {
         await page.close();
       }
