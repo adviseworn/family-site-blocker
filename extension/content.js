@@ -8,11 +8,12 @@
 // Pictures are judged when they come near the view, so a long page costs only what is looked at. A video
 // is judged by its poster and by its frames: the first frame before it can be seen, then one every so
 // often while it plays, so a video that turns out to show something is hidden, and paused, within a
-// moment. A picture an element's own style sets as its background is judged like an <img>, and the
-// element has no background until then (X shows a tweet's picture that way, under a see-through <img>).
-// Backgrounds set in stylesheets and pictures inside shadow roots are not covered, and a video whose
-// frames the page itself isn't allowed to read (served from another site without permission) is judged
-// by its poster alone.
+// moment. A video of the device's own camera is the exception: it shows what is in front of the computer,
+// which can't be hidden from the person sitting there, so it is shown without being judged. A picture an
+// element's own style sets as its background is judged like an <img>, and the element has no background
+// until then (X shows a tweet's picture that way, under a see-through <img>). Backgrounds set in
+// stylesheets and pictures inside shadow roots are not covered, and a video whose frames the page itself
+// isn't allowed to read (served from another site without permission) is judged by its poster alone.
 (() => {
   const api = globalThis.browser ?? globalThis.chrome;
   const ATTR = 'data-family-site-blocker';
@@ -172,19 +173,28 @@
   // What a video shows changes as it plays, so it is judged more than once: its poster (by address, like
   // a picture) and its first frame out of sight, then a frame every FRAME_EVERY_MS while it plays and one
   // after each seek. A verdict to hide sticks for as long as the video keeps its source, and a hidden
-  // video is paused: what can't be seen shouldn't play on.
+  // video is paused: what can't be seen shouldn't play on. A video's source is an address or an object
+  // the page gives it (srcObject): a stream from the device's own camera, from another person's camera in
+  // a call, or from the page's own drawing. The device's own camera is shown without being judged.
 
   let frameCanvas = null; // one small canvas frames are copied through, shared by the page's videos
 
+  const isStream = (object) => typeof MediaStream === 'function' && object instanceof MediaStream;
+
+  /** Whether a video still has the source a state was made for: the same address and the same object. */
+  const sameSource = (state, video) => state.src === (video.currentSrc || video.src || '') && state.object === (video.srcObject ?? null);
+
   /** What is known about judging a video's current source; a new source starts afresh. */
   function videoState(video) {
-    const src = video.currentSrc || video.src || '';
     let state = videos.get(video);
-    if (!state || state.src !== src) {
+    if (!state || !sameSource(state, video)) {
       clearTimeout(state?.waiting);
       clearTimeout(state?.retry);
+      const object = video.srcObject ?? null;
       state = {
-        src,
+        src: video.currentSrc || video.src || '',
+        object, // the stream or other object the page gave the video, if any
+        camera: isStream(object) ? null : false, // whether the stream is the device's own camera: null until looked at
         near: state?.near ?? false, // within a screen of the view (the observer below)
         hidden: false, // judged and kept hidden: sticks for this source
         settled: false, // something of this source (poster or frame) has been judged, or nothing can be
@@ -199,6 +209,35 @@
       videos.set(video, state);
     }
     return state;
+  }
+
+  const cameras = new WeakMap(); // stream -> whether it is the device's own camera (a promise), looked up once per stream
+
+  /**
+   * Whether a stream is the device's own camera: every video track of it comes from a camera this browser
+   * lists for the page (the track's deviceId is one of the listed cameras', as it is for a track from
+   * getUserMedia). A stream from elsewhere has no such track: another person's camera in a call (its
+   * track's deviceId is its own id, in Chrome, or none), a stream the page made from a canvas, a shared
+   * screen. False too when the page can't list cameras at all (an insecure page can't have one). Null,
+   * and not remembered, for a stream with no video track yet: looked at again when it has one.
+   */
+  function ownCamera(stream) {
+    if (!cameras.has(stream)) {
+      const looked = (async () => {
+        const tracks = stream.getVideoTracks();
+        if (tracks.length === 0) return null;
+        const ids = tracks.map((track) => track.getSettings().deviceId).filter((id) => typeof id === 'string' && id !== '');
+        if (ids.length !== tracks.length) return false;
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        const listed = new Set(devices.filter((device) => device.kind === 'videoinput').map((device) => device.deviceId));
+        return ids.every((id) => listed.has(id));
+      })().catch(() => false);
+      cameras.set(stream, looked);
+      looked.then((camera) => {
+        if (camera === null && cameras.get(stream) === looked) cameras.delete(stream);
+      });
+    }
+    return cameras.get(stream);
   }
 
   /**
@@ -255,6 +294,21 @@
       return;
     }
     if (state.busy) return; // one judgment at a time; the next tick looks again
+    if (state.camera === null) {
+      // A stream: find out first whether it is the device's own camera, out of sight like a first frame. A
+      // stream with no video track yet is judged as a video with no frame is, and looked at again later.
+      mark(video, 'checking');
+      state.busy = ownCamera(state.object);
+      const camera = await state.busy;
+      state.busy = null;
+      if (videos.get(video) !== state) return; // the source changed meanwhile; the new one is being judged
+      if (camera !== null) state.camera = camera;
+    }
+    if (state.camera) {
+      state.settled = true; // the device's own camera: shown as it is, and never judged
+      mark(video, 'ok');
+      return;
+    }
     const hasFrame = video.readyState >= HAVE_CURRENT_DATA && video.videoWidth > 0;
     const checks = [];
     const poster = video.poster || '';
@@ -334,6 +388,7 @@
       return;
     }
     if (!state.near) return; // judged when it comes near the view
+    if (state.camera) return; // the device's own camera: shown as it is
     if (state.unreadable && state.settled) return; // only the poster could be judged, and it has been
     if (event.type === 'timeupdate' && (video.paused || performance.now() - state.lastFrameAt < FRAME_EVERY_MS)) return;
     checkVideo(video);
@@ -373,7 +428,7 @@
     forgetBackground(element);
     if (element instanceof HTMLVideoElement) {
       const state = videos.get(element);
-      if (state?.src === (element.currentSrc || element.src || '') && state.hidden) {
+      if (state && sameSource(state, element) && state.hidden) {
         hideVideo(element);
       } else {
         clearTimeout(state?.waiting);
