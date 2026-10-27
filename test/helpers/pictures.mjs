@@ -137,11 +137,14 @@ export const FAKE_CAMERA_PREFS = { 'media.navigator.streams.fake': true, 'media.
 
 /**
  * A page showing the device's camera in a <video> straight from getUserMedia, as the NZeTA passport-photo
- * page does (#84): the device's own camera, shown as it is. With { streams: true } two more videos show the
- * same picture from elsewhere, which is judged: copied frame by frame through a canvas into a stream the
- * page made (as a blob: video the page made is), and sent through a loopback RTCPeerConnection, as another
- * person's camera arrives in a call. window.__ready says when every stream is in place, window.__error
- * what went wrong, and every mark is kept, as videoPage keeps them.
+ * page does (#84): the device's own camera, shown as it is. With { streams: true } two more videos show
+ * streams from elsewhere, which are judged: the camera's own picture copied frame by frame through a
+ * canvas into a stream the page made (as a blob: video the page made is), and a green picture (one the
+ * stand-in hides) sent through a loopback RTCPeerConnection, as another person's camera arrives in a call;
+ * green rather than the camera's picture because Firefox's fake camera drifts from green to blue within
+ * seconds, and a connection that is slow to come up would carry a picture the stand-in passes.
+ * window.__ready says when every stream is in place, window.__error what went wrong, window.__peer how
+ * the receiving peer connection stands, and every mark is kept, as videoPage keeps them.
  */
 export function cameraPage({ streams = false } = {}) {
   return videoPage(
@@ -158,12 +161,19 @@ export function cameraPage({ streams = false } = {}) {
         await new Promise((resolve) => { camera.onloadeddata = resolve; });
         setInterval(() => context.drawImage(camera, 0, 0, 64, 64), 50);
         document.getElementById('copy').srcObject = canvas.captureStream(10);
+        const green = document.createElement('canvas');
+        green.width = green.height = 64;
+        const paint = green.getContext('2d');
+        paint.fillStyle = 'rgb(0, 200, 0)';
+        setInterval(() => paint.fillRect(0, 0, 64, 64), 50); // painted again and again, so frames keep coming
+        const sent = green.captureStream(10);
         const a = new RTCPeerConnection();
         const b = new RTCPeerConnection();
         a.onicecandidate = (e) => { if (e.candidate) b.addIceCandidate(e.candidate); };
         b.onicecandidate = (e) => { if (e.candidate) a.addIceCandidate(e.candidate); };
+        b.onconnectionstatechange = () => { window.__peer = b.connectionState; };
         b.ontrack = (e) => { document.getElementById('peer').srcObject = e.streams[0] ?? new MediaStream([e.track]); };
-        for (const track of stream.getTracks()) a.addTrack(track, stream);
+        for (const track of sent.getTracks()) a.addTrack(track, sent);
         await a.setLocalDescription(await a.createOffer());
         await b.setRemoteDescription(a.localDescription);
         await b.setLocalDescription(await b.createAnswer());
