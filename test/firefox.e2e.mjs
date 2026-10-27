@@ -946,15 +946,17 @@ describe('Firefox', { skip: findFirefox() ? false : 'no Firefox found (set FIREF
         assert.deepEqual((await judge.run('return window.__marks')).camera, ['checking', 'ok'], 'never hidden');
         assert.deepEqual(await judge.run("const v = document.getElementById('camera'); return [v.paused, v.videoWidth > 0, v.currentTime > 0]"), [false, true, true], 'the camera plays on');
         // The control: the picture the camera shows is one the stand-in hides. Copied through a canvas into
-        // a stream the page made, or arriving through a peer connection as another person's camera does
-        // in a call, it is judged by its frames, hidden and paused, and noted under the page's address.
+        // a stream the page made, it is judged by its frames, hidden and paused, and noted under the page's
+        // address; so is a green picture arriving through a peer connection, as another person's camera
+        // does in a call.
         await judge.newTab();
         await judge.visit('http://camera.test/streams');
         await streamsInPlace();
         const until = Date.now() + 30_000;
         while (!(await judge.run("return ['copy', 'peer'].every((id) => document.getElementById(id).getAttribute('data-family-site-blocker') === 'hidden')")) && Date.now() < until) await sleep(250);
         marks = Object.fromEntries(await judge.run(`return ${MARKS}`));
-        assert.deepEqual([marks.camera, marks.copy, marks.peer], [['ok', 'visible'], ['hidden', 'hidden'], ['hidden', 'hidden']], JSON.stringify(marks));
+        const peer = await judge.run("const v = document.getElementById('peer'); return { connection: window.__peer, readyState: v.readyState, width: v.videoWidth, time: v.currentTime }");
+        assert.deepEqual([marks.camera, marks.copy, marks.peer], [['ok', 'visible'], ['hidden', 'hidden'], ['hidden', 'hidden']], `${JSON.stringify(marks)}; the peer's video ${JSON.stringify(peer)}`);
         await sleep(500);
         assert.deepEqual(await judge.run("return ['camera', 'copy', 'peer'].map((id) => document.getElementById(id).paused)"), [false, true, true]);
         assert.deepEqual((await judge.run('return window.__marks')).camera, ['checking', 'ok'], 'the camera was never hidden');

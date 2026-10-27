@@ -1226,13 +1226,16 @@ describe('real browser', () => {
         const seen = await page.evaluate(() => { const v = document.getElementById('camera'); return [v.videoWidth > 0, v.currentTime > 0]; });
         assert.deepEqual(seen, [true, true], `the camera's picture is there: ${seen}`);
         // The control: the picture the camera shows is one the stand-in hides. Copied through a canvas into
-        // a stream the page made, or arriving through a peer connection as another person's camera does
-        // in a call, it is judged by its frames (the first of which may be black, before the camera's
-        // picture arrives), hidden and paused within a moment, and noted under the page's address.
+        // a stream the page made, it is judged by its frames (the first of which may be black, before the
+        // camera's picture arrives), hidden and paused within a moment, and noted under the page's address;
+        // so is a green picture arriving through a peer connection, as another person's camera does in a call.
         await page.goto('http://camera.test/streams', { waitUntil: 'domcontentloaded' });
         await page.waitForFunction(() => window.__ready || window.__error);
         assert.equal(await page.evaluate(() => window.__error), undefined);
-        await page.waitForFunction(() => ['copy', 'peer'].every((id) => document.getElementById(id).getAttribute('data-family-site-blocker') === 'hidden'), null, { timeout: 20_000 });
+        const peerState = () => page.evaluate(() => { const v = document.getElementById('peer'); return { connection: window.__peer, readyState: v.readyState, width: v.videoWidth, time: v.currentTime }; });
+        await page.waitForFunction(() => ['copy', 'peer'].every((id) => document.getElementById(id).getAttribute('data-family-site-blocker') === 'hidden'), null, { timeout: 20_000 }).catch(async (error) => {
+          throw new Error(`${error.message}; marks ${JSON.stringify(await marks(page))}; the peer's video ${JSON.stringify(await peerState())}`);
+        });
         const after = await marks(page);
         assert.deepEqual([after.camera, after.copy, after.peer], [['ok', 'visible'], ['hidden', 'hidden'], ['hidden', 'hidden']], JSON.stringify(after));
         await page.waitForFunction(() => document.getElementById('copy').paused && document.getElementById('peer').paused);
