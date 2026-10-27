@@ -132,8 +132,17 @@ export function videoPage(videos, extra = '') {
  */
 export const FAKE_CAMERA_ARGS = ['--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream', '--unsafely-treat-insecure-origin-as-secure=http://camera.test'];
 
-/** The settings that do the same for Firefox: its fake camera's picture changes colour, green among them. */
-export const FAKE_CAMERA_PREFS = { 'media.navigator.streams.fake': true, 'media.navigator.permission.disabled': true, 'dom.securecontext.allowlist': 'camera.test' };
+/**
+ * The settings that do the same for Firefox (its fake camera's picture starts green and drifts through blue
+ * to red), and let a peer connection reach one in the same Firefox over the loopback address, which needs
+ * no permission to use the local network.
+ */
+export const FAKE_CAMERA_PREFS = {
+  'media.navigator.streams.fake': true,
+  'media.navigator.permission.disabled': true,
+  'dom.securecontext.allowlist': 'camera.test',
+  'media.peerconnection.ice.loopback': true,
+};
 
 /**
  * A page showing the device's camera in a <video> straight from getUserMedia, as the NZeTA passport-photo
