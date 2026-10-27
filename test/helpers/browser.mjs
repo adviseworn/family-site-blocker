@@ -99,15 +99,16 @@ export async function startStubInternet() {
 
 /**
  * Starts Chromium with every hostname mapped to the stub internet. With { extension: true } the
- * extension in ./extension is loaded, just like "Load unpacked" on the extensions page.
+ * extension in ./extension is loaded, just like "Load unpacked" on the extensions page. { args } adds
+ * command-line switches of the test's own (a fake camera, say).
  */
-export async function launchBrowser(stub, { extension = true, extensionDir = EXTENSION_DIR, internet = false } = {}) {
+export async function launchBrowser(stub, { extension = true, extensionDir = EXTENSION_DIR, internet = false, args: extraArgs = [] } = {}) {
   // The real path, because Chrome works out an unpacked extension's id from it. On macOS the temporary
   // folder is reached through a link (/var is /private/var), which would give a different id.
   const profile = realpathSync(mkdtempSync(join(tmpdir(), 'family-site-blocker-')));
   // With { internet: true } the browser reaches the real internet instead of the stub: for the checks
   // that need real websites (test/*.check.mjs), never for the tests.
-  const args = internet ? [] : [`--host-resolver-rules=MAP * 127.0.0.1:${stub.port}`, '--no-proxy-server'];
+  const args = [...(internet ? [] : [`--host-resolver-rules=MAP * 127.0.0.1:${stub.port}`, '--no-proxy-server']), ...extraArgs];
 
   // Chrome writes an index of the rules into a _metadata folder inside the extension it loads. Load a
   // copy, so a test run leaves ./extension exactly as it was.
