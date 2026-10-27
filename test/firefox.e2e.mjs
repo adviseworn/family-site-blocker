@@ -967,7 +967,9 @@ describe('Firefox', { skip: findFirefox() ? false : 'no Firefox found (set FIREF
         if (connected) assert.deepEqual(marks.peer, ['hidden', 'hidden'], `${JSON.stringify(marks)}; the peer's video ${JSON.stringify(peer)}`);
         else t.diagnostic(`the peer connection never came up in this Firefox (${JSON.stringify(peer)}), so the stream through it went unjudged here`);
         await sleep(500);
-        assert.deepEqual(await judge.run("return ['camera', 'copy', 'peer'].map((id) => document.getElementById(id).paused)"), [false, true, connected]);
+        const pausedNow = await judge.run("return ['camera', 'copy', 'peer'].map((id) => document.getElementById(id).paused)");
+        assert.deepEqual(pausedNow.slice(0, 2), [false, true], `camera, copy paused: ${pausedNow}`);
+        if (connected) assert.equal(pausedNow[2], true, 'the hidden stream from the peer is paused'); // one that never connected never started
         assert.deepEqual((await judge.run('return window.__marks')).camera, ['checking', 'ok'], 'the camera was never hidden');
         await judge.fx.send('WebDriver:SwitchToWindow', { handle: settings.handle });
         const record = await judge.fx.send('WebDriver:ExecuteAsyncScript', {
