@@ -35,7 +35,7 @@ export async function judgeBytes(blob, url = '') {
     bitmap.close();
     const [r, g, b] = context.getImageData(0, 0, 1, 1).data;
     if (r > 150 && g < 100 && b < 100) return SCORES.nude;
-    if (g > 150 && r < 100 && b < 100) return SCORES.lingerie;
+    if (g > 120 && r < 100 && b < 100) return SCORES.lingerie; // Chromium's fake camera is a green of 138 to 164
   }
   return SCORES.photo;
 }
@@ -123,6 +123,56 @@ export function videoPage(videos, extra = '') {
     <script>window.__marks = {}; new MutationObserver((records) => { for (const r of records) (window.__marks[r.target.id] ??= []).push(r.target.getAttribute('data-family-site-blocker')); }).observe(document.documentElement, { attributes: true, subtree: true, attributeFilter: ['data-family-site-blocker'] });</script>
     ${videos.map((attributes) => `<video ${attributes} width="300"></video>`).join('\n')}
     ${extra}`;
+}
+
+/**
+ * The command-line switches that give Chromium a fake camera (its picture is green, "lingerie" to the
+ * stand-in classifier), hand it over without asking, and let a page on camera.test use it, as only a
+ * secure page may; the stand-in internet speaks plain http.
+ */
+export const FAKE_CAMERA_ARGS = ['--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream', '--unsafely-treat-insecure-origin-as-secure=http://camera.test'];
+
+/** The settings that do the same for Firefox: its fake camera's picture changes colour, green among them. */
+export const FAKE_CAMERA_PREFS = { 'media.navigator.streams.fake': true, 'media.navigator.permission.disabled': true, 'dom.securecontext.allowlist': 'camera.test' };
+
+/**
+ * A page showing the device's camera in a <video> straight from getUserMedia, as the NZeTA passport-photo
+ * page does (#84): the device's own camera, shown as it is. With { streams: true } two more videos show the
+ * same picture from elsewhere, which is judged: copied frame by frame through a canvas into a stream the
+ * page made (as a blob: video the page made is), and sent through a loopback RTCPeerConnection, as another
+ * person's camera arrives in a call. window.__ready says when every stream is in place, window.__error
+ * what went wrong, and every mark is kept, as videoPage keeps them.
+ */
+export function cameraPage({ streams = false } = {}) {
+  return videoPage(
+    ['id="camera" autoplay muted playsinline', ...(streams ? ['id="copy" autoplay muted playsinline', 'id="peer" autoplay muted playsinline'] : [])],
+    `<script>
+    (async () => {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+      const camera = document.getElementById('camera');
+      camera.srcObject = stream;
+      if (${streams}) {
+        const canvas = document.createElement('canvas');
+        canvas.width = canvas.height = 64;
+        const context = canvas.getContext('2d');
+        await new Promise((resolve) => { camera.onloadeddata = resolve; });
+        setInterval(() => context.drawImage(camera, 0, 0, 64, 64), 50);
+        document.getElementById('copy').srcObject = canvas.captureStream(10);
+        const a = new RTCPeerConnection();
+        const b = new RTCPeerConnection();
+        a.onicecandidate = (e) => { if (e.candidate) b.addIceCandidate(e.candidate); };
+        b.onicecandidate = (e) => { if (e.candidate) a.addIceCandidate(e.candidate); };
+        b.ontrack = (e) => { document.getElementById('peer').srcObject = e.streams[0] ?? new MediaStream([e.track]); };
+        for (const track of stream.getTracks()) a.addTrack(track, stream);
+        await a.setLocalDescription(await a.createOffer());
+        await b.setRemoteDescription(a.localDescription);
+        await b.setLocalDescription(await b.createAnswer());
+        await a.setRemoteDescription(b.localDescription);
+      }
+      window.__ready = true;
+    })().catch((e) => { window.__error = String(e); });
+    </script>`,
+  );
 }
 
 /** What each picture and video on a page is marked as, and whether it can be seen: { id: [mark, visibility] }. */

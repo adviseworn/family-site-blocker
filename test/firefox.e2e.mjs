@@ -17,7 +17,7 @@ import { BLOCKLIST_DIR } from '../scripts/build-rules.mjs';
 import { filterEntries, filterSites } from '../scripts/firefox-lock.mjs';
 import { EXTENSION_DIR, startStubInternet } from './helpers/browser.mjs';
 import { findFirefox, launchFirefox } from './helpers/firefox.mjs';
-import { BACKGROUND_MARKS, MARKS, backgroundsPage, extensionWithStandInClassifier, galleryPage, servePictures, serveVideos, videoPage } from './helpers/pictures.mjs';
+import { BACKGROUND_MARKS, FAKE_CAMERA_PREFS, MARKS, backgroundsPage, cameraPage, extensionWithStandInClassifier, galleryPage, servePictures, serveVideos, videoPage } from './helpers/pictures.mjs';
 
 const VERSION = JSON.parse(readFileSync(join(EXTENSION_DIR, 'manifest.json'), 'utf8')).version;
 const BUILT_IN = JSON.parse(readFileSync(join(EXTENSION_DIR, 'rules', 'domains.json'), 'utf8')).length;
@@ -792,6 +792,10 @@ describe('Firefox', { skip: findFirefox() ? false : 'no Firefox found (set FIREF
           'id="foreign" src="http://videos.test/videos/red.webm" autoplay muted loop',
         ]),
       );
+      // The device's own camera (Firefox's fake one starts green, "lingerie" to the stand-in, and drifts
+      // through blue to red), alone and next to the same picture as streams from elsewhere.
+      stub.page('camera.test/camera', cameraPage());
+      stub.page('camera.test/streams', cameraPage({ streams: true }));
     });
 
     test('the real classifier, through WebAssembly, finds two ordinary photos neutral and shows them', async () => {
@@ -912,6 +916,55 @@ describe('Firefox', { skip: findFirefox() ? false : 'no Firefox found (set FIREF
         const videos = record.filter((entry) => entry.kind === 'video').map((entry) => [entry.url.replace('http://', ''), entry.reason]).sort();
         assert.deepEqual(videos, [['allowed.test/videos/blue-then-red.webm', 'nudity'], ['allowed.test/videos/red.webm', 'nudity'], ['videos.test/videos/red.webm', 'nudity']], JSON.stringify(record));
         assert.ok(record.some((entry) => entry.url.endsWith('lingerie.jpg?poster') && !entry.kind), 'the poster is noted as a picture');
+      } finally {
+        await judge.close();
+        standIn.remove();
+      }
+    });
+
+    test("with the stand-in classifier: a video of the device's own camera is shown as it is and never judged; the same picture as a stream the page made, or from another peer, is judged and hidden", async () => {
+      const standIn = extensionWithStandInClassifier();
+      const judge = await launchFirefox(stub, { extensionDir: standIn.dir, prefs: FAKE_CAMERA_PREFS });
+      try {
+        const settings = (await judge.tabs()).find(({ url }) => url.endsWith('/options.html'));
+        const streamsInPlace = async () => {
+          const until = Date.now() + 15_000;
+          let page = {};
+          while (!page.ready && !page.error && Date.now() < until) {
+            await sleep(250);
+            page = await judge.run('return { ready: window.__ready, error: window.__error }');
+          }
+          assert.deepEqual(page, { ready: true, error: null }, 'the page got its camera and streams');
+        };
+        // The camera alone (#84): shown once the stream is known to be the camera's, and left alone after.
+        await judge.newTab();
+        await judge.visit('http://camera.test/camera');
+        await streamsInPlace();
+        let marks = await waitForMarks(judge, ['camera']);
+        assert.deepEqual(marks.camera, ['ok', 'visible'], JSON.stringify(marks));
+        await sleep(3500); // long enough for two frames to have been judged, had it been judged
+        assert.deepEqual((await judge.run('return window.__marks')).camera, ['checking', 'ok'], 'never hidden');
+        assert.deepEqual(await judge.run("const v = document.getElementById('camera'); return [v.paused, v.videoWidth > 0, v.currentTime > 0]"), [false, true, true], 'the camera plays on');
+        // The control: the picture the camera shows is one the stand-in hides. Copied through a canvas into
+        // a stream the page made, or arriving through a peer connection as another person's camera does
+        // in a call, it is judged by its frames, hidden and paused, and noted under the page's address.
+        await judge.newTab();
+        await judge.visit('http://camera.test/streams');
+        await streamsInPlace();
+        const until = Date.now() + 30_000;
+        while (!(await judge.run("return ['copy', 'peer'].every((id) => document.getElementById(id).getAttribute('data-family-site-blocker') === 'hidden')")) && Date.now() < until) await sleep(250);
+        marks = Object.fromEntries(await judge.run(`return ${MARKS}`));
+        assert.deepEqual([marks.camera, marks.copy, marks.peer], [['ok', 'visible'], ['hidden', 'hidden'], ['hidden', 'hidden']], JSON.stringify(marks));
+        await sleep(500);
+        assert.deepEqual(await judge.run("return ['camera', 'copy', 'peer'].map((id) => document.getElementById(id).paused)"), [false, true, true]);
+        assert.deepEqual((await judge.run('return window.__marks')).camera, ['checking', 'ok'], 'the camera was never hidden');
+        await judge.fx.send('WebDriver:SwitchToWindow', { handle: settings.handle });
+        const record = await judge.fx.send('WebDriver:ExecuteAsyncScript', {
+          script: `const done = arguments[arguments.length - 1]; browser.storage.local.get('pictures').then((got) => done(got.pictures ?? []), (e) => done([]));`,
+          args: [],
+        });
+        const here = record.filter((entry) => entry.site === 'camera.test');
+        assert.ok(here.length >= 1 && here.every((entry) => entry.kind === 'video' && entry.url === 'http://camera.test/streams'), JSON.stringify(record));
       } finally {
         await judge.close();
         standIn.remove();

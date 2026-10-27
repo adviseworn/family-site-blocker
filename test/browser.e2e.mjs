@@ -9,7 +9,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { EXTENSION_DIR, findPage, launchBrowser, startStubInternet, visit } from './helpers/browser.mjs';
-import { BACKGROUND_MARKS, MARKS, STAND_IN_SCORES, backgroundsPage, extensionWithStandInClassifier, galleryPage, servePictures, serveVideos, videoPage } from './helpers/pictures.mjs';
+import { BACKGROUND_MARKS, FAKE_CAMERA_ARGS, MARKS, STAND_IN_SCORES, backgroundsPage, cameraPage, extensionWithStandInClassifier, galleryPage, servePictures, serveVideos, videoPage } from './helpers/pictures.mjs';
 
 const VERSION = JSON.parse(readFileSync(join(EXTENSION_DIR, 'manifest.json'), 'utf8')).version;
 const BUILT_IN = JSON.parse(readFileSync(join(EXTENSION_DIR, 'rules', 'domains.json'), 'utf8')).length;
@@ -949,8 +949,12 @@ describe('real browser', () => {
       );
       // A page that makes its own video (a blob: address, as players that stream do) from a red one.
       stub.page('allowed.test/video-blob', videoPage(['id="made" autoplay muted loop'], `<script>fetch('/videos/red.webm').then((r) => r.blob()).then((b) => { document.getElementById('made').src = URL.createObjectURL(b); });</script>`));
+      // The device's own camera (Chromium's fake one, green: "lingerie" to the stand-in), alone and next
+      // to the same picture as streams from elsewhere.
+      stub.page('camera.test/camera', cameraPage());
+      stub.page('camera.test/streams', cameraPage({ streams: true }));
       standIn = extensionWithStandInClassifier();
-      judge = await launchBrowser(stub, { extensionDir: standIn.dir });
+      judge = await launchBrowser(stub, { extensionDir: standIn.dir, args: FAKE_CAMERA_ARGS });
     });
 
     after(async () => {
@@ -1202,6 +1206,46 @@ describe('real browser', () => {
         await page.goto('http://allowed.test/video-blob', { waitUntil: 'domcontentloaded' });
         await page.waitForFunction(() => document.getElementById('made').getAttribute('data-family-site-blocker') === 'hidden', null, { timeout: 20_000 });
         assert.ok(!(await marksSeen(page, 'made')).includes('ok'), JSON.stringify(await marksSeen(page, 'made')));
+      } finally {
+        await page.close();
+      }
+    });
+
+    test("a video of the device's own camera is shown as it is and never judged; the same picture as a stream the page made, or from another peer, is judged and hidden", async () => {
+      const page = await judge.context.newPage();
+      try {
+        // The camera alone (#84): shown once the stream is known to be the camera's, and left alone after.
+        await page.goto('http://camera.test/camera', { waitUntil: 'domcontentloaded' });
+        await page.waitForFunction(() => window.__ready || window.__error);
+        assert.equal(await page.evaluate(() => window.__error), undefined);
+        await settled(page, ['camera']);
+        assert.deepEqual((await marks(page)).camera, ['ok', 'visible']);
+        await page.waitForTimeout(3500); // long enough for two frames to have been judged, had it been judged
+        assert.deepEqual(await marksSeen(page, 'camera'), ['checking', 'ok'], 'never hidden');
+        assert.equal(await paused(page, 'camera'), false, 'the camera plays on');
+        const seen = await page.evaluate(() => { const v = document.getElementById('camera'); return [v.videoWidth > 0, v.currentTime > 0]; });
+        assert.deepEqual(seen, [true, true], `the camera's picture is there: ${seen}`);
+        // The control: the picture the camera shows is one the stand-in hides. Copied through a canvas into
+        // a stream the page made, or arriving through a peer connection as another person's camera does
+        // in a call, it is judged by its frames (the first of which may be black, before the camera's
+        // picture arrives), hidden and paused within a moment, and noted under the page's address.
+        await page.goto('http://camera.test/streams', { waitUntil: 'domcontentloaded' });
+        await page.waitForFunction(() => window.__ready || window.__error);
+        assert.equal(await page.evaluate(() => window.__error), undefined);
+        await page.waitForFunction(() => ['copy', 'peer'].every((id) => document.getElementById(id).getAttribute('data-family-site-blocker') === 'hidden'), null, { timeout: 20_000 });
+        const after = await marks(page);
+        assert.deepEqual([after.camera, after.copy, after.peer], [['ok', 'visible'], ['hidden', 'hidden'], ['hidden', 'hidden']], JSON.stringify(after));
+        await page.waitForFunction(() => document.getElementById('copy').paused && document.getElementById('peer').paused);
+        assert.equal(await paused(page, 'camera'), false, 'the camera plays on');
+        assert.deepEqual(await marksSeen(page, 'camera'), ['checking', 'ok'], 'the camera was never hidden');
+        const settings = await openSettingsIn(judge);
+        try {
+          const record = await settings.evaluate(() => chrome.storage.local.get('pictures').then((got) => got.pictures ?? []));
+          const here = record.filter((entry) => entry.site === 'camera.test');
+          assert.ok(here.length >= 1 && here.every((entry) => entry.kind === 'video' && entry.url === 'http://camera.test/streams' && entry.reason === 'suggestive'), JSON.stringify(here));
+        } finally {
+          await settings.close();
+        }
       } finally {
         await page.close();
       }
