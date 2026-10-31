@@ -3,8 +3,13 @@
 // switched on. With them in force, the Add-ons Manager can't turn the add-on off, remove it or take away
 // its website access, and the other ways round it are closed: private windows (where add-ons don't run
 // unless someone allows it in the Add-ons Manager), Troubleshoot Mode from Firefox's menus (starts Firefox
-// with add-ons off), about:config (extensions.dnr.enabled switches off every add-on's blocking rules) and
-// Refresh Firefox (would wipe the sites added on the settings page).
+// with add-ons off), about:config (extensions.dnr.enabled switches off every add-on's blocking rules),
+// Refresh Firefox (would wipe the sites added on the settings page), and the developer tools (the devtools
+// pref below: the Inspector, the Console and the Network panel). The developer tools are a privileged
+// surface the content script can't reach: from them someone could read a hidden picture's address and open
+// it, see it previewed in the Inspector, read a blocked response in the Network panel, or run console
+// script to un-hide the page. The picture filter runs in the page and can't police any of that, so the lock
+// shuts the tools instead (#86).
 //
 // On a Mac, holding Option while Firefox opens, or --safe-mode, still starts Troubleshoot Mode: Firefox only
 // checks DisableSafeMode at that point on Windows, and no add-on runs there. So the lock also gives Firefox
@@ -123,6 +128,13 @@ export function firefoxPolicies(xpiSource = XPI_URL, entries = filterEntries()) 
     DisableProfileRefresh: true,
     Preferences: {
       'extensions.dnr.enabled': { Value: true, Status: 'locked' },
+      // Turns off the developer tools (Firefox's DevToolsStartup refuses to open a toolbox while this is
+      // set), so the Inspector can't preview a hidden picture, the Network panel can't show its bytes, and
+      // the Console can't reach the page. This is the pref Firefox's own DisableDeveloperTools policy locks;
+      // the lock sets it here rather than using that policy, because DisableDeveloperTools also locks
+      // remote.policy.disabled (Marionette and the Remote Agent), which the lock's own tests drive Firefox
+      // through. On its own it leaves automation alone (#86).
+      'devtools.policy.disabled': { Value: true, Status: 'locked' },
     },
     WebsiteFilter: { Block: entries },
     // The stamp, as the add-on's managed storage; another add-on's settings here would be another program's.
@@ -175,7 +187,7 @@ export function mobileconfig(settings = macSettings()) {
       'Keeps the Family Site Blocker add-on installed and switched on in Firefox, for every account on this Mac. ' +
       `Firefox installs the newest signed version from ${XPI_URL}, keeps it up to date, and nobody can turn it off or remove it there. ` +
       'Firefox also gets its own copy of the add-on\u2019s built-in list of sites (whole adult domains such as .porn and .xxx, and the sites people visit most), which keeps blocking them when add-ons don\u2019t run, as in Troubleshoot Mode. ' +
-      'Private windows, Troubleshoot Mode from Firefox\u2019s menus, about:config and Refresh Firefox, which could get round it, are turned off. ' +
+      'Private windows, Troubleshoot Mode from Firefox\u2019s menus, about:config, Refresh Firefox and the developer tools, which could get round it, are turned off. ' +
       'Settings that other programs, such as another blocker, give Firefox for their own add-ons stay in force. ' +
       `This is the copy from version ${stamp.version} of Family Site Blocker, with ${stamp.entries.toLocaleString('en-US')} entries in Firefox’s own list; the add-on’s settings page says whether a newer copy is due. ` +
       'Only an administrator can remove this profile.',

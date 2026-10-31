@@ -9,7 +9,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { EXTENSION_DIR, findPage, launchBrowser, startStubInternet, visit } from './helpers/browser.mjs';
-import { BACKGROUND_MARKS, MARKS, STAND_IN_SCORES, backgroundsPage, extensionWithStandInClassifier, galleryPage, servePictures, serveVideos, videoPage } from './helpers/pictures.mjs';
+import { BACKGROUND_MARKS, FAKE_CAMERA_ARGS, MARKS, STAND_IN_SCORES, backgroundsPage, cameraPage, extensionWithStandInClassifier, galleryPage, servePictures, serveVideos, videoPage } from './helpers/pictures.mjs';
 
 const VERSION = JSON.parse(readFileSync(join(EXTENSION_DIR, 'manifest.json'), 'utf8')).version;
 const BUILT_IN = JSON.parse(readFileSync(join(EXTENSION_DIR, 'rules', 'domains.json'), 'utf8')).length;
@@ -292,15 +292,17 @@ describe('real browser', () => {
 
   describe('safe search', () => {
     // Each search goes out once, with the engine's strict setting added; the engine's other pages are left alone.
+    // Over https, as a person's browser makes them: the engines are on Chromium's built-in HTTPS-only list, so a
+    // recent Chromium would turn an http:// address into https:// before any request went out (#68).
     const searches = [
-      ['http://www.google.com/search?q=test', 'safe', 'active'],
-      ['http://www.google.co.uk/search?q=test&safe=off', 'safe', 'active'],
-      ['http://www.bing.com/images/search?q=test', 'adlt', 'strict'],
-      ['http://duckduckgo.com/?q=test&ia=web', 'kp', '1'],
-      ['http://html.duckduckgo.com/html/?q=test', 'kp', '1'],
-      ['http://search.yahoo.com/search?p=test', 'vm', 'r'],
-      ['http://images.search.yahoo.com/search/images?p=test', 'vm', 'r'],
-      ['http://search.brave.com/search?q=test', 'safesearch', 'strict'],
+      ['https://www.google.com/search?q=test', 'safe', 'active'],
+      ['https://www.google.co.uk/search?q=test&safe=off', 'safe', 'active'],
+      ['https://www.bing.com/images/search?q=test', 'adlt', 'strict'],
+      ['https://duckduckgo.com/?q=test&ia=web', 'kp', '1'],
+      ['https://html.duckduckgo.com/html/?q=test', 'kp', '1'],
+      ['https://search.yahoo.com/search?p=test', 'vm', 'r'],
+      ['https://images.search.yahoo.com/search/images?p=test', 'vm', 'r'],
+      ['https://search.brave.com/search?q=test', 'safesearch', 'strict'],
     ];
     for (const [url, key, value] of searches) {
       test(`${url} goes out with ${key}=${value}`, async () => {
@@ -315,7 +317,8 @@ describe('real browser', () => {
           // as the site's icon, on its own).
           const sent = stub.requests.filter((r) => r.path === new URL(url).pathname);
           assert.equal(sent.length, 1, `one request for the page, not a loop: ${JSON.stringify(stub.requests.map((r) => r.host + r.path + r.search))}`);
-          assert.equal(new URL(`http://${sent[0].host}${sent[0].path}${sent[0].search}`).searchParams.get(key), value, 'the engine sees the setting');
+          assert.equal(sent[0].scheme, 'https', 'the search stays on https');
+          assert.equal(new URL(`${sent[0].scheme}://${sent[0].host}${sent[0].path}${sent[0].search}`).searchParams.get(key), value, 'the engine sees the setting');
         } finally {
           await page.close();
         }
@@ -325,7 +328,7 @@ describe('real browser', () => {
     test('a search already made strict, and pages that are not searches, are not redirected', async () => {
       const page = await browser.context.newPage();
       try {
-        for (const url of ['http://www.google.com/search?q=test&safe=active', 'http://www.google.com/', 'http://www.google.com/maps?q=test', 'http://duckduckgo.com/', 'http://example.com/search?q=test']) {
+        for (const url of ['https://www.google.com/search?q=test&safe=active', 'https://www.google.com/', 'https://www.google.com/maps?q=test', 'https://duckduckgo.com/', 'https://example.com/search?q=test']) {
           stub.clear();
           await page.goto(url, { waitUntil: 'domcontentloaded' });
           assert.equal(page.url(), url);
@@ -341,8 +344,8 @@ describe('real browser', () => {
       const page = await browser.context.newPage();
       try {
         stub.clear();
-        stub.page('www.youtube.com/results', '<img src="http://i.ytimg.com/x.gif"><script>fetch("http://www.youtube.com/youtubei/v1/search").catch(() => {})</script>');
-        await page.goto('http://www.youtube.com/results?search_query=test', { waitUntil: 'load' });
+        stub.page('www.youtube.com/results', '<img src="https://i.ytimg.com/x.gif"><script>fetch("https://www.youtube.com/youtubei/v1/search").catch(() => {})</script>');
+        await page.goto('https://www.youtube.com/results?search_query=test', { waitUntil: 'load' });
         await new Promise((done) => setTimeout(done, 500));
         const toYouTube = stub.requests.filter((r) => r.host === 'www.youtube.com');
         assert.ok(toYouTube.length >= 2, JSON.stringify(stub.requests.map((r) => r.host + r.path)));
@@ -1110,8 +1113,12 @@ describe('real browser', () => {
       );
       // A page that makes its own video (a blob: address, as players that stream do) from a red one.
       stub.page('allowed.test/video-blob', videoPage(['id="made" autoplay muted loop'], `<script>fetch('/videos/red.webm').then((r) => r.blob()).then((b) => { document.getElementById('made').src = URL.createObjectURL(b); });</script>`));
+      // The device's own camera (Chromium's fake one, green: "lingerie" to the stand-in), alone and next
+      // to the same picture as streams from elsewhere.
+      stub.page('camera.test/camera', cameraPage());
+      stub.page('camera.test/streams', cameraPage({ streams: true }));
       standIn = extensionWithStandInClassifier();
-      judge = await launchBrowser(stub, { extensionDir: standIn.dir });
+      judge = await launchBrowser(stub, { extensionDir: standIn.dir, args: FAKE_CAMERA_ARGS });
     });
 
     after(async () => {
@@ -1363,6 +1370,49 @@ describe('real browser', () => {
         await page.goto('http://allowed.test/video-blob', { waitUntil: 'domcontentloaded' });
         await page.waitForFunction(() => document.getElementById('made').getAttribute('data-family-site-blocker') === 'hidden', null, { timeout: 20_000 });
         assert.ok(!(await marksSeen(page, 'made')).includes('ok'), JSON.stringify(await marksSeen(page, 'made')));
+      } finally {
+        await page.close();
+      }
+    });
+
+    test("a video of the device's own camera is shown as it is and never judged; the same picture as a stream the page made, or from another peer, is judged and hidden", async () => {
+      const page = await judge.context.newPage();
+      try {
+        // The camera alone (#84): shown once the stream is known to be the camera's, and left alone after.
+        await page.goto('http://camera.test/camera', { waitUntil: 'domcontentloaded' });
+        await page.waitForFunction(() => window.__ready || window.__error);
+        assert.equal(await page.evaluate(() => window.__error), undefined);
+        await settled(page, ['camera']);
+        assert.deepEqual((await marks(page)).camera, ['ok', 'visible']);
+        await page.waitForTimeout(3500); // long enough for two frames to have been judged, had it been judged
+        assert.deepEqual(await marksSeen(page, 'camera'), ['checking', 'ok'], 'never hidden');
+        assert.equal(await paused(page, 'camera'), false, 'the camera plays on');
+        const seen = await page.evaluate(() => { const v = document.getElementById('camera'); return [v.videoWidth > 0, v.currentTime > 0]; });
+        assert.deepEqual(seen, [true, true], `the camera's picture is there: ${seen}`);
+        // The control: the picture the camera shows is one the stand-in hides. Copied through a canvas into
+        // a stream the page made, it is judged by its frames (the first of which may be black, before the
+        // camera's picture arrives), hidden and paused within a moment, and noted under the page's address;
+        // so is a green picture arriving through a peer connection, as another person's camera does in a call.
+        await page.goto('http://camera.test/streams', { waitUntil: 'domcontentloaded' });
+        await page.waitForFunction(() => window.__ready || window.__error);
+        assert.equal(await page.evaluate(() => window.__error), undefined);
+        const peerState = () => page.evaluate(() => { const v = document.getElementById('peer'); return { connection: window.__peer, readyState: v.readyState, width: v.videoWidth, time: v.currentTime }; });
+        await page.waitForFunction(() => ['copy', 'peer'].every((id) => document.getElementById(id).getAttribute('data-family-site-blocker') === 'hidden'), null, { timeout: 20_000 }).catch(async (error) => {
+          throw new Error(`${error.message}; marks ${JSON.stringify(await marks(page))}; the peer's video ${JSON.stringify(await peerState())}`);
+        });
+        const after = await marks(page);
+        assert.deepEqual([after.camera, after.copy, after.peer], [['ok', 'visible'], ['hidden', 'hidden'], ['hidden', 'hidden']], JSON.stringify(after));
+        await page.waitForFunction(() => document.getElementById('copy').paused && document.getElementById('peer').paused);
+        assert.equal(await paused(page, 'camera'), false, 'the camera plays on');
+        assert.deepEqual(await marksSeen(page, 'camera'), ['checking', 'ok'], 'the camera was never hidden');
+        const settings = await openSettingsIn(judge);
+        try {
+          const record = await settings.evaluate(() => chrome.storage.local.get('pictures').then((got) => got.pictures ?? []));
+          const here = record.filter((entry) => entry.site === 'camera.test');
+          assert.ok(here.length >= 1 && here.every((entry) => entry.kind === 'video' && entry.url === 'http://camera.test/streams' && entry.reason === 'suggestive'), JSON.stringify(here));
+        } finally {
+          await settings.close();
+        }
       } finally {
         await page.close();
       }

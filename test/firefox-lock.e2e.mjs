@@ -401,6 +401,20 @@ describe('Firefox lock', { skip: SKIP }, () => {
     const pref = await firefox.chrome(`return { value: Services.prefs.getBoolPref('extensions.dnr.enabled'), locked: Services.prefs.prefIsLocked('extensions.dnr.enabled') };`);
     assert.deepEqual(pref, { value: true, locked: true });
   });
+
+  // The developer tools are a privileged surface the picture filter can't reach: without them off, the
+  // Inspector shows a hidden picture when you hover its address, the Network panel its bytes, and the
+  // Console can un-hide the page (#86). The lock shuts them by locking devtools.policy.disabled, the pref
+  // Firefox's DevToolsStartup checks before it opens a toolbox (for F12, "Inspect", and the menu alike).
+  // Marionette, which this very test drives Firefox through, still runs: the broad DisableDeveloperTools
+  // policy would have stopped it, which is why the lock locks the pref instead.
+  test('the developer tools are turned off, so the Inspector can\'t reveal a hidden picture', async () => {
+    const state = await firefox.chrome(`return {
+      disabled: Services.prefs.getBoolPref('devtools.policy.disabled', false),
+      locked: Services.prefs.prefIsLocked('devtools.policy.disabled'),
+    };`);
+    assert.deepEqual(state, { disabled: true, locked: true });
+  });
 });
 
 // From 1.3.2 the add-on updates itself: its update_url names an update manifest (scripts/updates-manifest.mjs)

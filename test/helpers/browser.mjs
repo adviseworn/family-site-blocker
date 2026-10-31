@@ -1,7 +1,9 @@
 // Helpers for the real-browser tests: a stand-in "internet" and a Chromium with the extension loaded.
+import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { createServer } from 'node:http';
-import { cpSync, mkdtempSync, realpathSync, rmSync } from 'node:fs';
+import { createServer as createSecureServer } from 'node:https';
+import { cpSync, mkdtempSync, readFileSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -20,10 +22,34 @@ export function extensionIdFor(dir = EXTENSION_DIR) {
 const PIXEL = Buffer.from('R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7', 'base64');
 
 /**
+ * The certificate for the stub internet's https side, made with openssl (every Mac and Linux has it) the
+ * first time a stub starts, rather than kept in the repository, where a private key would look like a
+ * leaked secret. The browser is told to accept it, so nothing checks the name or the dates on it.
+ */
+let certificate = null;
+function selfSignedCertificate() {
+  if (certificate) return certificate;
+  const dir = mkdtempSync(join(tmpdir(), 'family-site-blocker-cert-'));
+  try {
+    execFileSync('openssl', ['req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-days', '2', '-subj', '/CN=stub internet', '-keyout', join(dir, 'key.pem'), '-out', join(dir, 'cert.pem')], { stdio: 'ignore' });
+    certificate = { key: readFileSync(join(dir, 'key.pem')), cert: readFileSync(join(dir, 'cert.pem')) };
+  } catch (error) {
+    throw new Error(`The stub internet needs openssl to make the certificate for its https side: ${error.message}`);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+  return certificate;
+}
+
+/**
  * A fake internet. Chromium is told to resolve every hostname to this one local server, and Firefox
  * uses it as its proxy, so the tests can use real-looking addresses (exampleadultsite.com) without
- * touching the real network. It records the Host of every request it receives: if a site never shows
- * up in `requests`, the browser stopped the request before it left.
+ * touching the real network. It has a plain-http side (`port`) and an https side (`httpsPort`, with a
+ * certificate it makes for itself): the big search engines and YouTube are on Chromium's built-in
+ * HTTPS-only list, so a recent Chromium turns their http:// addresses into https:// before any request
+ * goes out, and the tests use https:// for them as a person's browser does (#68). It records the Host
+ * of every request it receives: if a site never shows up in `requests`, the browser stopped the request
+ * before it left.
  *
  * Default answer: a page that says "SITE LOADED". Use page() to serve something else.
  */
@@ -31,12 +57,12 @@ export async function startStubInternet() {
   const requests = [];
   const pages = new Map();
 
-  const server = createServer((req, res) => {
+  const handle = (req, res) => {
     const host = String(req.headers.host ?? '').toLowerCase();
     // Proxied requests carry the full address ("http://site/path"), direct ones only the path.
     const url = new URL(req.url ?? '/', `http://${host || 'localhost'}`);
     const path = url.pathname;
-    requests.push({ host, path, search: url.search, headers: req.headers });
+    requests.push({ host, path, search: url.search, scheme: req.socket.encrypted ? 'https' : 'http', headers: req.headers });
 
     const custom = pages.get(`${host}${path}`) ?? pages.get(path);
     if (custom) {
@@ -63,21 +89,27 @@ export async function startStubInternet() {
       res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'access-control-allow-origin': '*' });
       res.end(`<!doctype html><meta charset="utf-8"><title>${host}</title><h1>SITE LOADED</h1><p>${host}${path}</p>`);
     }
-  });
-  // WebSocket handshakes arrive as "upgrade" events rather than normal requests; log them too.
-  server.on('upgrade', (req, socket) => {
-    requests.push({ host: String(req.headers.host ?? '').toLowerCase(), path: req.url ?? '/' });
-    socket.destroy();
-  });
-  // Through a proxy, https:// requests start as "CONNECT host:443". Log them; there is no real site to reach.
-  server.on('connect', (req, socket) => {
-    requests.push({ host: String(req.url ?? '').toLowerCase(), path: '' });
-    socket.end('HTTP/1.1 502 Bad Gateway\r\n\r\n');
-  });
+  };
+  const server = createServer(handle);
+  const secure = createSecureServer(selfSignedCertificate(), handle);
+  for (const side of [server, secure]) {
+    // WebSocket handshakes arrive as "upgrade" events rather than normal requests; log them too.
+    side.on('upgrade', (req, socket) => {
+      requests.push({ host: String(req.headers.host ?? '').toLowerCase(), path: req.url ?? '/' });
+      socket.destroy();
+    });
+    // Through a proxy, https:// requests start as "CONNECT host:443". Log them; there is no real site to reach.
+    side.on('connect', (req, socket) => {
+      requests.push({ host: String(req.url ?? '').toLowerCase(), path: '' });
+      socket.end('HTTP/1.1 502 Bad Gateway\r\n\r\n');
+    });
+  }
   await new Promise((done) => server.listen(0, '127.0.0.1', done));
+  await new Promise((done) => secure.listen(0, '127.0.0.1', done));
 
   return {
     port: server.address().port,
+    httpsPort: secure.address().port,
     requests,
     /** Serve custom HTML at "path" (any host) or "host/path". */
     page(key, body, extra = {}) {
@@ -93,21 +125,26 @@ export async function startStubInternet() {
     clear() {
       requests.length = 0;
     },
-    close: () => new Promise((done) => server.close(done)),
+    close: async () => {
+      await new Promise((done) => server.close(done));
+      await new Promise((done) => secure.close(done));
+    },
   };
 }
 
 /**
- * Starts Chromium with every hostname mapped to the stub internet. With { extension: true } the
- * extension in ./extension is loaded, just like "Load unpacked" on the extensions page.
+ * Starts Chromium with every hostname mapped to the stub internet: port 443 to its https side, every
+ * other port to its plain-http side. With { extension: true } the
+ * extension in ./extension is loaded, just like "Load unpacked" on the extensions page. { args } adds
+ * command-line switches of the test's own (a fake camera, say).
  */
-export async function launchBrowser(stub, { extension = true, extensionDir = EXTENSION_DIR, internet = false } = {}) {
+export async function launchBrowser(stub, { extension = true, extensionDir = EXTENSION_DIR, internet = false, args: extraArgs = [] } = {}) {
   // The real path, because Chrome works out an unpacked extension's id from it. On macOS the temporary
   // folder is reached through a link (/var is /private/var), which would give a different id.
   const profile = realpathSync(mkdtempSync(join(tmpdir(), 'family-site-blocker-')));
   // With { internet: true } the browser reaches the real internet instead of the stub: for the checks
   // that need real websites (test/*.check.mjs), never for the tests.
-  const args = internet ? [] : [`--host-resolver-rules=MAP * 127.0.0.1:${stub.port}`, '--no-proxy-server'];
+  const args = [...(internet ? [] : [`--host-resolver-rules=MAP *:443 127.0.0.1:${stub.httpsPort}, MAP * 127.0.0.1:${stub.port}`, '--no-proxy-server']), ...extraArgs];
 
   // Chrome writes an index of the rules into a _metadata folder inside the extension it loads. Load a
   // copy, so a test run leaves ./extension exactly as it was.
@@ -123,6 +160,7 @@ export async function launchBrowser(stub, { extension = true, extensionDir = EXT
   const context = await chromium.launchPersistentContext(profile, {
     channel: 'chromium', // the full Chromium build, which can run extensions in headless mode
     headless: process.env.HEADFUL !== '1',
+    ignoreHTTPSErrors: !internet, // the stub's certificate is its own
     args,
   });
 
