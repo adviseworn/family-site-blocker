@@ -246,8 +246,19 @@ textarea {
   color: var(--bad);
 }
 
-.history td:last-child {
+.history td:last-child,
+.unseen td:last-child {
   color: var(--muted);
+}
+
+/* A visit from a time the extension was off, and one from before the site was listed: the one is the
+   record's only sign of being off, the other a site the list has caught up with. */
+.off td:last-child {
+  color: var(--bad);
+}
+
+.unlisted td:last-child {
+  color: var(--latch);
 }
 
 #history-scan,
@@ -353,6 +364,22 @@ textarea {
   font-size: 0.95rem;
 }
 
+/* The record page's times the extension was off (#69). */
+
+#since,
+#off-note {
+  color: var(--muted);
+}
+
+#off-summary {
+  font-weight: 600;
+}
+
+#off-table td:nth-child(3),
+#off-table td:nth-child(4) {
+  white-space: nowrap;
+}
+
 code {
   padding: 0.1em 0.35em;
   border-radius: 4px;
@@ -406,7 +433,8 @@ code {
   white-space: nowrap;
 }
 
-#sites-table small.opened {
+#sites-table small.opened,
+#sites-table small.off {
   display: block;
   color: var(--bad);
   font-weight: 600;

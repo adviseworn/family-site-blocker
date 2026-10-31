@@ -5,7 +5,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
-import { STAMP, STAMP_FROM, compareVersions, describeLock, isStamp, lockInForce, managedStamp, textOf } from '../extension/lib/lock.js';
+import { STAMP, STAMP_FROM, compareVersions, describeLock, isStamp, lockInForce, locked, managedStamp, textOf } from '../extension/lib/lock.js';
 import { STAMP_PATH, VERSION, lockStamp } from '../scripts/firefox-lock.mjs';
 
 const stamp = { version: '1.8.0', entries: 1000 };
@@ -86,10 +86,30 @@ test('the lock line elsewhere: policy in another browser, a temporary add-on, an
   assert.deepEqual(links({ installType: 'development', firefox: false, own: '1.8.0' }), [{ anchor: 'limits', text: 'What to do about that' }], 'unpacked in Chrome is the ordinary case there');
 });
 
+test('either report of a lock is enough: installed by policy, or no way to switch the add-on off (#69)', () => {
+  // Firefox gives both under the lock (installType "admin", mayDisable false); a browser might give one.
+  assert.equal(locked({ installType: 'admin', mayDisable: false }), true);
+  assert.equal(locked({ installType: 'admin', mayDisable: true }), true, 'installed by policy, whatever the switch says');
+  assert.equal(locked({ installType: 'admin' }), true, 'a browser that says nothing about the switch');
+  assert.equal(locked({ installType: 'normal', mayDisable: false }), true, 'no switch, whatever installed it');
+  assert.equal(locked({ installType: 'normal', mayDisable: true }), false);
+  assert.equal(locked({ installType: 'development', mayDisable: true }), false);
+  assert.equal(locked({ installType: 'normal' }), false, 'mayDisable missing is not false');
+  assert.deepEqual(describe({ installType: 'normal', mayDisable: false, firefox: true, own: '1.8.0', stamp }), describe({ installType: 'admin', firefox: true, own: '1.8.0', stamp }), 'the Firefox line from mayDisable alone');
+  assert.deepEqual(describe({ installType: 'normal', mayDisable: false, firefox: false, own: '1.8.0' }), {
+    state: 'ok',
+    text: 'Installed by policy: the browser gives no way to switch the add-on off or remove it.',
+  });
+  assert.equal(describe({ installType: 'development', mayDisable: true, firefox: true, own: '1.8.0' }).state, 'todo');
+});
+
 test('the Firefox lock in force means its other settings are too: private windows are off', () => {
   assert.equal(lockInForce({ installType: 'admin', firefox: true }), true);
+  assert.equal(lockInForce({ installType: 'admin', mayDisable: false, firefox: true }), true);
+  assert.equal(lockInForce({ installType: 'normal', mayDisable: false, firefox: true }), true, 'no switch is enough');
   assert.equal(lockInForce({ installType: 'admin', firefox: false }), false, 'another browser, another policy');
   assert.equal(lockInForce({ installType: 'normal', firefox: true }), false);
+  assert.equal(lockInForce({ installType: 'normal', mayDisable: true, firefox: true }), false);
   assert.equal(lockInForce({ installType: 'development', firefox: true }), false);
 });
 
