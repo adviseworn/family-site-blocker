@@ -271,6 +271,12 @@ describe('Firefox', { skip: findFirefox() ? false : 'no Firefox found (set FIREF
       assert.equal(state.lockLink, 'https://github.com/adviseworn/family-site-blocker#keep-it-installed-after-firefox-quits');
       assert.equal(state.lockboxLine, 'No password is locked away.');
       assert.ok(state.words < 450, `${state.words} words on the settings page`);
+      // What that line rests on (#69): Firefox reports a temporary add-on as "development", with a switch, through management.getSelf, which needs no permission.
+      const self = await browser.fx.send('WebDriver:ExecuteAsyncScript', {
+        script: `const done = arguments[arguments.length - 1]; browser.management.getSelf().then((info) => done({ installType: info.installType, mayDisable: info.mayDisable }), (e) => done('error: ' + e));`,
+        args: [],
+      });
+      assert.deepEqual(self, { installType: 'development', mayDisable: true });
     });
 
     /** The record page in a tab of its own, where the browser's history is looked through from (#70); its handle. */
@@ -640,6 +646,114 @@ describe('Firefox', { skip: findFirefox() ? false : 'no Firefox found (set FIREF
         record = await storedAttempts();
       }
       assert.ok(record.some((entry) => entry.site === 'hentai-example.test' && !entry.from), `the try just made: ${JSON.stringify(record.slice(-5))}`);
+    });
+
+    // --- Was it ever off? (#69) ---
+    /** Runs a script on the current extension page with the WebExtension APIs, as the pages themselves do; it must call done(result). */
+    const inPage = (script, ...args) => browser.fx.send('WebDriver:ExecuteAsyncScript', { script: `const done = arguments[arguments.length - 1]; ${script}`, args });
+    const storedWatching = () => inPage(`browser.storage.local.get('watching').then((got) => done(got.watching), (e) => done('error: ' + e));`);
+
+    test('the add-on keeps track of when it is running, from the install on, with an alarm every minute', async () => {
+      const settings = tabsAfterInstall.find(({ url }) => url.endsWith('/options.html'));
+      await browser.fx.send('WebDriver:SwitchToWindow', { handle: settings.handle });
+      const state = await storedWatching();
+      assert.ok(state && typeof state === 'object', JSON.stringify(state));
+      assert.ok(state.since > Date.now() - 30 * 60_000 && state.since <= Date.now(), `since the install, earlier in this run: ${JSON.stringify(state)}`);
+      assert.equal(state.atLeast, undefined);
+      assert.ok(state.periods.length >= 1 && state.periods[0].from === state.since, JSON.stringify(state.periods));
+      assert.ok(Date.now() - state.periods.at(-1).to < 2 * 60_000, `kept up to the minute: ${JSON.stringify(state.periods.at(-1))}`);
+      const alarms = await inPage(`browser.alarms.getAll().then((all) => done(all.map(({ name, periodInMinutes }) => ({ name, periodInMinutes }))), (e) => done('error: ' + e));`);
+      assert.deepEqual(alarms, [{ name: 'heartbeat', periodInMinutes: 1 }]);
+    });
+
+    test("a visit from a time the add-on was off is told from one from before it was installed: Firefox's history, dated, inside a silence in the add-on's own account of running", async () => {
+      const settings = tabsAfterInstall.find(({ url }) => url.endsWith('/options.html'));
+      await browser.fx.send('WebDriver:SwitchToWindow', { handle: settings.handle });
+      const original = await storedWatching();
+      const now = Date.now();
+      const hour = 3600_000;
+      // The add-on's account of running, as it would stand had it been installed three hours ago and off
+      // between two and one hours ago; and Firefox's history with a page from then, a listed site visited
+      // then, and one visited before the install, which the look through the history records and takes out.
+      const set = await inPage(
+        `const [now, hour] = arguments;
+         browser.storage.local.set({ watching: { since: now - 3 * hour, periods: [{ from: now - 3 * hour, to: now - 2 * hour }, { from: now - hour, to: now }], off: [] } })
+           .then(() => Promise.all([
+             browser.history.addUrl({ url: 'http://allowed.test/while-off', visitTime: now - 90 * 60_000 }),
+             browser.history.addUrl({ url: 'http://exampleadultsite.com/while-off', visitTime: now - 85 * 60_000 }),
+             browser.history.addUrl({ url: 'http://exampleadultsite.com/before-the-install', visitTime: now - 4 * hour }),
+           ]))
+           .then(() => done('ok'), (e) => done('error: ' + e));`,
+        now,
+        hour,
+      );
+      assert.equal(set, 'ok');
+      await scanHistory((text) => /^Looked through this browser's history on .+: found \d+ visits? to listed sites/.test(text));
+      const host = new URL(settings.url).host;
+      const until = Date.now() + 20_000;
+      let shown = {};
+      do {
+        shown = await browser.run(`return {
+          since: document.getElementById('since').textContent,
+          off: document.getElementById('off-summary').textContent,
+          rows: [...document.querySelectorAll('#off-table tbody tr')].map((row) => [...row.cells].map((cell) => cell.textContent)),
+          summary: document.getElementById('summary').textContent,
+        }`);
+        if (shown.rows.length) break;
+        await sleep(250);
+      } while (Date.now() < until);
+      assert.equal(shown.rows.length, 1, JSON.stringify(shown));
+      assert.deepEqual(shown.rows[0].slice(2), ['1', '1'], `the page visited while off, and the visit to the listed site: ${JSON.stringify(shown.rows)}`);
+      const when = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+      assert.deepEqual(shown.rows[0].slice(0, 2), [when.format(now - 2 * hour), when.format(now - hour)]);
+      assert.equal(shown.since, `Watching since ${when.format(now - 3 * hour)}, when the extension was installed in this browser.`);
+      assert.match(shown.off, /^1 visit to a listed site while the extension was off, the latest on .+\./);
+      assert.match(shown.summary, / from this browser's history, 1 of them from times the extension was off\.$/);
+      const state = await storedWatching();
+      assert.deepEqual(state.off, [{ from: now - 2 * hour, to: now - hour, pages: 1 }]);
+      assert.equal(state.periods.length, 2, `the silence stays, being a time the add-on was off: ${JSON.stringify(state.periods)}`);
+
+      // Every try marks it, apart from the visits from before the install.
+      await browser.visit(`moz-extension://${host}/tries.html`);
+      let rows = [];
+      for (let i = 0; i < 40 && !rows.some((row) => row[2] === 'Visited while the add-on was off'); i++) {
+        if (i) await sleep(250);
+        rows = await browser.run(`return [...document.querySelectorAll('.day tbody tr')].map((row) => [...row.cells].map((cell) => cell.textContent))`);
+      }
+      assert.deepEqual(rows.filter((row) => row[2] === 'Visited while the add-on was off').map((row) => row[1]), [SITE]);
+      assert.ok(rows.some((row) => row[2] === 'Visited (browser history)'), `the visit from before the install keeps its wording: ${JSON.stringify(rows)}`);
+      // The account of running as it was, so the rest of the run is not told the add-on was off.
+      await inPage(`browser.storage.local.set({ watching: arguments[0] }).then(() => done('ok'), (e) => done('error: ' + e));`, original);
+      await browser.fx.send('WebDriver:SwitchToWindow', { handle: settings.handle });
+    });
+
+    test("a live try's sweep of the site's pages from Firefox's history records the earlier visits it finds before taking them out", async () => {
+      const settings = tabsAfterInstall.find(({ url }) => url.endsWith('/options.html'));
+      await browser.fx.send('WebDriver:SwitchToWindow', { handle: settings.handle });
+      const yesterday = Date.now() - 86_400_000;
+      // A visit the add-on never saw, which no look through the history has recorded.
+      const seeded = await inPage(`browser.history.addUrl({ url: 'http://exampleadultsite.com/yesterday', visitTime: arguments[0] }).then(() => done('ok'), (e) => done('error: ' + e));`, yesterday);
+      assert.equal(seeded, 'ok');
+      const inHistory = () =>
+        inPage(`browser.history.search({ text: 'yesterday', startTime: 0, maxResults: 100 }).then((items) => done(items.map((item) => item.url)), (e) => done('error: ' + e));`);
+      assert.deepEqual(await inHistory(), ['http://exampleadultsite.com/yesterday']);
+      await sleep(2100);
+      await browser.newTab();
+      await assertBlocked(BLOCKED_URL);
+      await browser.fx.send('WebDriver:SwitchToWindow', { handle: settings.handle });
+      const until = Date.now() + 15_000;
+      let left = await inHistory();
+      while (left.length > 0 && Date.now() < until) {
+        await sleep(250);
+        left = await inHistory();
+      }
+      assert.deepEqual(left, [], "the sweep took yesterday's page out");
+      const attempts = await inPage(`browser.storage.local.get('attempts').then((got) => done(got.attempts), (e) => done('error: ' + e));`);
+      const recorded = attempts.filter((entry) => entry.site === SITE && entry.from === 'history' && Math.abs(entry.at - yesterday) < 1000);
+      assert.equal(recorded.length, 1, `yesterday's visit went into the record first: ${JSON.stringify(attempts.slice(-3))}`);
+      const live = attempts.filter((entry) => entry.site === SITE && !entry.from && Date.now() - entry.at < 60_000);
+      assert.ok(live.length >= 1, 'the try itself is noted once, not again from the history');
+      assert.equal(attempts.filter((entry) => entry.site === SITE && entry.from === 'history' && Date.now() - entry.at < 60_000).length, 0);
     });
 
     test('a password locked away with a short wait comes back after it, and is locked away again; the settings page says where it stands', async () => {
