@@ -172,7 +172,11 @@
   // --- Video -------------------------------------------------------------------------------------------
   // What a video shows changes as it plays, so it is judged more than once: its poster (by address, like
   // a picture) and its first frame out of sight, then a frame every FRAME_EVERY_MS while it plays and one
-  // after each seek. A verdict to hide sticks for as long as the video keeps its source, and a hidden
+  // after each seek. The first frame is read once the browser says it has put a frame up
+  // (requestVideoFrameCallback), not as soon as readyState says the frame's data is there: until a frame
+  // has reached the compositor, drawImage paints black, and black would pass for a photo, showing a video
+  // that should stay hidden until its next frame is judged (#119: GitHub's Macs take a moment over the
+  // first frame). A verdict to hide sticks for as long as the video keeps its source, and a hidden
   // video is paused: what can't be seen shouldn't play on. A video's source is an address or an object
   // the page gives it (srcObject): a stream from the device's own camera, from another person's camera in
   // a call, or from the page's own drawing. The device's own camera is shown without being judged.
@@ -188,8 +192,7 @@
   function videoState(video) {
     let state = videos.get(video);
     if (!state || !sameSource(state, video)) {
-      clearTimeout(state?.waiting);
-      clearTimeout(state?.retry);
+      stopWaiting(video, state);
       const object = video.srcObject ?? null;
       state = {
         src: video.currentSrc || video.src || '',
@@ -199,6 +202,8 @@
         hidden: false, // judged and kept hidden: sticks for this source
         settled: false, // something of this source (poster or frame) has been judged, or nothing can be
         firstFrameJudged: false,
+        presented: false, // the browser has put a frame of this source up, so its pixels can be read (awaitPresented)
+        presenting: null, // the request to be told when it has (requestVideoFrameCallback's handle), while it waits
         posterJudged: null, // the poster address judged, so it is judged once
         unreadable: false, // the page may not read this source's frames: judged by its poster alone
         lastFrameAt: 0,
@@ -207,8 +212,36 @@
         retry: null, // the timer that asks again for a frame the browser hadn't handed over yet
       };
       videos.set(video, state);
+      awaitPresented(video, state);
     }
     return state;
+  }
+
+  /** Stops what a state waits for: its timers, and its request to be told of a presented frame. */
+  function stopWaiting(video, state) {
+    if (!state) return;
+    clearTimeout(state.waiting);
+    clearTimeout(state.retry);
+    if (state.presenting !== null) video.cancelVideoFrameCallback(state.presenting);
+  }
+
+  /**
+   * Asks the browser to say when it has put a frame of the video's source up (requestVideoFrameCallback,
+   * which Chrome, Edge, Brave and Firefox have), which is when the frame's pixels can be read: before a
+   * frame has reached the compositor, drawImage paints black, however much readyState promises, and black
+   * would be judged a photo. A browser without it is taken at readyState's word.
+   */
+  function awaitPresented(video, state) {
+    if (typeof video.requestVideoFrameCallback !== 'function') {
+      state.presented = true;
+      return;
+    }
+    state.presenting = video.requestVideoFrameCallback(() => {
+      state.presenting = null;
+      if (videos.get(video) !== state) return; // a frame of a source since replaced
+      state.presented = true;
+      if (state.near && !state.hidden) checkVideo(video); // the first frame: judged now, before it can be seen
+    });
   }
 
   const cameras = new WeakMap(); // stream -> whether it is the device's own camera (a promise), looked up once per stream
@@ -275,12 +308,22 @@
   // before anyone presses play. It shows an empty box (with the controls, if any), and is judged when it loads.
   const idle = (video) => video.readyState === HAVE_NOTHING && video.networkState !== NETWORK_LOADING && video.preload === 'none' && !video.autoplay;
 
+  /** Whether a frame is there to read: its data has arrived, and the browser has put it up. */
+  const frameReady = (video, state) => video.readyState >= HAVE_CURRENT_DATA && video.videoWidth > 0 && state.presented && !state.unreadable;
+
   /** Gives up waiting for a first frame: when none is coming, there is nothing to see, and nothing to hide. */
   function giveUp(video, state) {
     state.waiting = null;
     if (videos.get(video) !== state || state.hidden || state.settled) return;
     if (video.networkState === NETWORK_LOADING && video.readyState < HAVE_CURRENT_DATA) {
       state.waiting = setTimeout(() => giveUp(video, state), FRAME_WAIT_MS); // still on its way
+      return;
+    }
+    if (!state.presented && video.readyState >= HAVE_CURRENT_DATA && video.videoWidth > 0 && !state.unreadable) {
+      // The frame's data is there, but the browser hasn't said it put the frame up (it did so before this
+      // script asked, or never says): the frame is read as it is, rather than shown unjudged.
+      state.presented = true;
+      if (!state.busy) checkVideo(video);
       return;
     }
     state.settled = true;
@@ -309,7 +352,6 @@
       mark(video, 'ok');
       return;
     }
-    const hasFrame = video.readyState >= HAVE_CURRENT_DATA && video.videoWidth > 0;
     const checks = [];
     const poster = video.poster || '';
     if (poster && fetchable(poster) && state.posterJudged !== poster) {
@@ -317,7 +359,7 @@
       checks.push(judge(poster));
     }
     let frame = null;
-    if (hasFrame && !state.unreadable) {
+    if (frameReady(video, state)) {
       try {
         frame = frameOf(video);
       } catch {
@@ -342,8 +384,8 @@
       } else if (idle(video)) {
         mark(video, 'ok');
       } else {
-        // A frame is on its way (or the browser is still to hand the first one over): stay hidden until
-        // it has been judged, or until it is clear that none is coming.
+        // A frame is on its way (or the browser is still to put the first one up, or to hand it over):
+        // stay hidden until it has been judged, or until it is clear that none is coming.
         mark(video, 'checking');
         state.waiting ??= setTimeout(() => giveUp(video, state), FRAME_WAIT_MS);
       }
@@ -364,6 +406,9 @@
     if (frame) {
       state.settled = true;
       state.firstFrameJudged = true;
+    } else if (frameReady(video, state)) {
+      checkVideo(video); // a frame was put up while the poster was judged: judged now, still out of sight
+      return;
     } else if (!(video.readyState >= HAVE_METADATA || video.networkState === NETWORK_LOADING) || idle(video) || video.videoWidth === 0) {
       state.settled = true; // the poster was judged, and no frame is coming
     } else {
@@ -431,8 +476,7 @@
       if (state && sameSource(state, element) && state.hidden) {
         hideVideo(element);
       } else {
-        clearTimeout(state?.waiting);
-        clearTimeout(state?.retry);
+        stopWaiting(element, state);
         videos.delete(element);
         videoState(element).near = state?.near ?? false;
         mark(element, 'checking');

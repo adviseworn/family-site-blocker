@@ -138,6 +138,14 @@ async function lengthenTo(page, seconds) {
 
 const lockboxStatus = (page) => page.locator('#lockbox-status').innerText();
 
+/**
+ * The share of a lengthened box's squarings that its outer layer takes, in whole points rounded down, as
+ * the page counts progress (lib/lockbox.js fractionDone). Each layer's count comes from timing the machine
+ * when that layer was made, so the share isn't the outer layer's share of the seconds asked for: a
+ * machine timed slower while lengthening gives the outer layer fewer squarings (#119).
+ */
+const outerShare = (box) => Math.floor((box.steps / (box.steps + box.inside.reduce((sum, layer) => sum + layer.steps, 0))) * 100);
+
 describe('real browser', () => {
   before(async () => {
     stub = await startStubInternet();
@@ -1841,7 +1849,7 @@ describe('real browser', () => {
         await page.goto(`chrome-extension://${browser.extensionId}/lockbox.html`);
         await page.waitForFunction(() => document.getElementById('lockbox-start').textContent === 'Carry on unlocking');
         const [, percent] = /^(\d+)% done, about \d+ seconds? to go\.$/.exec(await page.locator('#lockbox-progress-text').innerText()) ?? [];
-        assert.ok(Number(percent) >= 20 && Number(percent) < 100, `the outer 2 of 8 seconds done: ${percent}%`);
+        assert.ok(Number(percent) >= outerShare(box) && Number(percent) < 100, `the outer puzzle (${outerShare(box)}% of the squarings) done: ${percent}%`);
         const settings = await openSettings();
         try {
           await settings.waitForFunction(() => /unlocking it is \d+% done, started .+\.$/.test(document.getElementById('lockbox-line').textContent));
@@ -1871,8 +1879,9 @@ describe('real browser', () => {
         assert.equal((await storedLockbox(page)).lockboxProgress, undefined, 'nothing of either layer kept');
         assert.deepEqual((await storedLockbox(page)).lockbox, box, 'still the lengthened box');
         assert.equal(await page.locator('#lockbox-start').innerText(), 'Start unlocking');
+        // The outer puzzle, and a little of the inner one: the moments between the work reaching it and the stop.
         const [, stoppedAt] = /^Unlocking stopped at (\d+)% done; the work was thrown away\.$/.exec((await shownRecord(page))[0].what) ?? [];
-        assert.ok(Number(stoppedAt) >= 5 && Number(stoppedAt) < 50, `the outer 2 of 32 seconds and a little more: ${stoppedAt}%`);
+        assert.ok(Number(stoppedAt) >= outerShare(box) && Number(stoppedAt) <= outerShare(box) + 10, `the outer puzzle (${outerShare(box)}% of the squarings) and a little more: ${stoppedAt}%`);
 
         // Paused with progress, lengthening asks, since it throws that progress away.
         await page.click('#lockbox-start');
