@@ -268,7 +268,7 @@ describe('Firefox', { skip: findFirefox() ? false : 'no Firefox found (set FIREF
       // The board says whether anything stops the person switching the add-on off (#70): a temporary add-on, nothing.
       assert.equal(state.lockStatus, 'Loaded temporarily: Firefox removes the add-on when it quits, and anyone can switch it off before then. How to keep it installed, and lock it.');
       assert.equal(state.lockMark, 'todo');
-      assert.equal(state.lockLink, 'https://github.com/adviseworn/family-site-blocker#firefox');
+      assert.equal(state.lockLink, 'https://github.com/adviseworn/family-site-blocker#keep-it-installed-after-firefox-quits');
       assert.equal(state.lockboxLine, 'No password is locked away.');
       assert.ok(state.words < 450, `${state.words} words on the settings page`);
     });
