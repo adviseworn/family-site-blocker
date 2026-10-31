@@ -4,6 +4,29 @@ A browser extension for Chrome, Edge, Brave and Firefox that blocks websites on 
 
 **Test case:** navigate to `exampleadultsite.com`. **Expected:** the website is blocked. With the extension loaded, you land on a "This site is blocked" page and nothing is fetched from the site. Under the Firefox lock, Firefox blocks it itself before the extension does, so you land on Firefox's own **Blocked Page** instead.
 
+## Contents
+
+Setting it up for your family: **Try it**, then **Settings page**, **What it blocks**, **Blocked attempts**, **Locked-away password** and **Limits**, and on a Mac the lock steps under Firefox. Signing it with Mozilla, publishing updates, **Adding sites**, **Tests** and **Files** are for whoever looks after the add-on.
+
+- [Try it](#try-it)
+  - [Chrome, Edge or Brave](#chrome-edge-or-brave)
+  - [Firefox](#firefox)
+    - [Try it (until Firefox quits)](#try-it-until-firefox-quits)
+    - [Keep it installed after Firefox quits](#keep-it-installed-after-firefox-quits)
+    - [Let it update itself](#let-it-update-itself-firefox)
+    - [Lock it, so nobody can switch it off (on a Mac)](#lock-it-so-nobody-can-switch-it-off-firefox-on-a-mac)
+    - [Close the Option key, too](#close-the-option-key-too-optional)
+    - [Make the lock hold against the administrator password, too](#make-the-lock-hold-against-the-administrator-password-too)
+    - [What can still get round it](#what-can-still-get-round-it)
+  - [Settings page](#settings-page)
+- [What it blocks](#what-it-blocks), with [Safe search](#safe-search) and [Pictures](#pictures)
+- [Adding sites](#adding-sites)
+- [Blocked attempts](#blocked-attempts)
+- [Locked-away password](#locked-away-password)
+- [Tests](#tests)
+- [Limits](#limits)
+- [Files](#files)
+
 ## Try it
 
 You need Chrome, Edge, Brave or Firefox on a computer. Phones, tablets, Safari and browsers built into other apps can't load this extension.
@@ -24,7 +47,7 @@ If `chrome://extensions` comes up blank, you're probably not in Chrome, Edge or 
 
 Firefox only keeps add-ons that Mozilla has signed. You can try this one straight away, but it stays loaded only until Firefox quits. To keep it after a restart, have Mozilla sign it first (see "Keep it installed" below).
 
-**Try it (until Firefox quits)**
+#### Try it (until Firefox quits)
 
 1. Click the address bar, type `about:debugging#/runtime/this-firefox` and press Enter. Or open the menu (**☰**), choose **Extensions and Themes**, click the gear (**⚙**) and choose **Debug Add-ons**.
 2. Click **Load Temporary Add-on…** and choose the `manifest.json` file inside the `extension` folder of the unzipped folder. The extension's settings page opens.
@@ -34,7 +57,7 @@ Firefox only keeps add-ons that Mozilla has signed. You can try this one straigh
 
 When Firefox quits, it removes the add-on and the sites you added on the settings page.
 
-**Keep it installed after Firefox quits**
+#### Keep it installed after Firefox quits
 
 Signing is free, and the add-on can stay unlisted, so it isn't published on Mozilla's site. GitHub can do steps 1 to 6 for you, or you can do them by hand.
 
@@ -59,7 +82,7 @@ For a later version, raise `version` in `extension/manifest.json`, then run **Si
 
 Version 1.3.0 asks for two permissions earlier versions didn't have, to note blocked attempts, 1.3.4 for a third, to add earlier visits from the browser's history, and 1.3.6 for a fourth, to remove bookmarks to listed sites (see **Blocked attempts**). Installing it by hand over an older version, Firefox asks you to accept them; under the lock, Firefox grants them itself. In Chrome, Edge and Brave, click the reload button under Family Site Blocker on the extensions page after replacing the folder's files, and if the extension shows as switched off with a note about new permissions, accept them there.
 
-**Let it update itself (Firefox)**
+#### Let it update itself (Firefox)
 
 From version 1.3.2, Firefox keeps the add-on up to date by itself, so a new version no longer has to be installed by hand in each account. The add-on names an update manifest, `updates.json`, which lists the signed versions and where to download them; Firefox reads it about once a day (and when someone chooses **Check for Updates** from the gear menu in the Add-ons Manager), and installs the newest version listed, after checking the file against the hash in the manifest. Firefox only fetches these without signing in, so they live on a public GitHub Pages site made from a second, public repository: `adviseworn/family-site-blocker-updates`, at `https://adviseworn.github.io/family-site-blocker-updates/`. Only the update manifest and the signed `.xpi` files go there (anyone can download those, the same files family members install; the source stays here). The newest version is there a second time as `family-site-blocker.xpi`, one name that never changes, which the Firefox lock installs from. **Sign with Mozilla** publishes them after each release through the **Publish updates** workflow, which rebuilds the site from every signed release (`scripts/updates-manifest.mjs`) and pushes it to that repository's `gh-pages` branch; GitHub Pages serves that branch, and switched itself on when the branch was first pushed. The repository exists and the site is up. For the workflow to push to it, once:
 
@@ -72,7 +95,7 @@ If the updates repository ever has to be made again: a public repository named `
 
 The update address only works from a version that carries it, so an account whose copy is older than 1.3.2 needs 1.3.2 or later put in once. On a Mac with the lock, the lock does that: it installs the newest signed version from the update site, and installing a new copy of the profile makes Firefox do so again in every account at its next start (see the next section). Without the lock, install it by hand once (step 7 above), the last time. Firefox installs an update silently when it asks for no new permissions; a version that adds one waits in each account until someone accepts it (Firefox shows it under the gear menu and in the Add-ons Manager), unless the lock installs it, in which case Firefox grants them itself. The lock's settings also keep **Update Add-ons Automatically** switched on (`ExtensionUpdate`).
 
-**Lock it, so nobody can switch it off (Firefox on a Mac)**
+#### Lock it, so nobody can switch it off (Firefox on a Mac)
 
 On its own, the add-on can be switched off or removed in the Add-ons Manager by anyone using Firefox. The Firefox lock stops that. Firefox installs the add-on itself and gives no way to switch it off, remove it or take away its access to websites. The lock also turns off private windows (add-ons don't run there unless someone allows it), Firefox's own menu items for Troubleshoot Mode, `about:config` and Refresh Firefox, and, from version 1.10.3, the developer tools (the Inspector and the rest of the toolbox, which could otherwise reveal a hidden picture or the page behind the filter), which could get round it, and keeps automatic add-on updates switched on. It applies to every account on the Mac, yours included.
 
@@ -89,7 +112,7 @@ You need an administrator account, and the Mac has to be online when Firefox fir
 
 Firefox installs the add-on from that address once in each Firefox profile for each copy of the lock, and tries again at the next start if it couldn't fetch it. It doesn't look there again by itself; from version 1.3.2 the add-on updates itself instead (see **Let it update itself**), and the lock lets it. When the lock changes, for example because the built-in list changed (see **Adding sites**), `npm run build` writes a new copy of the profile, and installing it as in steps 1 and 2 gives Firefox the new settings, and makes it install the newest version again in every account at its next start, so an account still on an older copy catches up without anyone at the screen. Each copy says which it is: the profile's description in **Device Management** names the version it was built with ("the copy from version 1.8.0"), and the profile hands the add-on the same stamp through Firefox's `3rdparty` policy (its managed storage, which nothing but a policy can write), so the settings page's lock line says whether the copy installed is the add-on's own version's, an older one ("Install the current profile so Firefox's own list catches up", marked as something to do) or a newer one. A copy from before 1.8.0 carries no stamp, and the line says so. To take the lock off, select the profile in **Device Management**, click the minus button (**−**) and enter an administrator's name and password. Family Site Blocker stays installed and keeps blocking, but it's an ordinary add-on again, so anyone can switch it off.
 
-**Close the Option key, too (optional)**
+#### Close the Option key, too (optional)
 
 Holding the Option key (**⌥**) while Firefox opens offers Troubleshoot Mode, where no add-on runs, and Firefox checks that key before it reads the lock. It skips the check when the environment variable `MOZ_DISABLE_SAFE_MODE_KEY` is set, and `mac/local.parental-controls.family-site-blocker.firefox-troubleshoot-key.plist` is a launch agent that sets it in every account at login, for the apps opened from the Dock, Finder and Spotlight. Neither the add-on nor the profile can put it in place (an add-on can't touch `/Library`, and a profile installed by hand carries settings, not files), so there is an installer package for it on each release's page (**Releases** on GitHub, under **Assets**: `family-site-blocker-firefox-troubleshoot-key-1.5.4.pkg` for 1.5.4), built by **Sign with Mozilla** on GitHub's Mac from `scripts/mac-installer.mjs`:
 
@@ -105,7 +128,7 @@ sudo chown root:wheel /Library/LaunchAgents/local.parental-controls.family-site-
 
 To check, run `launchctl getenv MOZ_DISABLE_SAFE_MODE_KEY` in Terminal: it prints `1`. From then on, holding Option while Firefox opens just opens Firefox. Troubleshoot Mode can still be started from Terminal (`open -a Firefox --args --safe-mode`), which Screen Time (**Content & Privacy → App Restrictions**) can keep out like any other app, and macOS lists the agent under **System Settings → General → Login Items & Extensions**, where an account may be able to switch it off (after which its next login has the key back): it is a hurdle, not a lock. To remove it, delete the file from `/Library/LaunchAgents` with `sudo rm` and log out and in; the package leaves nothing else behind.
 
-**Make the lock hold against the administrator password, too**
+#### Make the lock hold against the administrator password, too
 
 Nothing installed on a Mac can hold against someone who types an administrator's password: macOS lets them remove any profile, this lock included, and change anything else. (A Mac that a company enrolls through Apple Business Manager and manages with an MDM service can get a profile that even an administrator can't remove, but that needs an organisation with a D-U-N-S number, an MDM service and erasing the Mac.) So the way to make the lock hold is to make sure nobody, you included, knows the administrator password at a moment's notice. The [locked-away password](#locked-away-password), on a page of its own reached from the settings page, is for that: the password gets a random value that only comes back after a wait of up to 2 days.
 
@@ -124,7 +147,7 @@ Work through the steps in this order. Until step 6 is checked, the new password 
 
 When you need the administrator password, click **Start unlocking** and leave the page open for the wait. It stays the same password, so lock it away again the same way afterwards (the page does this by itself).
 
-What can still get round it:
+#### What can still get round it
 
 - Troubleshoot Mode started from outside Firefox, for the sites outside Firefox's own copy of the list. On a Mac, holding the Option key (**⌥**) while Firefox opens, or opening it with `--safe-mode`, still offers Troubleshoot Mode, where no add-ons run, this one included; Firefox can stop that only on Windows, and the launch agent above closes the Option key but not the Terminal. Firefox's own copy of the list still blocks there: every site on `.xxx`, `.porn`, `.sex`, `.adult` and `.sexy`, the large sites, and the built-in sites people visit most, 1,000 entries in all. The other built-in sites open, and so do sites added on the settings page, explicit search results and pictures (safe search and the picture filter need the add-on), and images and scripts that an allowed page loads from a blocked site. To keep a site blocked there too, add it to `starter.txt`. Another blocker that works outside the browser covers the rest.
 - Browsers other than Firefox, and other editions of Firefox such as Firefox Developer Edition and Firefox Nightly, which the lock doesn't reach. A Standard account can still copy any of them into its own Applications folder. Screen Time (**Content & Privacy**) or another blocker covers those.

@@ -51,7 +51,7 @@ test('the lock line under the Firefox lock: this copy, an older copy, a newer co
     state: 'todo',
     text: "The Firefox lock is in force, but it's an older copy: from version 1.8.0, with 1,000 entries in Firefox's own list, while this is version 1.9.0. Install the current profile so Firefox's own list catches up. How to install it.",
   });
-  assert.deepEqual(links({ installType: 'admin', firefox: true, own: '1.9.0', stamp }), [{ anchor: 'firefox', text: 'How to install it' }]);
+  assert.deepEqual(links({ installType: 'admin', firefox: true, own: '1.9.0', stamp }), [{ anchor: 'lock-it-so-nobody-can-switch-it-off-firefox-on-a-mac', text: 'How to install it' }]);
   assert.deepEqual(describe({ installType: 'admin', firefox: true, own, stamp: { version: '1.10.0', entries: 1000 } }), {
     state: 'ok',
     text: 'The Firefox lock is in force: Firefox installed the add-on itself and gives no way to switch it off or remove it. The lock installed is the copy from version 1.10.0, newer than this add-on (1.8.0), which updates itself.',
@@ -73,11 +73,12 @@ test('the lock line elsewhere: policy in another browser, a temporary add-on, an
     state: 'todo',
     text: 'Loaded temporarily: Firefox removes the add-on when it quits, and anyone can switch it off before then. How to keep it installed, and lock it.',
   });
+  assert.deepEqual(links({ installType: 'development', firefox: true, own: '1.8.0' }), [{ anchor: 'keep-it-installed-after-firefox-quits', text: 'How to keep it installed, and lock it' }]);
   assert.deepEqual(describe({ installType: 'normal', firefox: true, own: '1.8.0' }), {
     state: 'todo',
     text: 'Not under the Firefox lock: anyone who opens the Add-ons Manager can switch the add-on off or remove it. How to lock it, on a Mac.',
   });
-  assert.deepEqual(links({ installType: 'normal', firefox: true, own: '1.8.0' }), [{ anchor: 'firefox', text: 'How to lock it, on a Mac' }]);
+  assert.deepEqual(links({ installType: 'normal', firefox: true, own: '1.8.0' }), [{ anchor: 'lock-it-so-nobody-can-switch-it-off-firefox-on-a-mac', text: 'How to lock it, on a Mac' }]);
   assert.deepEqual(describe({ installType: 'normal', firefox: false, own: '1.8.0' }), {
     state: 'todo',
     text: 'Anyone who can open the extensions page can switch the add-on off or remove it; the lock covers Firefox only. What to do about that.',
