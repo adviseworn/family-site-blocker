@@ -1,9 +1,11 @@
 # Signs the Firefox add-on with Mozilla (addons.mozilla.org, unlisted) and publishes the result as a GitHub
 # release named after the version: the signed .xpi, and the zip that gives it the add-on's icon on a Mac
-# (npm run package:signed). Start it from the Actions tab with "Run workflow". If Mozilla already has the
-# version, it downloads that signed file instead of uploading again. Then it publishes the update files
-# that let installed copies update themselves (.github/workflows/publish-updates.yml), when the deploy key
-# for that is saved, and adds the Mac files to the release (.github/workflows/mac-installer.yml).
+# (npm run package:signed). It runs by itself when a version lands on main (a push that changes
+# extension/manifest.json), once the tests on that commit have passed, and can be started from the Actions
+# tab with "Run workflow", which signs at once. If Mozilla already has the version, it downloads that
+# signed file instead of uploading again. Then it publishes the update files that let installed copies
+# update themselves (.github/workflows/publish-updates.yml), when the deploy key for that is saved, and
+# adds the Mac files to the release (.github/workflows/mac-installer.yml).
 #
 # It needs two repository secrets (Settings → Secrets and variables → Actions), the two parts of an API key
 # from https://addons.mozilla.org/developers/addon/api/key/ : AMO_JWT_ISSUER (the "JWT issuer") and
@@ -11,10 +13,16 @@
 name: Sign with Mozilla
 
 on:
+  push:
+    branches:
+      - main
+    paths:
+      - extension/manifest.json # every version bump changes it
   workflow_dispatch:
 
 permissions:
   contents: write # to publish the release
+  actions: read # to wait for the tests on the commit
 
 concurrency:
   group: sign-with-mozilla
@@ -22,8 +30,9 @@ concurrency:
 jobs:
   sign:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 70 # up to 40 waiting for the tests, then Mozilla's signing, which can take 25
     outputs:
+      release: ${{ steps.build.outputs.release }}
       publish: ${{ steps.key.outputs.publish }}
       version: ${{ steps.build.outputs.version }}
     steps:
@@ -52,11 +61,50 @@ jobs:
           version=$(node -p "require('./extension/manifest.json').version")
           echo "version=$version" >> "$GITHUB_OUTPUT"
           if gh release view "v$version" >/dev/null 2>&1; then
+            if [ "$GITHUB_EVENT_NAME" = push ]; then
+              # A push that touched manifest.json without raising the version, or a second run for the same one.
+              echo "release=no" >> "$GITHUB_OUTPUT"
+              echo "::notice title=Already released::Version $version is already signed and released; nothing to do."
+              exit 0
+            fi
             echo "::error title=Already released::Version $version is already signed and released. Raise version in extension/manifest.json first."
             exit 1
           fi
+          echo "release=yes" >> "$GITHUB_OUTPUT"
+
+      - name: Wait for the tests on this commit
+        if: github.event_name == 'push' && steps.build.outputs.release == 'yes'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # The tests run on the same push: Tests on Linux, Tests on macOS and the Firefox package check. Sign
+          # only once all three have passed. GitHub's Macs can queue, so allow 40 minutes.
+          for i in $(seq 1 120); do
+            pending=""
+            failed=""
+            for workflow in linux.yml macos.yml firefox-package.yml; do
+              state=$(gh run list --workflow "$workflow" --commit "$GITHUB_SHA" --limit 1 --json status,conclusion --jq '.[0] | "\(.status)/\(.conclusion)"')
+              case "$state" in
+                completed/success) ;;
+                completed/*) failed="$failed $workflow" ;;
+                *) pending="$pending $workflow" ;; # queued, in progress, or not started yet
+              esac
+            done
+            if [ -n "$failed" ]; then
+              echo "::error title=Tests failed::Nothing signed: these didn't pass on this commit:$failed. Fix them, or start Sign with Mozilla from the Actions tab to sign anyway."
+              exit 1
+            fi
+            if [ -z "$pending" ]; then
+              echo "The tests on this commit passed."
+              exit 0
+            fi
+            sleep 20
+          done
+          echo "::error title=Tests still running::Nothing signed: the tests on this commit didn't finish in 40 minutes. Start Sign with Mozilla from the Actions tab once they pass."
+          exit 1
 
       - name: Get the file signed by Mozilla
+        if: steps.build.outputs.release == 'yes'
         env:
           AMO_JWT_ISSUER: ${{ secrets.AMO_JWT_ISSUER }}
           AMO_JWT_SECRET: ${{ secrets.AMO_JWT_SECRET }}
@@ -75,6 +123,7 @@ jobs:
           fi
 
       - name: Check the signed file and make the Mac zip
+        if: steps.build.outputs.release == 'yes'
         env:
           VERSION: ${{ steps.build.outputs.version }}
         run: |
@@ -85,6 +134,7 @@ jobs:
           echo "::notice title=Signed::$(node scripts/check-signed.mjs "$signed" dist/firefox | sed 's/^[^:]*: //'); sha256 $(sha256sum "$signed" | cut -c1-16)…"
 
       - name: Publish the release
+        if: steps.build.outputs.release == 'yes'
         env:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ steps.build.outputs.version }}
@@ -103,6 +153,7 @@ jobs:
 
       # Secrets can't be read in a job's `if`, so this step turns the deploy key's presence into an output.
       - name: Can the update files be published?
+        if: steps.build.outputs.release == 'yes'
         id: key
         env:
           UPDATES_DEPLOY_KEY: ${{ secrets.UPDATES_DEPLOY_KEY }}
@@ -116,7 +167,7 @@ jobs:
 
   publish:
     needs: sign
-    if: needs.sign.outputs.publish == 'yes'
+    if: needs.sign.outputs.release == 'yes' && needs.sign.outputs.publish == 'yes'
     uses: ./.github/workflows/publish-updates.yml
     secrets: inherit
 
@@ -125,6 +176,7 @@ jobs:
   # "Mac files for a release" by hand later.
   mac-files:
     needs: sign
+    if: needs.sign.outputs.release == 'yes'
     uses: ./.github/workflows/mac-installer.yml
     with:
       version: ${{ needs.sign.outputs.version }}
