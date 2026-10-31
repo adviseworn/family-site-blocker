@@ -191,7 +191,7 @@ async function checkPrivateWindows() {
     }
     const covered = await api.extension.isAllowedIncognitoAccess();
     status.textContent = covered
-      ? `${windows} are blocked too.`
+      ? `${windows} are covered, so sites on the list are blocked there.`
       : `${windows} are not blocked yet, so sites can still be opened there. ${howTo}`;
     // Firefox doesn't let extensions open about:addons, so the button is for Chrome, Edge and Brave only.
     $('private-open').hidden = covered || isFirefox;
