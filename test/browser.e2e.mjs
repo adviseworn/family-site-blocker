@@ -292,15 +292,17 @@ describe('real browser', () => {
 
   describe('safe search', () => {
     // Each search goes out once, with the engine's strict setting added; the engine's other pages are left alone.
+    // Over https, as a person's browser makes them: the engines are on Chromium's built-in HTTPS-only list, so a
+    // recent Chromium would turn an http:// address into https:// before any request went out (#68).
     const searches = [
-      ['http://www.google.com/search?q=test', 'safe', 'active'],
-      ['http://www.google.co.uk/search?q=test&safe=off', 'safe', 'active'],
-      ['http://www.bing.com/images/search?q=test', 'adlt', 'strict'],
-      ['http://duckduckgo.com/?q=test&ia=web', 'kp', '1'],
-      ['http://html.duckduckgo.com/html/?q=test', 'kp', '1'],
-      ['http://search.yahoo.com/search?p=test', 'vm', 'r'],
-      ['http://images.search.yahoo.com/search/images?p=test', 'vm', 'r'],
-      ['http://search.brave.com/search?q=test', 'safesearch', 'strict'],
+      ['https://www.google.com/search?q=test', 'safe', 'active'],
+      ['https://www.google.co.uk/search?q=test&safe=off', 'safe', 'active'],
+      ['https://www.bing.com/images/search?q=test', 'adlt', 'strict'],
+      ['https://duckduckgo.com/?q=test&ia=web', 'kp', '1'],
+      ['https://html.duckduckgo.com/html/?q=test', 'kp', '1'],
+      ['https://search.yahoo.com/search?p=test', 'vm', 'r'],
+      ['https://images.search.yahoo.com/search/images?p=test', 'vm', 'r'],
+      ['https://search.brave.com/search?q=test', 'safesearch', 'strict'],
     ];
     for (const [url, key, value] of searches) {
       test(`${url} goes out with ${key}=${value}`, async () => {
@@ -315,7 +317,8 @@ describe('real browser', () => {
           // as the site's icon, on its own).
           const sent = stub.requests.filter((r) => r.path === new URL(url).pathname);
           assert.equal(sent.length, 1, `one request for the page, not a loop: ${JSON.stringify(stub.requests.map((r) => r.host + r.path + r.search))}`);
-          assert.equal(new URL(`http://${sent[0].host}${sent[0].path}${sent[0].search}`).searchParams.get(key), value, 'the engine sees the setting');
+          assert.equal(sent[0].scheme, 'https', 'the search stays on https');
+          assert.equal(new URL(`${sent[0].scheme}://${sent[0].host}${sent[0].path}${sent[0].search}`).searchParams.get(key), value, 'the engine sees the setting');
         } finally {
           await page.close();
         }
@@ -325,7 +328,7 @@ describe('real browser', () => {
     test('a search already made strict, and pages that are not searches, are not redirected', async () => {
       const page = await browser.context.newPage();
       try {
-        for (const url of ['http://www.google.com/search?q=test&safe=active', 'http://www.google.com/', 'http://www.google.com/maps?q=test', 'http://duckduckgo.com/', 'http://example.com/search?q=test']) {
+        for (const url of ['https://www.google.com/search?q=test&safe=active', 'https://www.google.com/', 'https://www.google.com/maps?q=test', 'https://duckduckgo.com/', 'https://example.com/search?q=test']) {
           stub.clear();
           await page.goto(url, { waitUntil: 'domcontentloaded' });
           assert.equal(page.url(), url);
@@ -341,8 +344,8 @@ describe('real browser', () => {
       const page = await browser.context.newPage();
       try {
         stub.clear();
-        stub.page('www.youtube.com/results', '<img src="http://i.ytimg.com/x.gif"><script>fetch("http://www.youtube.com/youtubei/v1/search").catch(() => {})</script>');
-        await page.goto('http://www.youtube.com/results?search_query=test', { waitUntil: 'load' });
+        stub.page('www.youtube.com/results', '<img src="https://i.ytimg.com/x.gif"><script>fetch("https://www.youtube.com/youtubei/v1/search").catch(() => {})</script>');
+        await page.goto('https://www.youtube.com/results?search_query=test', { waitUntil: 'load' });
         await new Promise((done) => setTimeout(done, 500));
         const toYouTube = stub.requests.filter((r) => r.host === 'www.youtube.com');
         assert.ok(toYouTube.length >= 2, JSON.stringify(stub.requests.map((r) => r.host + r.path)));
