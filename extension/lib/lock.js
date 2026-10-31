@@ -48,6 +48,9 @@ export async function managedStamp(storage) {
 // Firefox's own copy of the list is counted in entries: an entry is a site, or a whole top-level domain.
 const entries = (n) => (n === 1 ? '1 entry' : `${n.toLocaleString('en-US')} entries`);
 const link = (anchor, text) => ({ anchor, text });
+// The README headings the links go to, as GitHub makes anchors of them (test/readme.test.mjs checks that they exist).
+const KEEP_IT_INSTALLED = 'keep-it-installed-after-firefox-quits';
+const LOCK_IT = 'lock-it-so-nobody-can-switch-it-off-firefox-on-a-mac';
 
 const IN_FORCE = 'The Firefox lock is in force: Firefox installed the add-on itself and gives no way to switch it off or remove it.';
 
@@ -63,7 +66,7 @@ export function describeLock({ installType, stamp = null, own, firefox }) {
         state: 'todo',
         parts: [
           `${IN_FORCE} The lock installed is a copy from before version ${STAMP_FROM}, so this page can't say which; installing the current profile gives Firefox the current list, and says so here. `,
-          link('firefox', 'How to install it'),
+          link(LOCK_IT, 'How to install it'),
           '.',
         ],
       };
@@ -74,7 +77,7 @@ export function describeLock({ installType, stamp = null, own, firefox }) {
         state: 'todo',
         parts: [
           `The Firefox lock is in force, but it's an older copy: from version ${stamp.version}, with ${entries(stamp.entries)} in Firefox's own list, while this is version ${own}. Install the current profile so Firefox's own list catches up. `,
-          link('firefox', 'How to install it'),
+          link(LOCK_IT, 'How to install it'),
           '.',
         ],
       };
@@ -90,13 +93,13 @@ export function describeLock({ installType, stamp = null, own, firefox }) {
   if (firefox && installType === 'development') {
     return {
       state: 'todo',
-      parts: ['Loaded temporarily: Firefox removes the add-on when it quits, and anyone can switch it off before then. ', link('firefox', 'How to keep it installed, and lock it'), '.'],
+      parts: ['Loaded temporarily: Firefox removes the add-on when it quits, and anyone can switch it off before then. ', link(KEEP_IT_INSTALLED, 'How to keep it installed, and lock it'), '.'],
     };
   }
   if (firefox) {
     return {
       state: 'todo',
-      parts: ['Not under the Firefox lock: anyone who opens the Add-ons Manager can switch the add-on off or remove it. ', link('firefox', 'How to lock it, on a Mac'), '.'],
+      parts: ['Not under the Firefox lock: anyone who opens the Add-ons Manager can switch the add-on off or remove it. ', link(LOCK_IT, 'How to lock it, on a Mac'), '.'],
     };
   }
   return {
