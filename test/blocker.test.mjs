@@ -1039,7 +1039,13 @@ test('the Firefox lock installs and locks this add-on and closes the ways round 
   for (const key of ['DisablePrivateBrowsing', 'DisableSafeMode', 'BlockAboutConfig', 'DisableProfileRefresh', 'ExtensionUpdate']) {
     assert.equal(policies[key], true, key);
   }
-  assert.deepEqual(policies.Preferences, { 'extensions.dnr.enabled': { Value: true, Status: 'locked' } });
+  // The developer tools are turned off by locking this pref, not with DisableDeveloperTools, which would also
+  // lock remote.policy.disabled and so disable Marionette, which the lock's own e2e tests drive Firefox through (#86).
+  assert.deepEqual(policies.Preferences, {
+    'extensions.dnr.enabled': { Value: true, Status: 'locked' },
+    'devtools.policy.disabled': { Value: true, Status: 'locked' },
+  });
+  assert.equal(policies.DisableDeveloperTools, undefined, 'not the broad policy: it would disable Marionette too');
   // The stamp that says which copy of the lock this is, as the add-on's managed storage (lib/lock.js reads it).
   assert.deepEqual(policies['3rdparty'], { Extensions: { [manifest.browser_specific_settings.gecko.id]: { [STAMP]: { version: manifest.version, entries: FILTER_LIMIT } } } });
   assert.equal(LOCK_VERSION, manifest.version, 'stamped with the version of the add-on it is built with');
