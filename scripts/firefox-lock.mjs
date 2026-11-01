@@ -49,10 +49,16 @@
 //
 // The profile also says which copy it is. The 3rdparty policy hands values to one add-on as its managed
 // storage (browser.storage.managed), which nothing but a policy can write: the lock puts a stamp there, the
-// version it was built with and how many entries Firefox's own copy of the list has, and writes the same
-// stamp into extension/rules/lock.json. The settings page reads both (extension/lib/lock.js) and says whether
-// the profile installed is this version's copy, an older one (install the new profile) or a newer one. The
-// profile's description, which Device Management shows, names the version too.
+// version it was built with, how many entries Firefox's own copy of the list has and, from 1.15.0, a digest
+// of that copy and the lock's other settings (lockSettings), and writes the same stamp into
+// extension/rules/lock.json, plus sameSince, the earliest version whose profile carried the same digest,
+// which each build keeps from the last one's while the digest holds (seeded by hand with 1.10.5, the first
+// release whose profile had today's list and settings, when the digest came in). The settings page reads
+// both (extension/lib/lock.js) and says whether the profile installed carries this version's list and
+// settings, which a copy from an older version does while nothing in it has changed (#78), or is an older
+// copy to replace, or a newer one. The profile's description, which Device Management shows, names the
+// version too.
+import { createHash } from 'node:crypto';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, relative } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -111,16 +117,15 @@ export function filterSites(dir = BLOCKLIST_DIR) {
 /** The filter's entries: the whole top-level domains, then the sites, as match patterns. */
 export const filterEntries = (dir = BLOCKLIST_DIR) => [...WHOLE_DOMAINS.map((tld) => filterPattern(tld)), ...filterSites(dir).sites.map(filterPattern)];
 
-/** The stamp that says which copy of the lock a profile is: the add-on version it was built with, and the size of Firefox's own copy of the list. */
-export const lockStamp = (entries = filterEntries(), version = VERSION) => ({ version, entries: entries.length });
-
 /**
- * The policies, in the form Firefox reads them (policies.json, or the org.mozilla.firefox settings on a Mac).
- * `xpiSource` is the address or file path Firefox installs the add-on from.
+ * What the lock enforces, in the form Firefox reads policies: everything in the profile but the address
+ * Firefox installs the add-on from (xpiSource below: it matters at that install only, and the lock's tests
+ * install from a stand-in internet) and the stamp. The stamp's digest covers this, so a profile counts as
+ * changed when any of it changes, and as the same while none of it does, whatever version built it.
  */
-export function firefoxPolicies(xpiSource = XPI_URL, entries = filterEntries()) {
+export function lockSettings(entries = filterEntries()) {
   return {
-    Extensions: { Install: [xpiSource], Locked: [ADDON_ID] },
+    Extensions: { Locked: [ADDON_ID] },
     ExtensionUpdate: true,
     DisablePrivateBrowsing: true,
     DisableSafeMode: true,
@@ -137,6 +142,51 @@ export function firefoxPolicies(xpiSource = XPI_URL, entries = filterEntries()) 
       'devtools.policy.disabled': { Value: true, Status: 'locked' },
     },
     WebsiteFilter: { Block: entries },
+  };
+}
+
+/** The settings as JSON with every object's keys in order, so the same settings give the same digest however they were put together. */
+const canonical = (settings) => JSON.stringify(settings, (key, value) => (value && typeof value === 'object' && !Array.isArray(value) ? Object.fromEntries(Object.keys(value).sort().map((name) => [name, value[name]])) : value));
+
+/** The first 12 hex characters of the SHA-256 of the settings, as the stamp carries them. */
+export const digestOf = (settings) => createHash('sha256').update(canonical(settings)).digest('hex').slice(0, 12);
+
+/**
+ * The stamp that says which copy of the lock a profile is: the add-on version it was built with, the size
+ * of Firefox's own copy of the list, and the digest of the list and the lock's other settings (lockSettings).
+ */
+export const lockStamp = (entries = filterEntries(), version = VERSION) => ({ version, entries: entries.length, digest: digestOf(lockSettings(entries)) });
+
+/** extension/rules/lock.json as it stands, whatever it holds, or null when there is none. */
+export function readAddonStamp(path = STAMP_PATH) {
+  try {
+    return JSON.parse(readFileSync(path, 'utf8'));
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The add-on's own copy of the stamp, for extension/rules/lock.json: the profile's, plus sameSince, the
+ * earliest version whose profile carried the same digest. A build keeps it from the file as it stands
+ * (`previous`) while the digest is unchanged, and starts it afresh at this version when the digest is new,
+ * so the add-on can tell that a profile from before the digest, stamped with a version from sameSince on,
+ * carries its own list and settings.
+ */
+export function addonStamp(stamp = lockStamp(), previous = readAddonStamp()) {
+  const kept = previous?.digest === stamp.digest && typeof previous.sameSince === 'string' && /^\d+(\.\d+)*$/.test(previous.sameSince);
+  return { ...stamp, sameSince: kept ? previous.sameSince : stamp.version };
+}
+
+/**
+ * The policies, in the form Firefox reads them (policies.json, or the org.mozilla.firefox settings on a Mac):
+ * the lock's settings, the address or file path Firefox installs the add-on from (`xpiSource`), and the stamp.
+ */
+export function firefoxPolicies(xpiSource = XPI_URL, entries = filterEntries()) {
+  const settings = lockSettings(entries);
+  return {
+    ...settings,
+    Extensions: { Install: [xpiSource], ...settings.Extensions },
     // The stamp, as the add-on's managed storage; another add-on's settings here would be another program's.
     '3rdparty': { Extensions: { [ADDON_ID]: { [STAMP]: lockStamp(entries) } } },
   };
@@ -189,7 +239,7 @@ export function mobileconfig(settings = macSettings()) {
       'Firefox also gets its own copy of the add-on\u2019s built-in list of sites (whole adult domains such as .porn and .xxx, and the sites people visit most), which keeps blocking them when add-ons don\u2019t run, as in Troubleshoot Mode. ' +
       'Private windows, Troubleshoot Mode from Firefox\u2019s menus, about:config, Refresh Firefox and the developer tools, which could get round it, are turned off. ' +
       'Settings that other programs, such as another blocker, give Firefox for their own add-ons stay in force. ' +
-      `This is the copy from version ${stamp.version} of Family Site Blocker, with ${stamp.entries.toLocaleString('en-US')} entries in Firefox’s own list; the add-on’s settings page says whether a newer copy is due. ` +
+      `This is the copy from version ${stamp.version} of Family Site Blocker, with ${stamp.entries.toLocaleString('en-US')} entries in Firefox’s own list; the add-on’s settings page says whether that list or the lock’s other settings have changed since. ` +
       'Only an administrator can remove this profile.',
     PayloadDisplayName: 'Family Site Blocker for Firefox',
     PayloadIdentifier: 'local.parental-controls.family-site-blocker.firefox',
@@ -224,10 +274,12 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   writeFileSync(PROFILE_PATH, mobileconfig());
   writeFileSync(AGENT_PATH, launchAgent());
   mkdirSync(dirname(STAMP_PATH), { recursive: true });
-  writeFileSync(STAMP_PATH, `${JSON.stringify(lockStamp(), null, 2)}\n`);
+  const own = addonStamp();
+  writeFileSync(STAMP_PATH, `${JSON.stringify(own, null, 2)}\n`);
   console.log(
     `Wrote ${relative(process.cwd(), PROFILE_PATH)}, with ${WHOLE_DOMAINS.length} whole domains (${WHOLE_DOMAINS.map((tld) => `.${tld}`).join(', ')}, ` +
-      `covering ${covered} built-in sites) and ${sites.length} built-in sites in Firefox's own filter, stamped as version ${VERSION}; ` +
+      `covering ${covered} built-in sites) and ${sites.length} built-in sites in Firefox's own filter, stamped as version ${VERSION} ` +
+      `(digest ${own.digest}: the same list and settings since ${own.sameSince}); ` +
       `${relative(process.cwd(), AGENT_PATH)}; and ${relative(process.cwd(), STAMP_PATH)}`,
   );
   if (leftOut.length > 0) {
