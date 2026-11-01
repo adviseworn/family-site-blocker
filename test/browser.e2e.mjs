@@ -1540,6 +1540,25 @@ describe('real browser', () => {
       }
     });
 
+    test('locking away clears the password from the clipboard when it was copied out of the box', async () => {
+      const page = await freshSettings();
+      try {
+        await browser.context.grantPermissions(['clipboard-read', 'clipboard-write']);
+        await page.click('#lockbox-make');
+        const made = await page.inputValue('#lockbox-secret');
+        await page.keyboard.press('ControlOrMeta+C');
+        assert.equal(await page.evaluate(() => navigator.clipboard.readText()), made, 'copied by hand, as the page asks');
+        await page.evaluate(() => document.getElementById('lockbox-delay').append(new Option('3 seconds', '3', true, true)));
+        await page.click('#lockbox-lock');
+        await page.locator('#lockbox-locked').waitFor({ state: 'visible', timeout: 15_000 });
+        assert.equal(await lockboxStatus(page), 'Locked away. Cleared from the clipboard too. Save a backup file so it isn’t lost if the extension is removed.');
+        assert.equal(await page.evaluate(() => navigator.clipboard.readText()), '', 'nothing left to paste');
+        assert.deepEqual(page.errors, []);
+      } finally {
+        await page.close();
+      }
+    });
+
     test('locking a password away keeps only a puzzle: the password is nowhere in storage', async () => {
       const page = await freshSettings();
       try {
@@ -1640,6 +1659,10 @@ describe('real browser', () => {
         await page.click('#lockbox-hide');
         await page.locator('#lockbox-locked').waitFor({ state: 'visible' });
         assert.equal(await page.inputValue('#lockbox-revealed'), '');
+        // Hiding it clears the copy on the clipboard, and says so.
+        await page.waitForFunction(() => /^Hidden/.test(document.getElementById('lockbox-status').textContent));
+        assert.equal(await lockboxStatus(page), 'Hidden. Cleared from the clipboard too.');
+        assert.equal(await page.evaluate(() => navigator.clipboard.readText()), '', 'nothing left to paste');
 
         // The next time the password is shown, "Copied" isn't, until Copy is clicked again.
         await page.click('#lockbox-start');
@@ -2022,11 +2045,18 @@ describe('real browser', () => {
         assert.equal(same.delay, 2);
         assert.deepEqual(await page.$$eval('#lockbox-new-wait option', (options) => options.map((option) => option.value)), ['60', '600', '3600', '14400', '43200', '86400', '172800'], 'the same waits as locking away offers');
 
-        // Longer: the warning about older backup files comes with it.
+        // Longer: the warning about older backup files comes with it. Copied first: locking it away again clears
+        // the clipboard, so that the password isn't left there to paste, and the Copied note goes with it.
+        await browser.context.grantPermissions(['clipboard-read', 'clipboard-write']);
+        await page.click('#lockbox-copy');
+        await page.locator('#lockbox-copied').waitFor({ state: 'visible' });
+        assert.equal(await page.evaluate(() => navigator.clipboard.readText()), SECRET);
         await page.evaluate(() => document.getElementById('lockbox-new-wait').append(new Option('4 seconds', '4', true, true)));
         await page.click('#lockbox-relock');
         await page.waitForFunction(() => /^Locked away again/.test(document.getElementById('lockbox-status').textContent));
-        assert.match(await lockboxStatus(page), /^Locked away again with a wait of 4 seconds\. A backup file saved before this still opens after the old wait/);
+        assert.match(await lockboxStatus(page), /^Locked away again with a wait of 4 seconds\. Cleared from the clipboard too\. A backup file saved before this still opens after the old wait/);
+        assert.equal(await page.evaluate(() => navigator.clipboard.readText()), '', 'nothing left to paste');
+        assert.equal(await page.locator('#lockbox-copied').isVisible(), false, 'no longer copied');
         const longer = (await storedLockbox(page)).lockbox;
         assert.equal(longer.delay, 4);
         assert.equal(longer.version, 1);
@@ -2036,11 +2066,13 @@ describe('real browser', () => {
         assert.deepEqual(await recordedEvents(page), ['locked', 'started', 'shown', 'sealed', 'sealed']);
         assert.equal((await shownRecord(page))[0].what, 'Locked away again, with a wait of 4 seconds in place of 2 seconds.');
 
-        // Shorter: nothing to warn about.
+        // Shorter: nothing to warn about. The clipboard holds something else now, which isn't the page's to clear.
+        await page.evaluate(() => navigator.clipboard.writeText('a shopping list'));
         await page.evaluate(() => document.getElementById('lockbox-new-wait').append(new Option('3 seconds', '3', true, true)));
         await page.click('#lockbox-relock');
         await page.waitForFunction(() => /wait of 3 seconds/.test(document.getElementById('lockbox-status').textContent));
         assert.equal(await lockboxStatus(page), 'Locked away again with a wait of 3 seconds.');
+        assert.equal(await page.evaluate(() => navigator.clipboard.readText()), 'a shopping list', 'left as it was');
         assert.equal((await storedLockbox(page)).lockbox.delay, 3);
         assert.equal((await shownRecord(page))[0].what, 'Locked away again, with a wait of 3 seconds in place of 4 seconds.');
         assert.ok(!JSON.stringify(await storedLockbox(page)).includes(SECRET));
