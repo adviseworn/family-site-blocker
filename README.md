@@ -14,6 +14,7 @@ Setting it up for your family: **Try it**, then **Settings page**, **What it blo
     - [Try it (until Firefox quits)](#try-it-until-firefox-quits)
     - [Keep it installed after Firefox quits](#keep-it-installed-after-firefox-quits)
     - [Let it update itself](#let-it-update-itself-firefox)
+    - [On an Android phone](#on-an-android-phone-firefox)
     - [Lock it, so nobody can switch it off (on a Mac)](#lock-it-so-nobody-can-switch-it-off-firefox-on-a-mac)
     - [Close the Option key, too](#close-the-option-key-too-optional)
     - [Make the lock hold against the administrator password, too](#make-the-lock-hold-against-the-administrator-password-too)
@@ -29,7 +30,7 @@ Setting it up for your family: **Try it**, then **Settings page**, **What it blo
 
 ## Try it
 
-You need Chrome, Edge, Brave or Firefox on a computer. Phones, tablets, Safari and browsers built into other apps can't load this extension.
+You need Chrome, Edge, Brave or Firefox on a computer, or Firefox on an Android phone or tablet (see **On an Android phone**). iPhones, iPads, Safari, Chrome on a phone and browsers built into other apps can't load this extension.
 
 First, get the files onto your computer. On this repository's GitHub page, click **Code**, then **Download ZIP**, and unzip the download. If someone sent you `family-site-blocker.zip`, unzip that instead.
 
@@ -94,6 +95,23 @@ From version 1.3.2, Firefox keeps the add-on up to date by itself, so a new vers
 If the updates repository ever has to be made again: a public repository named `family-site-blocker-updates` under the same account, empty; the first push of a `gh-pages` branch (step 4, or by hand) switches GitHub Pages on for it.
 
 The update address only works from a version that carries it, so an account whose copy is older than 1.3.2 needs 1.3.2 or later put in once. On a Mac with the lock, the lock does that: it installs the newest signed version from the update site, and installing a new copy of the profile makes Firefox do so again in every account at its next start (see the next section). Without the lock, install it by hand once (step 7 above), the last time. Firefox installs an update silently when it asks for no new permissions; a version that adds one waits in each account until someone accepts it (Firefox shows it under the gear menu and in the Add-ons Manager), unless the lock installs it, in which case Firefox grants them itself. The lock's settings also keep **Update Add-ons Automatically** switched on (`ExtensionUpdate`).
+
+#### On an Android phone (Firefox)
+
+Firefox for Android, the ordinary one from Google Play, can install the signed `.xpi` from the **Releases** page; Chrome and the other Android browsers can't run extensions, so a phone is covered only inside Firefox. Mozilla documents the route on Extension Workshop, under "Installing self-distributed extensions": the add-on isn't on Mozilla's site, so the item that installs it from a file stays hidden until the debug menu is on (Firefox's own code shows the item whenever that menu is on, in every edition of Firefox for Android).
+
+1. Install Firefox from Google Play (not Nightly or Beta) and open it once.
+2. In Firefox, open this repository's **Releases** page and, under **Assets** of the newest release, tap the `.xpi`. Firefox downloads the file rather than installing it, since it doesn't come from Mozilla's site.
+3. Tap the menu (**⋮**), **Settings**, **About Firefox**, then tap the Firefox logo five times quickly, until a note says "Debug menu enabled". The menu switches itself off when Firefox restarts; the add-on doesn't.
+4. Go back to **Settings** and scroll down to **Advanced**: under **Extensions**, **Install extension from file** has appeared. Tap it, pick the downloaded `.xpi` (usually under **Downloads**) and, when Firefox lists what the add-on asks for, tap **Add**. Tick **Allow in private browsing** if Firefox offers it; otherwise the switch is under **⋮ → Extensions → Family Site Blocker**.
+5. Type `exampleadultsite.com` in the address bar. You should see "This site is blocked".
+6. The settings page is under **⋮ → Extensions → Family Site Blocker → Settings**. If its **Is it working?** board says Firefox hasn't given the add-on access to websites, tap **Allow access** there.
+
+A phone differs from a computer in three ways:
+
+- There is no lock. The Firefox lock is a Mac profile, so on a phone anyone who can open Firefox's settings can switch the add-on off or remove it. Family Link and the phone's own controls can keep other browsers off the phone, but can't lock an add-on.
+- Firefox for Android doesn't open its history or bookmarks to add-ons. The record notes tries as they happen, but the look through the browser's history, the sweep of the address bar's history and the record's "off" bands don't work there, and the record page says it couldn't look through the browser's history, which is expected on a phone.
+- Firefox for Android reads the same update manifest (see **Let it update itself**), so newer versions should arrive by themselves; if one doesn't, repeat step 4 with the newer file.
 
 #### Lock it, so nobody can switch it off (Firefox on a Mac)
 
@@ -273,7 +291,7 @@ No real website is contacted: every request goes to a small local server instead
 
 ## Limits
 
-- It is a browser extension. Safari, other browser profiles and apps are not covered. In Firefox it stays installed only until Firefox quits, unless Mozilla signs it.
+- It is a browser extension. Safari, other browser profiles and apps are not covered; on a phone, only Firefox for Android runs it, without a lock (see **On an Android phone**). In Firefox it stays installed only until Firefox quits, unless Mozilla signs it.
 - It updates itself only in Firefox, from version 1.3.2, and only while the update files are published (see **Let it update itself**). In Chrome, Edge and Brave, an extension loaded unpacked is updated by replacing the folder's files and reloading it on the extensions page.
 - Without a lock, anyone who can open the extensions page can turn it off or remove it, and the settings page has no PIN (its **Is it working?** board says whether the lock is in force). Firefox on a Mac has the lock above, which anyone who knows an administrator's password can take off. In Chrome and Edge, an administrator can force-install the extension with the `ExtensionInstallForcelist` policy and turn off Incognito with `IncognitoModeAvailability`, which needs the extension packaged and published. The lock only covers Firefox, so on a child's account, keep other browsers out with account or system controls.
 - The browser's own developer tools sit above the add-on, which runs in the page: the Inspector previews a hidden picture from its address, the Network panel shows the bytes of anything the page loaded, and the Console can read a hidden picture's address or un-hide the page (see **Pictures**). The Firefox lock turns the developer tools off (from version 1.10.3, by locking the `devtools.policy.disabled` preference); in Chrome and Edge the same deployment that force-installs the extension can set `DeveloperToolsAvailability` to `2` (disallowed). Without a lock, anyone who can open the developer tools can reach blocked content through them.
