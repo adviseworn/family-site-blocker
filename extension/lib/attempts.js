@@ -10,7 +10,7 @@
 // when the extension was running, and outcome() says. Nothing on the settings page removes entries; only
 // the oldest go, once there are more than MAX_ATTEMPTS. HISTORY_SCAN holds when the history was last
 // looked through, and what that found.
-import { kindOfVisit } from './watching.js';
+import { kindOfVisit, normalize } from './watching.js';
 
 export const ATTEMPTS = 'attempts';
 export const HISTORY_SCAN = 'historyScan';
@@ -197,21 +197,50 @@ export function summarize(attempts, watching) {
   return counts;
 }
 
+/** The time the add-on was off (lib/watching.js's `off`, { from, to, pages } each) that a moment falls in, or null. */
+export function offDuring(off, at) {
+  return (Array.isArray(off) ? off : []).find((time) => at > time.from && at < time.to) ?? null;
+}
+
 /**
- * The record by calendar day (in this computer's time zone), newest day first, each day's tries newest
- * first: [{ day: <midnight, ms>, attempts }].
+ * The record and the times the add-on was off (lib/watching.js) as one timeline, by calendar day (in this
+ * computer's time zone), newest day first, each day's entries newest first: [{ day: <midnight, ms>, entries }].
+ * An entry is a try, { at, attempt, during }, with `during` the time the add-on was off that the try falls
+ * in, or null; or a time the add-on was off, { at, off, from, to }: `off` the time as stored, `from` and
+ * `to` the part of it that falls in that day, since a time that crosses midnight is an entry in each day it
+ * touches, and `at` that part's end, so that the entry comes before the tries made inside it, newest first.
+ * A day with only a time the add-on was off is a day all the same.
  */
-export function byDay(attempts) {
+export function timeline(attempts, watching) {
+  const off = normalize(watching).off;
   const days = new Map();
+  const entriesOf = (day) => days.get(day) ?? days.set(day, []).get(day);
   for (const attempt of Array.isArray(attempts) ? attempts : []) {
-    const date = new Date(attempt.at);
-    const day = new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
-    if (!days.has(day)) days.set(day, []);
-    days.get(day).push(attempt);
+    entriesOf(midnightBefore(attempt.at)).push({ at: attempt.at, attempt, during: offDuring(off, attempt.at) });
+  }
+  for (const time of off) {
+    // A time that ends on the stroke of midnight ends in the day before it.
+    const last = midnightBefore(time.to > time.from && time.to === midnightBefore(time.to) ? time.to - 1 : time.to);
+    for (let day = midnightBefore(time.from); day <= last; day = midnightAfter(day)) {
+      const to = Math.min(time.to, midnightAfter(day));
+      entriesOf(day).push({ at: to, off: time, from: Math.max(time.from, day), to });
+    }
   }
   return [...days.entries()]
     .sort(([a], [b]) => b - a)
-    .map(([day, list]) => ({ day, attempts: list.sort((a, b) => b.at - a.at) }));
+    .map(([day, entries]) => ({ day, entries: entries.sort((a, b) => b.at - a.at) }));
+}
+
+/** The midnight that starts the calendar day a moment is in, in this computer's time zone. */
+function midnightBefore(ms) {
+  const date = new Date(ms);
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
+}
+
+/** The next midnight after a day's own, a calendar day on (23 or 25 hours when the clocks change). */
+function midnightAfter(day) {
+  const date = new Date(day);
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate() + 1).getTime();
 }
 
 /** The record as a CSV file, oldest first: when (ISO 8601, local time zone offset included), site, what happened. */

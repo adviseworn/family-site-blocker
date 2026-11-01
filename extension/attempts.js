@@ -1,13 +1,14 @@
 // The record on a page of its own: the settings page shows only the latest few blocked attempts and links
-// here. This page says whether the extension was ever off (lib/watching.js), sums the record of tries up
-// by site, with a link for each site to every one of its tries on tries.html (which also lists every try
-// of all, grouped by day), and has a button that saves the whole record as a CSV file. The other two parts
+// here. This page says whether the extension was ever off (lib/watching.js), with a link to the times it
+// was off on tries.html, sums the record of tries up by site, with a link for each site to every one of
+// its tries on tries.html (which also lists every try of all, grouped by day, with the times the extension
+// was off laid in), and has a button that saves the whole record as a CSV file. The other two parts
 // of the record, the pictures hidden and the sites that might belong on the list, have pages of their own
 // (pictures.html, unlisted.html), summed up here in a line each. The look through the browser's history
 // (background.js scanHistory) is reported and started from here. Like the settings page, this page only
 // reads the record; nothing here can clear it (see lib/attempts.js).
 import { ATTEMPTS, HISTORY_SCAN, bySite, summarize, toCsv } from './lib/attempts.js';
-import { element, plural, showVersion, whenFormat } from './lib/page.js';
+import { element, offVisitsWords, offWords, plural, showVersion, visits, whenFormat } from './lib/page.js';
 import { PICTURES, countHidden, hiddenBySite } from './lib/pictures.js';
 import { UNLISTED } from './lib/suspects.js';
 import { WATCHING, normalize } from './lib/watching.js';
@@ -31,8 +32,9 @@ function renderSummary() {
 }
 
 // --- Was it ever off? ------------------------------------------------------------------------------------
-// When the extension first started watching here, the visits to listed sites found in the history from
-// times it wasn't running, and the times the browser was in use while it wasn't running (lib/watching.js).
+// When the extension first started watching here, how often the browser was in use while it wasn't
+// running, with the latest time, and the visits to listed sites found in the history from times it wasn't
+// running (lib/watching.js); the times themselves are laid among every try on tries.html, linked here.
 const version = api.runtime.getManifest().version;
 
 function renderWatching() {
@@ -50,29 +52,19 @@ function renderWatching() {
   }
 
   const counts = summarize(attempts, watching);
-  const visits = (n) => (n === 1 ? '1 visit to a listed site' : `${n} visits to listed sites`);
-  const parts = [];
-  if (counts.off) parts.push(`${visits(counts.off)} while the extension was off, the latest on ${whenFormat.format(counts.latestOff)}.`);
-  else if (state?.periods.length) parts.push('No visit to a listed site found from a time the extension was off.');
+  const off = state?.off ?? [];
+  const summary = $('off-summary');
+  summary.replaceChildren();
+  const say = (text) => summary.append(summary.childNodes.length ? ` ${text}` : text);
+  const words = [offWords(off), offVisitsWords(off, counts, (state?.periods.length ?? 0) > 0)].filter(Boolean);
+  if (words.length) say(words.join(' '));
+  if (off.length) summary.append(' ', element('a', `See ${off.length === 1 ? 'it' : 'them'} among every try`, { href: 'tries.html#off' }), '.');
   if (counts.unseen) {
-    parts.push(
+    say(
       `${visits(counts.unseen)} from after the extension was installed but before it kept track of when it was running, the latest on ${whenFormat.format(counts.latestUnseen)}: it was off then, or the site wasn't on a list yet.`,
     );
   }
-  if (counts.unlisted) parts.push(`${visits(counts.unlisted)} from before the site was listed, while the extension was running.`);
-  $('off-summary').textContent = parts.join(' ');
-
-  const off = [...(state?.off ?? [])].sort((a, b) => b.from - a.from);
-  $('off-intro').hidden = off.length === 0;
-  $('off-table').hidden = off.length === 0;
-  const rows = $('off-table').querySelector('tbody');
-  rows.replaceChildren();
-  for (const gap of off) {
-    const listed = attempts.filter((attempt) => attempt.from === 'history' && attempt.at > gap.from && attempt.at < gap.to).length;
-    const row = element('tr');
-    row.append(element('td', whenFormat.format(gap.from)), element('td', whenFormat.format(gap.to)), element('td', String(gap.pages)), element('td', String(listed)));
-    rows.append(row);
-  }
+  if (counts.unlisted) say(`${visits(counts.unlisted)} from before the site was listed, while the extension was running.`);
 }
 
 function renderSites() {

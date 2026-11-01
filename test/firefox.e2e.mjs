@@ -547,7 +547,7 @@ describe('Firefox', { skip: findFirefox() ? false : 'no Firefox found (set FIREF
             summary: document.getElementById('summary').textContent,
             filter: document.getElementById('filter').hidden ? null : document.getElementById('filter').textContent,
             days: document.querySelectorAll('.day').length,
-            rows: [...document.querySelectorAll('.day tbody tr')].map((row) => [...row.cells].map((cell) => cell.textContent)),
+            rows: [...document.querySelectorAll('.day tbody tr:not(.band)')].map((row) => [...row.cells].map((cell) => cell.textContent)),
           }`);
           if (got.rows.length === expected) return got;
           await sleep(200);
@@ -696,18 +696,23 @@ describe('Firefox', { skip: findFirefox() ? false : 'no Firefox found (set FIREF
         shown = await browser.run(`return {
           since: document.getElementById('since').textContent,
           off: document.getElementById('off-summary').textContent,
-          rows: [...document.querySelectorAll('#off-table tbody tr')].map((row) => [...row.cells].map((cell) => cell.textContent)),
+          link: document.querySelector('#off-summary a')?.getAttribute('href') ?? null,
           summary: document.getElementById('summary').textContent,
         }`);
-        if (shown.rows.length) break;
+        if (shown.link) break;
         await sleep(250);
       } while (Date.now() < until);
-      assert.equal(shown.rows.length, 1, JSON.stringify(shown));
-      assert.deepEqual(shown.rows[0].slice(2), ['1', '1'], `the page visited while off, and the visit to the listed site: ${JSON.stringify(shown.rows)}`);
+      assert.equal(shown.link, 'tries.html#off', JSON.stringify(shown));
       const when = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' });
-      assert.deepEqual(shown.rows[0].slice(0, 2), [when.format(now - 2 * hour), when.format(now - hour)]);
+      const sameDay = new Date(now - 2 * hour).toDateString() === new Date(now - hour).toDateString();
+      const back = (sameDay ? new Intl.DateTimeFormat(undefined, { timeStyle: 'short' }) : when).format(now - hour);
+      const literal = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      assert.match(
+        shown.off,
+        new RegExp(`^Off once, from ${literal(when.format(now - 2 * hour))} until ${literal(back)}: 1 page visited meanwhile\\. 1 visit to a listed site while the extension was off, the latest on .+\\. See it among every try\\.`),
+        `the time off with the page visited meanwhile, the visit to the listed site from it, and the link: ${shown.off}`,
+      );
       assert.equal(shown.since, `Watching since ${when.format(now - 3 * hour)}, when the extension was installed in this browser.`);
-      assert.match(shown.off, /^1 visit to a listed site while the extension was off, the latest on .+\./);
       assert.match(shown.summary, / from this browser's history, 1 of them from times the extension was off\.$/);
       const state = await storedWatching();
       assert.deepEqual(state.off, [{ from: now - 2 * hour, to: now - hour, pages: 1 }]);
@@ -718,10 +723,13 @@ describe('Firefox', { skip: findFirefox() ? false : 'no Firefox found (set FIREF
       let rows = [];
       for (let i = 0; i < 40 && !rows.some((row) => row[2] === 'Visited while the add-on was off'); i++) {
         if (i) await sleep(250);
-        rows = await browser.run(`return [...document.querySelectorAll('.day tbody tr')].map((row) => [...row.cells].map((cell) => cell.textContent))`);
+        rows = await browser.run(`return [...document.querySelectorAll('.day tbody tr:not(.band)')].map((row) => [...row.cells].map((cell) => cell.textContent))`);
       }
       assert.deepEqual(rows.filter((row) => row[2] === 'Visited while the add-on was off').map((row) => row[1]), [SITE]);
       assert.ok(rows.some((row) => row[2] === 'Visited (browser history)'), `the visit from before the install keeps its wording: ${JSON.stringify(rows)}`);
+      const bands = await browser.run(`return [...document.querySelectorAll('.day tr.band')].map((row) => row.textContent)`);
+      assert.equal(bands.length, 1, `the time it was off, laid in as a band: ${JSON.stringify(bands)}`);
+      assert.match(bands[0], /^Add-on off from .+ until .+: 1 page visited meanwhile\.$/);
       // The account of running as it was, so the rest of the run is not told the add-on was off.
       await inPage(`browser.storage.local.set({ watching: arguments[0] }).then(() => done('ok'), (e) => done('error: ' + e));`, original);
       await browser.fx.send('WebDriver:SwitchToWindow', { handle: settings.handle });
