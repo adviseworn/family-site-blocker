@@ -9,7 +9,7 @@ import { webcrypto } from 'node:crypto';
 
 globalThis.crypto ??= webcrypto; // Node 18 has Web Crypto, but not on globalThis
 
-const { BOX, EVENTS, EVENTS_KEPT, EVENTS_SINCE, EVENT_NAMES, PROGRESS, WAITS, WAITS_KEPT, beginningOf, boxKey, describeBox, describeEvent, duration, fractionDone, isEvent, layerUnderWork, loadBox, longerWaitFor, noteBox, recordBegan, recordEvent, sinceOf, sinceText, thisPassword, times } =
+const { BOX, EVENTS, EVENTS_KEPT, EVENTS_SINCE, EVENT_NAMES, PROGRESS, WAITS, WAITS_KEPT, beginningOf, boxKey, describeBox, describeEvent, describeRecord, duration, fractionDone, isEvent, layerUnderWork, loadBox, longerWaitFor, noteBox, recordBegan, recordEvent, sinceOf, sinceText, thisPassword, times } =
   await import('../extension/lib/lockbox.js');
 const { lengthen, seal } = await import('../extension/lib/timelock.js');
 
@@ -98,6 +98,26 @@ test("when the record began, and the table's last row that says so (1.11.4; a ro
   assert.deepEqual(
     beginningOf({ events: [at(T.started, 'started'), at(T.shown, 'shown')], since: T.locked }),
     { at: T.locked, what: `The record began. It keeps only the latest ${EVENTS_KEPT} entries, so those before ${when(T.started)} have gone.` },
+    'once the oldest entries have gone',
+  );
+});
+
+test("the password page's line sums the record up: how many entries since when, and the latest (1.14.0)", () => {
+  assert.equal(describeRecord({ events: [] }), '', 'nothing to say with no record');
+  assert.equal(describeRecord({ events: [], since: T.locked }), '');
+  assert.equal(describeRecord({ events: [at(T.locked, 'locked', { delay: 60 })], since: T.locked }), `1 entry, on ${when(T.locked)}: Locked away, with a wait of 1 minute.`);
+  assert.equal(
+    describeRecord({ events: [at(T.locked, 'locked', { delay: 60 }), at(T.started, 'started', { why: 'to try it' }), at(T.deleted, 'deleted')], since: T.locked }),
+    `3 entries since ${when(T.locked)}, the latest on ${when(T.deleted)}: Deleted.`,
+  );
+  assert.equal(
+    describeRecord({ events: [at(T.started, 'started'), at(T.shown, 'shown', { startedAt: T.started, why: 'to try it' })] }),
+    `2 entries since ${when(T.started)}, the latest on ${when(T.shown)}: The password was shown (unlocking started ${when(T.started)}: “to try it”).`,
+    'a record from before 1.11.4 began at its oldest entry; the latest entry in its own words, reason and all',
+  );
+  assert.equal(
+    describeRecord({ events: [at(T.started, 'started'), at(T.shown, 'shown')], since: T.locked }),
+    `2 entries kept, from ${when(T.started)} (the record began ${when(T.locked)}; those before have gone), the latest on ${when(T.shown)}: The password was shown.`,
     'once the oldest entries have gone',
   );
 });

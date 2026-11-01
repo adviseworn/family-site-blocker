@@ -9,7 +9,7 @@
 // have held each password are noted too (WAITS), with the wait last set for it, so that a backup file
 // saved before the wait was lengthened is lengthened to it as it is restored here (1.13.0).
 import { BOX, PROGRESS, describeRecord, duration, fractionDone, layerUnderWork, loadBox, longerWaitFor, noteBox, recordEvent, sinceText } from './lib/lockbox.js';
-import { element, showVersion, whenFormat } from './lib/page.js';
+import { element, showVersion } from './lib/page.js';
 import { START, isBox, lengthen, modulusOf, open, seal, secondsOf, stepsOf, waitOf } from './lib/timelock.js';
 
 const api = globalThis.browser ?? globalThis.chrome;
