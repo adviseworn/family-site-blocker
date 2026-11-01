@@ -12,12 +12,13 @@
       <p class="eyebrow"><a href="options.html">Family Site Blocker</a> › <a href="attempts.html">Blocked attempts</a> <span id="version" class="version"></span></p>
       <h1>Pictures hidden</h1>
       <p id="summary" aria-live="polite">Loading…</p>
-      <p>Pictures and videos the extension judged and kept hidden, wherever they were (see <strong>Pictures</strong> on the settings page). The scores are the judge’s: how sure it was, from 0 to 1, that the picture, or the video’s frame, showed nudity (porn and hentai together) or was suggestive (“sexy”). A picture is hidden from 0.4; one hidden on a score under 0.6 is marked <strong>borderline</strong>, and that is where a harmless picture hidden by mistake will be. A video is listed under its own address, its poster’s or, when it has neither, the page’s, marked <strong>video</strong>. Nothing on this page can clear the record.</p>
-      <p>To look at a picture, copy its address and open it in a browser without the extension: in this one it would be judged again and hidden again, and the pictures aren’t shown here because anyone can open this page. If a harmless picture was hidden, the <strong>Nudity only</strong> setting hides fewer.</p>
+      <p>Pictures and videos the extension judged and kept hidden, wherever they were (see <strong>Pictures</strong> on the settings page): summed up by site here, and listed one by one among every try in the record, with the time, the site, why, and the judge’s scores: how sure it was, from 0 to 1, that the picture, or the video’s frame, showed nudity (porn and hentai together) or was suggestive (“sexy”). A picture is hidden from 0.4; one hidden on a score under 0.6 is marked <strong>borderline</strong>, and that is where a harmless picture hidden by mistake will be. A video is listed under its own address, its poster’s or, when it has neither, the page’s, as <strong>Video hidden</strong>. Nothing on this page can clear the record.</p>
+      <p>To look at a picture, <strong>Copy address</strong> on its row and open it in a browser without the extension: in this one it would be judged again and hidden again, and the pictures aren’t shown because anyone can open these pages. If a harmless picture was hidden, the <strong>Nudity only</strong> setting hides fewer.</p>
     </header>
 
     <section id="hidden-sites" aria-labelledby="hidden-sites-heading" hidden>
       <h2 id="hidden-sites-heading">By site</h2>
+      <p>Most hidden first. Choose a site to see what was hidden there, one by one, grouped by day.</p>
       <table id="hidden-sites-table" class="attempts">
         <thead>
           <tr><th scope="col">Site</th><th scope="col">Hidden</th><th scope="col">Latest</th></tr>
@@ -28,14 +29,7 @@
 
     <section id="hidden-pictures" aria-labelledby="hidden-pictures-heading" hidden>
       <h2 id="hidden-pictures-heading">Every picture and video</h2>
-      <p id="copy-status" role="status"></p>
-      <table id="hidden-pictures-table" class="attempts">
-        <caption></caption>
-        <thead>
-          <tr><th scope="col">When</th><th scope="col">Site</th><th scope="col">Picture</th><th scope="col">Why</th><th scope="col">Nudity</th><th scope="col">Suggestive</th><th scope="col"><span class="visually-hidden">Action</span></th></tr>
-        </thead>
-        <tbody></tbody>
-      </table>
+      <p id="hidden-pictures-line" aria-live="polite"></p>
     </section>
   </main>
   <script type="module" src="pictures.js"></script>
