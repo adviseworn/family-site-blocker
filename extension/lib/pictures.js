@@ -13,6 +13,8 @@ export const CLASSES = ['drawing', 'hentai', 'neutral', 'porn', 'sexy'];
 export const STRICTNESS = 'pictureStrictness'; // 'strict' (the default) or 'nudity'
 export const PICTURES = 'pictures'; // the record of hidden pictures, oldest first
 export const MAX_PICTURES = 500;
+/** How much of a picture's address the record keeps: a data: address (the picture itself) can be far longer, and is cut. */
+export const URL_LENGTH = 500;
 
 /** The settings the person can choose, in the order the settings page lists them. */
 export const STRICTNESS_CHOICES = [
@@ -63,18 +65,68 @@ export function strictnessOf(stored) {
  * Notes a hidden picture in the record: { at, site: <the page's host>, url: <the picture's address>,
  * reason, scores: { porn, hentai, sexy } rounded }. A hidden video is noted the same way with
  * kind: 'video', its url being the video's own address, its poster's, or failing both the page's: an
- * address someone can open. Returns the new list, oldest first, capped.
+ * address someone can open. Returns the new list, oldest first, capped. An entry may later gain `looks`
+ * and `mark` (noteLook, markHidden below), which a look at the picture from the add-on's own page adds.
  */
 export function recordHidden(record, { at, site, url, reason, scores, kind }) {
   const list = Array.isArray(record) ? record : [];
   const rounded = Object.fromEntries(['porn', 'hentai', 'sexy'].map((name) => [name, Math.round((Number(scores?.[name]) || 0) * 100) / 100]));
-  const entry = { at, site, url: String(url ?? '').slice(0, 500), reason, scores: rounded, ...(kind === 'video' ? { kind } : {}) };
+  const entry = { at, site, url: String(url ?? '').slice(0, URL_LENGTH), reason, scores: rounded, ...(kind === 'video' ? { kind } : {}) };
   const kept = [...list, entry];
   return kept.length > MAX_PICTURES ? kept.slice(kept.length - MAX_PICTURES) : kept;
 }
 
 /** Whether a record entry is a hidden video rather than a picture. */
 export const isVideo = (entry) => entry?.kind === 'video';
+
+// --- Looking at a hidden picture ------------------------------------------------------------------------
+// A hidden picture can be looked at from its row on the Every try page (tries.js), where the filter doesn't
+// run. There is no password (#58): anyone who can open the page can look, and every look goes into the
+// record, on the picture's entry, with the time and the reason the page asks for first, as the locked-away
+// password's page asks why before unlocking. The mark given after a look, hidden by mistake or rightly
+// hidden, goes on the entry too, so that the pages can count the filter's mistakes.
+
+/** How many looks at one hidden picture its entry keeps; the oldest go when there are more. */
+export const LOOKS_KEPT = 20;
+/** How long a reason for looking may be, in characters. */
+export const WHY_LENGTH = 200;
+
+/** Whether a record entry is the one a key names: noted at the same moment, under the same address. */
+export const sameHidden = (entry, key) => entry?.at === key?.at && entry?.url === key?.url;
+
+/** Whether a hidden picture has been looked at from the add-on's own page. */
+export const lookedAt = (entry) => Array.isArray(entry?.looks) && entry.looks.length > 0;
+
+/** Whether a hidden picture was marked, after a look, as hidden by mistake. */
+export const markedMistake = (entry) => entry?.mark?.mistake === true;
+
+/** The entries of a record changed one at a time: `change` applied to the entry `key` names, the rest as they were; the list as it was when none matches. */
+function changeHidden(record, key, change) {
+  const list = Array.isArray(record) ? record : [];
+  const index = list.findIndex((entry) => sameHidden(entry, key));
+  return index === -1 ? list : list.map((entry, i) => (i === index ? change(entry) : entry));
+}
+
+/**
+ * Notes a look at a hidden picture: the entry `key` names ({ at, url }, as noted) gains { at, why } among
+ * its `looks`, oldest first, the reason cut to WHY_LENGTH and the oldest looks going past LOOKS_KEPT.
+ * Returns the new list, or the list as it was when no entry matches (one that has gone from the record).
+ */
+export function noteLook(record, key, { at, why }) {
+  return changeHidden(record, key, (entry) => {
+    const looks = [...(Array.isArray(entry.looks) ? entry.looks : []), { at, why: String(why ?? '').slice(0, WHY_LENGTH) }];
+    return { ...entry, looks: looks.slice(-LOOKS_KEPT) };
+  });
+}
+
+/**
+ * Marks a hidden picture, after a look at it, as hidden by mistake (`mistake` true) or rightly hidden: the
+ * entry `key` names gets mark { at, mistake }, the latest mark in place of an earlier one. Returns the new
+ * list, or the list as it was when no entry matches.
+ */
+export function markHidden(record, key, { at, mistake }) {
+  return changeHidden(record, key, (entry) => ({ ...entry, mark: { at, mistake: mistake === true } }));
+}
 
 /** "3 pictures", "1 picture and 2 videos": the record's entries counted by kind, for the summaries. */
 export function countHidden(record) {

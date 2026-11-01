@@ -1298,10 +1298,10 @@ describe('real browser', () => {
         // Copy address puts the picture's address on the clipboard, to be opened in a browser without the extension.
         await judge.context.grantPermissions(['clipboard-read', 'clipboard-write']);
         const drawnRow = record.locator('.day tbody tr.picture', { hasText: 'drawn.jpg' });
-        await drawnRow.locator('button').click();
+        await drawnRow.locator('button', { hasText: 'Copy address' }).click();
         await record.waitForFunction(() => /Address copied/.test(document.getElementById('copy-status').textContent));
         assert.equal(await record.evaluate(() => navigator.clipboard.readText()), 'http://pics.test/pics/drawn.jpg');
-        assert.equal(await drawnRow.locator('button').innerText(), 'Copied');
+        assert.deepEqual(await drawnRow.locator('button').allInnerTexts(), ['Copied', 'Look at it']);
         // One site's pictures, from the by-site table; and the whole timeline has them among the tries, explained.
         await record.goto(`chrome-extension://${judge.extensionId}/tries.html#site=allowed.test&pictures`);
         await record.waitForFunction(() => document.getElementById('filter-site').textContent === 'allowed.test, the pictures hidden');
@@ -1321,6 +1321,114 @@ describe('real browser', () => {
       } finally {
         await record.close();
         await settings.close();
+      }
+    });
+
+    test('a hidden picture can be looked at from its row, on the record: why is asked once, and the look and the mark go on the row (1.17.0)', async () => {
+      const record = await judge.context.newPage();
+      // The newest row for an address (the same picture is noted again when hidden again later; the first test hid nude.jpg twice).
+      const rowFor = (url) => record.locator('.day tbody tr.picture').filter({ has: record.locator('.picture-url', { hasText: new RegExp(`^${url.replace(/[.?]/g, '\\$&')}$`) }) }).first();
+      const entryFor = async (url) => (await record.evaluate(() => chrome.storage.local.get('pictures').then((got) => got.pictures))).filter((e) => e.url === url).at(-1);
+      try {
+        await record.goto(`chrome-extension://${judge.extensionId}/tries.html#pictures`);
+        await record.waitForFunction(() => document.querySelectorAll('.day tbody tr.picture').length >= 3);
+        const nudeRow = rowFor('http://pics.test/pics/nude.jpg');
+        assert.equal(await record.locator('#look-why-area').isVisible(), false, 'the reason is asked for when it is first needed');
+        // Before a reason is given, Look at it asks for one and shows nothing.
+        await nudeRow.locator('button.look').click();
+        await record.locator('#look-why-area').waitFor({ state: 'visible' });
+        assert.equal(await record.evaluate(() => document.activeElement.id), 'look-why');
+        assert.match(await record.locator('#look-status').innerText(), /^Say why you’re looking first\./);
+        assert.equal(await nudeRow.locator('.picture-look').count(), 0, 'nothing shown without a reason');
+        assert.equal(await nudeRow.locator('.picture-marks').count(), 0, 'and no marks before a look');
+        await record.fill('#look-why', 'checking a close call');
+        await record.press('#look-why', 'Enter');
+        // The look is noted on the row with the reason, and the picture shows there, fetched from its address.
+        await nudeRow.locator('.picture-look img').waitFor();
+        await record.waitForFunction(() => [...document.querySelectorAll('.picture-look img')].every((img) => img.complete && img.naturalWidth > 0));
+        assert.match(await nudeRow.locator('.picture-look img').getAttribute('src'), /^blob:/, 'from the bytes fetched, not loaded by the page');
+        assert.match(await nudeRow.locator('.picture-notes').innerText(), /^Looked at once, at .+: “checking a close call”\.$/);
+        const entry = await entryFor('http://pics.test/pics/nude.jpg');
+        assert.equal(entry.looks.length, 1, JSON.stringify(entry));
+        assert.equal(entry.looks[0].why, 'checking a close call');
+        assert.ok(Math.abs(entry.looks[0].at - Date.now()) < 60_000, 'noted with the time');
+        assert.equal((await record.evaluate(() => chrome.storage.local.get('pictures').then((got) => got.pictures))).filter((e) => e.looks).length, 1, 'the other entries are untouched');
+        assert.match(await record.locator('#summary').innerText(), / 1 looked at\.$/);
+        assert.equal(await record.locator('#look-status').innerText(), '');
+        // The marks follow the look: the one given goes on the row and into the summary, and can be changed.
+        assert.deepEqual(await nudeRow.locator('.picture-marks button').allInnerTexts(), ['Hidden by mistake', 'Rightly hidden']);
+        assert.equal(await nudeRow.locator('.picture-marks button[aria-pressed="true"]').count(), 0);
+        await nudeRow.locator('button', { hasText: 'Hidden by mistake' }).click();
+        await nudeRow.locator('.picture-notes', { hasText: 'Marked hidden by mistake at' }).waitFor();
+        assert.match(await nudeRow.locator('.picture-notes').innerText(), /^Looked at once, at .+: “checking a close call”\. Marked hidden by mistake at .+\.$/);
+        assert.match(await record.locator('#summary').innerText(), / 1 looked at, 1 marked hidden by mistake\.$/);
+        assert.equal(await nudeRow.locator('.picture-marks button[aria-pressed="true"]').innerText(), 'Hidden by mistake');
+        assert.equal(await nudeRow.locator('.picture-look img').count(), 1, 'the picture stays shown through the redraw');
+        await nudeRow.locator('button', { hasText: 'Rightly hidden' }).click();
+        await nudeRow.locator('.picture-notes', { hasText: 'Marked rightly hidden at' }).waitFor();
+        assert.match(await record.locator('#summary').innerText(), / 1 looked at\.$/, 'no longer counted as a mistake');
+        assert.equal((await entryFor('http://pics.test/pics/nude.jpg')).mark.mistake, false);
+        // A second look, at another picture, needs no new reason: the one given stays while the page is open.
+        const drawnRow = rowFor('http://pics.test/pics/drawn.jpg');
+        await drawnRow.locator('button.look').click();
+        await drawnRow.locator('.picture-look img').waitFor();
+        assert.match(await drawnRow.locator('.picture-notes').innerText(), /^Looked at once, at .+: “checking a close call”\.$/);
+        assert.match(await record.locator('#summary').innerText(), / 2 looked at\.$/);
+        await drawnRow.locator('button.look').click();
+        assert.equal((await entryFor('http://pics.test/pics/drawn.jpg')).looks.length, 1, 'pressing again while it is shown is not another look');
+        // The pictures page counts the looks and the marks too, and the one-site view shows the row as it stands.
+        await record.goto(`chrome-extension://${judge.extensionId}/pictures.html`);
+        await record.waitForFunction(() => / 2 looked at\.$/.test(document.getElementById('summary').textContent));
+        await record.goto(`chrome-extension://${judge.extensionId}/tries.html#site=allowed.test&pictures`);
+        await record.waitForFunction(() => document.querySelectorAll('.day tbody tr.picture .picture-marks').length === 2);
+        assert.match(await record.locator('#summary').innerText(), /^\d+ pictures hidden at allowed\.test, the latest at .+ 2 looked at\.$/);
+        // A fresh page asks why again, and offers the marks for a picture looked at before without showing it again unasked.
+        assert.equal(await record.locator('.picture-look').count(), 0);
+        assert.equal(await record.locator('#look-why-area').isVisible(), false);
+        await rowFor('http://pics.test/pics/nude.jpg').locator('button', { hasText: 'Hidden by mistake' }).click();
+        await record.waitForFunction(() => / 2 looked at, 1 marked hidden by mistake\.$/.test(document.getElementById('summary').textContent));
+        await rowFor('http://pics.test/pics/nude.jpg').locator('button', { hasText: 'Rightly hidden' }).click();
+        await record.waitForFunction(() => / 2 looked at\.$/.test(document.getElementById('summary').textContent));
+        // A picture that can't be fetched says so, with the look still noted; one whose address answers with a page says that.
+        stub.page('gone.test/missing.jpg', 'gone', { status: 404 });
+        await record.goto(`chrome-extension://${judge.extensionId}/tries.html#pictures`);
+        await record.waitForFunction(() => document.querySelectorAll('.day tbody tr.picture').length >= 3);
+        await record.evaluate(() =>
+          chrome.storage.local.get('pictures').then((got) =>
+            chrome.storage.local.set({
+              pictures: [
+                ...got.pictures,
+                { at: Date.now() - 2, site: 'gone.test', url: 'http://gone.test/missing.jpg', reason: 'nudity', scores: { porn: 0.9, hentai: 0, sexy: 0 } },
+                { at: Date.now() - 1, site: 'gone.test', url: 'http://gone.test/was-a-picture', reason: 'nudity', scores: { porn: 0.9, hentai: 0, sexy: 0 } },
+                { at: Date.now(), site: 'inline.test', url: `data:image/png;base64,${'A'.repeat(478)}`, reason: 'nudity', scores: { porn: 0.9, hentai: 0, sexy: 0 } },
+              ],
+            }),
+          ),
+        );
+        const goneRow = rowFor('http://gone.test/missing.jpg');
+        await goneRow.waitFor();
+        await goneRow.locator('button.look').click();
+        await record.locator('#look-why-area').waitFor({ state: 'visible' });
+        await record.fill('#look-why', 'is it still there?');
+        await record.click('#look-go');
+        await goneRow.locator('.picture-look p', { hasText: 'Couldn’t show it' }).waitFor();
+        assert.match(await goneRow.locator('.picture-look p').innerText(), /^Couldn’t show it: it couldn’t be fetched \(404\), and the record keeps addresses, not copies, so a picture gone from its address can’t be shown\.$/);
+        assert.match(await goneRow.locator('.picture-notes').innerText(), /^Looked at once, at .+: “is it still there\?”\.$/);
+        assert.equal(await goneRow.locator('.picture-marks button').count(), 2, 'the marks are offered: the picture may be known from the page');
+        const pageRow = rowFor('http://gone.test/was-a-picture');
+        await pageRow.locator('button.look').click();
+        await pageRow.locator('.picture-look a').waitFor();
+        assert.match(await pageRow.locator('.picture-look p').innerText(), /^This address answers with a page, not a picture, so there is nothing to show; the picture may have gone from it\. Open the page\.$/);
+        // A data: address is the picture written out: the row shows its start and length, and one cut to the record's length can't be shown.
+        const inlineRow = record.locator('.day tbody tr.picture', { hasText: 'inline.test' });
+        assert.equal(await inlineRow.locator('.picture-url').innerText(), `data:image/png;base64,${'A'.repeat(18)}… (500 characters)`);
+        await inlineRow.locator('button.look').click();
+        await inlineRow.locator('.picture-look p', { hasText: 'Couldn’t show it' }).waitFor();
+        assert.equal(await inlineRow.locator('.picture-look p').innerText(), 'Couldn’t show it: the record keeps only the first 500 characters of a data: address, which is the picture itself written out.');
+      } finally {
+        // The entries seeded above go, so the later tests read the record the filter wrote.
+        await record.evaluate(() => chrome.storage.local.get('pictures').then((got) => chrome.storage.local.set({ pictures: got.pictures.filter((entry) => !['gone.test', 'inline.test'].includes(entry.site)) }))).catch(() => {});
+        await record.close();
       }
     });
 
@@ -1562,6 +1670,24 @@ describe('real browser', () => {
         assert.deepEqual(redRow, ['allowed.test', 'http://allowed.test/videos/red.webm', 'Video hidden for nudity: nudity 0.92, suggestive 0.02.', 'picture video'], JSON.stringify(rows));
         assert.ok(rows.find((row) => row[1].endsWith('/pics/nude.jpg'))[2].startsWith('Picture hidden '), 'a picture is a picture');
         assert.match(await record.locator('.day h3 small').first().innerText(), /^(\d+ pictures?( and \d+ videos?)?|\d+ videos?) hidden$/, 'the day counts both');
+        // Look at it on a video's row shows the video itself when the record holds its address (1.17.0); a
+        // video the page made itself, noted under the page's address, can't be shown: the row says so and links to the page.
+        const rowFor = (url) => record.locator('.day tbody tr.picture').filter({ has: record.locator('.picture-url', { hasText: new RegExp(`^${url.replace(/[.?]/g, '\\$&')}$`) }) }).first();
+        const redVideoRow = rowFor('http://allowed.test/videos/red.webm');
+        await redVideoRow.locator('button.look').click();
+        await record.locator('#look-why-area').waitFor({ state: 'visible' });
+        await record.fill('#look-why', 'what was it?');
+        await record.click('#look-go');
+        await redVideoRow.locator('.picture-look video').waitFor();
+        assert.match(await redVideoRow.locator('.picture-look video').getAttribute('src'), /^blob:/);
+        assert.equal(await redVideoRow.locator('.picture-look video').getAttribute('controls'), '', 'with controls, not playing by itself');
+        assert.match(await redVideoRow.locator('.picture-notes').innerText(), /^Looked at once, at .+: “what was it\?”\.$/);
+        const madeRow = rowFor('http://allowed.test/video-blob');
+        await madeRow.locator('button.look').click();
+        await madeRow.locator('.picture-look a').waitFor();
+        assert.match(await madeRow.locator('.picture-look p').innerText(), /^This address is the page’s, not the video’s: a video the page made itself is noted under the page’s address, and can’t be shown here\. Open the page\.$/);
+        assert.equal(await madeRow.locator('.picture-look a').getAttribute('href'), 'http://allowed.test/video-blob');
+        assert.equal(await madeRow.locator('.picture-look a').getAttribute('target'), '_blank');
 
         await settings.waitForFunction(() => /video frames judged/.test(document.getElementById('picture-status').textContent));
         assert.match(await settings.locator('#picture-status').innerText(), /^Pictures and videos are judged before they show: since the browser started, \d+ pictures judged, \d+ hidden; \d+ video frames judged, \d+ videos hidden \(stand-in\)\.$/);
