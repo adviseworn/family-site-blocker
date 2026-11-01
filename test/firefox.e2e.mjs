@@ -831,7 +831,7 @@ describe('Firefox', { skip: findFirefox() ? false : 'no Firefox found (set FIREF
       await browser.fx.send('WebDriver:SwitchToWindow', { handle: lockboxHandle });
 
       const started = Date.now();
-      await browser.run("document.getElementById('lockbox-start').click()");
+      await browser.run("document.getElementById('lockbox-why').value = 'to try it'; document.getElementById('lockbox-start').click()");
       await waitUntilShown('lockbox-open', 30_000);
       assert.ok(Date.now() - started >= 2500, 'not sooner than the wait allows');
       assert.equal(await browser.run("return document.getElementById('lockbox-revealed').value"), 'Firefox-Admin-Password');
@@ -845,7 +845,7 @@ describe('Firefox', { skip: findFirefox() ? false : 'no Firefox found (set FIREF
       }
       assert.equal(record[0], 'Locked away again, with the same wait of 5 seconds.');
       assert.match(record[1], /^The password was shown \(unlocking started .+\)\.$/);
-      assert.equal(record[2], 'Unlocking started.');
+      assert.equal(record[2], 'Unlocking started: “to try it”.', 'with the reason asked for (1.13.2)');
       assert.equal(record[3], 'The wait was lengthened from 3 seconds to 5 seconds, without unlocking.');
       assert.equal(record[4], 'Locked away, with a wait of 3 seconds.');
       assert.equal(record[5], 'The record began.', "the table's last row, from 1.13.1");

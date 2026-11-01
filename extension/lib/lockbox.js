@@ -32,8 +32,8 @@ export const WAITS_KEPT = 200;
 
 /**
  * The events the page records, and what each carries besides `at` (an ISO time) and `event`:
- * locked { delay }, lengthened { from, to }, started {}, resumed { done, steps }, stopped { done, steps },
- * shown { startedAt }, sealed { delay, previous? }, seal-failed {}, restored { lockedAt, from?, to? }, deleted {}.
+ * locked { delay }, lengthened { from, to }, started { why? }, resumed { done, steps }, stopped { done, steps },
+ * shown { startedAt, why? }, sealed { delay, previous? }, seal-failed {}, restored { lockedAt, from?, to? }, deleted {}.
  * An unlock is a `started` … `shown` pair; `sealed` or `seal-failed` follows `shown` straight away, and
  * `sealed` with `previous` is the password locked away again with a wait of the person's choosing (#76).
  * `restored` with `from` and `to` is a backup file whose wait was lengthened to the one set here as it was
@@ -225,6 +225,9 @@ export function beginningOf({ events = [], since = null }) {
   return { at: began, what: gone ? `The record began. It keeps only the latest ${EVENTS_KEPT} entries, so those before ${when(oldest)} have gone.` : 'The record began.' };
 }
 
+/** ": “to set up the printer”", the reason typed before unlocking started (asked for since 1.13.2), or "" without one. */
+const whyOf = (entry) => (typeof entry.why === 'string' && entry.why ? `: “${entry.why}”` : '');
+
 /** What an entry of the record says happened, in words, for the record on the password's page. */
 export function describeEvent(entry) {
   switch (entry.event) {
@@ -235,13 +238,13 @@ export function describeEvent(entry) {
         ? `The wait was lengthened from ${duration(entry.from)} to ${duration(entry.to)}, without unlocking.`
         : 'The wait was lengthened, without unlocking.';
     case 'started':
-      return 'Unlocking started.';
+      return `Unlocking started${whyOf(entry)}.`;
     case 'resumed':
       return `Unlocking carried on, from ${percent(entry)}% done.`;
     case 'stopped':
       return `Unlocking stopped at ${percent(entry)}% done; the work was thrown away.`;
     case 'shown':
-      return isTime(entry.startedAt) ? `The password was shown (unlocking started ${when(entry.startedAt)}).` : 'The password was shown.';
+      return isTime(entry.startedAt) ? `The password was shown (unlocking started ${when(entry.startedAt)}${whyOf(entry)}).` : `The password was shown${whyOf(entry)}.`;
     case 'sealed':
       if (typeof entry.delay === 'number' && typeof entry.previous === 'number') {
         return `Locked away again, with a wait of ${duration(entry.delay)} in place of ${duration(entry.previous)}.`;
