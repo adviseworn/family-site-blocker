@@ -1,14 +1,16 @@
 // The record on a page of its own: the settings page shows only the latest few blocked attempts and links
-// here. This page says whether the extension was ever off (lib/watching.js), with a link to the times it
-// was off on tries.html, sums the record of tries up by site, with a link for each site to every one of
-// its tries on tries.html (which also lists every try of all, grouped by day, with the times the extension
-// was off laid in), and has a button that saves the whole record as a CSV file. The other two parts
-// of the record, the pictures hidden and the sites that might belong on the list, have pages of their own
-// (pictures.html, unlisted.html), summed up here in a line each. The look through the browser's history
-// (background.js scanHistory) is reported and started from here. Like the settings page, this page only
-// reads the record; nothing here can clear it (see lib/attempts.js).
+// here, and straight to every try. This page says whether the extension was ever off (lib/watching.js),
+// with a link to the times it was off on tries.html, sums the record of tries up by site, with a link for
+// each site to every one of its tries on tries.html (which also lists every try of all, grouped by day,
+// with the times the extension was off and the locked-away password's record laid in), and has a button
+// that saves the whole record as a CSV file. The other two parts of the record, the pictures hidden and
+// the sites that might belong on the list, have pages of their own (pictures.html, unlisted.html), summed
+// up here in a line each. The look through the browser's history (background.js scanHistory) is reported
+// and started from here. Like the settings page, this page only reads the record; nothing here can clear
+// it (see lib/attempts.js).
 import { ATTEMPTS, HISTORY_SCAN, bySite, summarize, toCsv } from './lib/attempts.js';
-import { element, offVisitsWords, offWords, plural, showVersion, visits, whenFormat } from './lib/page.js';
+import { EVENTS, loadBox } from './lib/lockbox.js';
+import { element, everyTryShows, everyTryWords, offVisitsWords, offWords, plural, showVersion, visits, whenFormat } from './lib/page.js';
 import { PICTURES, countHidden, hiddenBySite } from './lib/pictures.js';
 import { UNLISTED } from './lib/suspects.js';
 import { WATCHING, normalize } from './lib/watching.js';
@@ -18,6 +20,7 @@ const $ = (id) => document.getElementById(id);
 
 let attempts = []; // the record as stored: oldest first
 let watching = null; // when the extension was running, as stored (lib/watching.js)
+let events = []; // the locked-away password's record (lib/lockbox.js), which Every try shows among the tries
 
 function renderSummary() {
   if (attempts.length === 0) {
@@ -123,13 +126,16 @@ async function render() {
   const stored = await api.storage.local.get([ATTEMPTS, HISTORY_SCAN, UNLISTED, PICTURES, WATCHING]);
   attempts = Array.isArray(stored[ATTEMPTS]) ? stored[ATTEMPTS] : [];
   watching = stored[WATCHING] ?? null;
+  ({ events } = await loadBox(api.storage.local));
   offShown = offPart(watching);
   renderSummary();
   renderWatching();
   renderHistoryScan(stored[HISTORY_SCAN]);
   $('save-file').hidden = attempts.length === 0;
-  $('every-try').hidden = attempts.length === 0;
-  $('every-try').textContent = `See every try (${attempts.length})`;
+  // Every try holds the tries, the times the extension was off, the pictures hidden and the password's
+  // record: its link shows whenever it has any of them, and the count is the tries.
+  $('every-try').hidden = !everyTryShows({ attempts, off: normalize(watching).off, events, pictures: Array.isArray(stored[PICTURES]) ? stored[PICTURES] : [] });
+  $('every-try').textContent = everyTryWords(attempts.length);
   $('sites').hidden = attempts.length === 0;
   renderSites();
   renderElsewhere(stored[PICTURES], stored[UNLISTED]);
@@ -157,7 +163,7 @@ $('history-scan-now').addEventListener('click', () => {
 // Keep the record current while the page is open.
 api.storage.onChanged.addListener((changes, area) => {
   if (area !== 'local') return;
-  if (changes[ATTEMPTS] || changes[HISTORY_SCAN] || changes[UNLISTED] || changes[PICTURES]) render();
+  if (changes[ATTEMPTS] || changes[HISTORY_SCAN] || changes[UNLISTED] || changes[PICTURES] || changes[EVENTS]) render();
   else if (changes[WATCHING] && offPart(changes[WATCHING].newValue) !== offShown) render();
 });
 
