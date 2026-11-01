@@ -536,6 +536,33 @@ describe('real browser', () => {
       }
     });
 
+    test('a tab already showing a site is sent to the block page when the site is added, in place of the page, so "Go back" leads to the page before it (1.17.1)', async () => {
+      const page = await openSettings();
+      const open = await browser.context.newPage();
+      const other = await browser.context.newPage();
+      try {
+        await open.goto('http://allowed.test/before');
+        await open.goto('http://custom-blocked.test/already-open');
+        assert.match(await open.locator('body').innerText(), /SITE LOADED/, 'not listed yet');
+        await other.goto('http://allowed.test/stays');
+        stub.clear();
+        await saveList(page, 'custom-blocked.test');
+        await open.waitForURL(BLOCK_PAGE, { timeout: 10_000 });
+        assert.equal(await open.locator('h1').innerText(), 'This site is blocked');
+        assert.equal(stub.reached('custom-blocked.test'), false, 'a request reached the site');
+        assert.equal(other.url(), 'http://allowed.test/stays', 'a tab on another site is left alone');
+        // The block page took the site's place in the tab's history, so the page can't be brought back.
+        await open.click('#back');
+        await open.waitForURL('http://allowed.test/before', { timeout: 10_000 });
+        assert.deepEqual(page.errors, []);
+      } finally {
+        await saveList(page, '').catch(() => {});
+        await other.close();
+        await open.close();
+        await page.close();
+      }
+    });
+
     test('it says that private windows are not blocked until the person allows the extension there', async () => {
       const page = await openSettings();
       try {

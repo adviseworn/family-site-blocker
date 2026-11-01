@@ -1,12 +1,14 @@
 // Blocking is done by the browser itself from the rules in rules/adult.json and the list saved from the
 // settings page. This script opens the settings page (right after the extension is installed, so the
 // person can see whether anything still needs switching on, and when the toolbar button is clicked),
-// keeps the record of blocked attempts, and keeps track of when it is running (lib/watching.js), so the
-// record can say whether the extension was ever off. Chrome, Edge and Brave run it as a service worker;
-// Firefox runs it as an event page. Both load it as a module (manifest.json: background.type).
+// sends a tab already showing a listed site to the block page when the lists change (the rules act only
+// on page loads), keeps the record of blocked attempts, and keeps track of when it is running
+// (lib/watching.js), so the record can say whether the extension was ever off. Chrome, Edge and Brave run
+// it as a service worker; Firefox runs it as an event page. Both load it as a module (manifest.json:
+// background.type).
 import { ATTEMPTS, HISTORY_SCAN, bookmarksTo, hostOf, listedDomain, mergeVisits, record } from './lib/attempts.js';
 import { PICTURES, STRICTNESS, markHidden, noteLook, recordHidden, sameHidden, strictnessOf, verdict } from './lib/pictures.js';
-import { domainsOf } from './lib/rules.js';
+import { BLOCK_PAGE, domainsOf } from './lib/rules.js';
 import { UNLISTED, tallyUnlisted } from './lib/suspects.js';
 import { BEAT_EVERY_MINUTES, WATCHING, beat, earliestLiveTry, gapsOf, normalize, noteGaps, started } from './lib/watching.js';
 import { backendInUse, judgeBytes } from './classifier.js';
@@ -16,8 +18,12 @@ const api = globalThis.browser ?? globalThis.chrome;
 api.runtime.onInstalled.addListener(({ reason }) => {
   if (reason === 'install') api.runtime.openOptionsPage();
   // Note when the extension first started watching here (lib/watching.js), then look through the history:
-  // a new or updated copy may list sites that were visited before it was watching.
-  if (reason === 'install' || reason === 'update') firstStart(reason).then(() => scanHistory());
+  // a new or updated copy may list sites that were visited before it was watching, and may find one of
+  // them open in a tab (sweepTabs).
+  if (reason === 'install' || reason === 'update') {
+    firstStart(reason).then(() => scanHistory());
+    sweepTabs().catch(() => {});
+  }
 });
 // Each time the browser starts, too: the history may hold visits from a time the extension was off (in
 // Firefox's Troubleshoot Mode, say, which a restart ends).
@@ -47,11 +53,15 @@ function listedDomains() {
   return domains;
 }
 
-// The settings page says when the person's own list changes; the browser also restarts this script
-// after a short idle, so the lists are reread often anyway. It also asks for the history to be looked
-// through again (the button on the page).
+// The settings page says when the person's own list changes, so the lists are reread and the tabs swept
+// for the site just added (sweepTabs); the browser also restarts this script after a short idle, so the
+// lists are reread often anyway. It also asks for the history to be looked through again (the button on
+// the page).
 api.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  if (message?.type === 'list-changed') domains = null;
+  if (message?.type === 'list-changed') {
+    domains = null;
+    sweepTabs().catch(() => {});
+  }
   if (message?.type === 'scan-history') scanHistory();
   if (message?.type === 'check-gaps') {
     // The record page asks before it shows when the extension was off, so the answer is current.
@@ -336,6 +346,33 @@ api.webRequest.onBeforeRequest.addListener(tried, PAGES);
 api.webNavigation.onDOMContentLoaded.addListener(opened);
 api.webNavigation.onCompleted.addListener(opened);
 api.webRequest.onCompleted.addListener(opened, PAGES);
+
+// --- Tabs already showing a listed site ------------------------------------------------------------------
+// The rules act on page loads, so a page open before its site was listed would stay as it is until it was
+// loaded again. Instead, whenever the lists change (a site saved on the settings page or added from the
+// record page, or a version installed with its built-in list), every tab showing a listed site is sent to
+// the block page, as a load of it would be. The page is replaced in the tab's history rather than left
+// behind it, so Back doesn't bring it back, and no request goes to the site. A page no script can run in
+// (one that failed to load, say) is navigated to the block page instead. A listed site inside another
+// page (a frame) is left as it is: a load of it is blocked outright, not sent to the block page, and
+// nothing more can load into it.
+const BLOCK_PAGE_URL = api.runtime.getURL(BLOCK_PAGE);
+
+async function sweepTabs() {
+  const listed = await listedDomains();
+  const tabs = await api.tabs.query({});
+  await Promise.all(
+    tabs
+      .filter((tab) => listedDomain(hostOf(tab.url), listed))
+      .map(async (tab) => {
+        try {
+          await api.scripting.executeScript({ target: { tabId: tab.id }, func: (url) => location.replace(url), args: [BLOCK_PAGE_URL] });
+        } catch {
+          await api.tabs.update(tab.id, { url: BLOCK_PAGE_URL }).catch(() => {});
+        }
+      }),
+  );
+}
 
 // --- The picture filter ----------------------------------------------------------------------------------
 // A page's content script (content.js) asks about each picture it shows; the picture is fetched here (the
