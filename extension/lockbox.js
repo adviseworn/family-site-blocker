@@ -3,12 +3,13 @@
 // getting it back means letting lockbox-worker.js work through the puzzle with this page open: layer by
 // layer when the wait has been lengthened, each layer's puzzle giving the box inside it and the last the
 // password. Progress is saved as it goes, so closing the page pauses the work rather than losing it.
-// Everything done here is written to a record (lib/lockbox.js, EVENTS) that the page shows below the
-// password, newest first, and that stays when the password is deleted or replaced (#75). The boxes that
+// Everything done here is written to a record (lib/lockbox.js, EVENTS) that stays when the password is
+// deleted or replaced (#75): this page sums it up in a line, and its entries are rows among every try on
+// tries.html (tries.html#password shows them alone). The boxes that
 // have held each password are noted too (WAITS), with the wait last set for it, so that a backup file
 // saved before the wait was lengthened is lengthened to it as it is restored here (1.13.0).
-import { BOX, PROGRESS, beginningOf, describeEvent, duration, fractionDone, layerUnderWork, loadBox, longerWaitFor, noteBox, recordEvent, sinceText } from './lib/lockbox.js';
-import { element, showVersion, whenFormat } from './lib/page.js';
+import { BOX, PROGRESS, describeRecord, duration, fractionDone, layerUnderWork, loadBox, longerWaitFor, noteBox, recordEvent, sinceText } from './lib/lockbox.js';
+import { element, showVersion } from './lib/page.js';
 import { START, isBox, lengthen, modulusOf, open, seal, secondsOf, stepsOf, waitOf } from './lib/timelock.js';
 
 const api = globalThis.browser ?? globalThis.chrome;
@@ -16,8 +17,6 @@ const store = api.storage.local;
 const $ = (id) => document.getElementById(id);
 
 const SAVE_EVERY_MS = 5000;
-/** How many entries of the record the page shows before "Show all". */
-const EVENTS_SHOWN = 10;
 // What a longer wait can't undo, said when the password is locked away again with one from the open panel
 // (the locked panel's note says it before the wait is lengthened there). "Anywhere but here": this profile
 // lengthens such a file as it is restored (restore), but the file itself is as it was.
@@ -129,32 +128,14 @@ function showProgress(box, progress, rate) {
   $('lockbox-progress-text').textContent = `${Math.floor(fraction * 100)}% done, about ${duration(toGo)} to go.`;
 }
 
-/** The record, newest first: the latest few entries, a button that shows the rest, and last, kept in view, when it began. */
+/** The record summed up in a line (lib/lockbox.js describeRecord), with a link to its entries among every try; nothing with no record. */
 function renderEvents({ events, since }) {
   const section = $('lockbox-record');
   section.hidden = events.length === 0;
-  const body = $('lockbox-events').querySelector('tbody');
-  body.replaceChildren();
-  const newestFirst = [...events].reverse();
-  newestFirst.forEach((entry, i) => {
-    const row = element('tr', null, i < EVENTS_SHOWN ? {} : { hidden: '' });
-    row.append(element('td', whenFormat.format(new Date(entry.at))), element('td', describeEvent(entry)));
-    body.append(row);
-  });
-  const beginning = beginningOf({ events, since });
-  if (beginning) {
-    const row = element('tr');
-    row.append(element('td', whenFormat.format(new Date(beginning.at))), element('td', beginning.what));
-    body.append(row);
-  }
-  const more = $('lockbox-events-more');
-  more.hidden = newestFirst.length <= EVENTS_SHOWN;
-  more.textContent = `Show all ${newestFirst.length}`;
-}
-
-function showAllEvents() {
-  for (const row of $('lockbox-events').querySelectorAll('tbody tr[hidden]')) row.hidden = false;
-  $('lockbox-events-more').hidden = true;
+  const line = $('lockbox-record-line');
+  line.replaceChildren();
+  if (events.length === 0) return;
+  line.append(`${describeRecord({ events, since })} `, element('a', `See ${events.length === 1 ? 'it' : 'them'} among every try`, { href: 'tries.html#password' }), '.');
 }
 
 async function render() {
@@ -497,7 +478,6 @@ $('lockbox-restore').addEventListener('change', restore);
 $('lockbox-hide').addEventListener('click', hide);
 $('lockbox-copy').addEventListener('click', copy);
 $('lockbox-relock').addEventListener('click', relock);
-$('lockbox-events-more').addEventListener('click', showAllEvents);
 // Copying out of either box by hand (⌘C or Ctrl+C, or the menu) puts the password on the clipboard as Copy does.
 for (const id of ['lockbox-secret', 'lockbox-revealed']) {
   for (const type of ['copy', 'cut']) {

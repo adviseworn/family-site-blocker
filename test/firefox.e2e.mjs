@@ -836,19 +836,15 @@ describe('Firefox', { skip: findFirefox() ? false : 'no Firefox found (set FIREF
       assert.ok(Date.now() - started >= 2500, 'not sooner than the wait allows');
       assert.equal(await browser.run("return document.getElementById('lockbox-revealed').value"), 'Firefox-Admin-Password');
 
-      // The record of what happened (#75): under the password, newest first, once it has been locked away again.
+      // The record of what happened (#75), summed up in a line under the password (1.14.0), once it has been locked away again.
       const recordUntil = Date.now() + 15_000;
-      let record = [];
-      while (record.length < 6 && Date.now() < recordUntil) {
+      let recordLine = '';
+      while (!/^5 entries/.test(recordLine) && Date.now() < recordUntil) {
         await sleep(200);
-        record = await browser.run("return Array.from(document.querySelectorAll('#lockbox-events tbody tr'), (row) => row.cells[1].textContent)");
+        recordLine = await browser.run("return document.getElementById('lockbox-record-line').textContent");
       }
-      assert.equal(record[0], 'Locked away again, with the same wait of 5 seconds.');
-      assert.match(record[1], /^The password was shown \(unlocking started .+\)\.$/);
-      assert.equal(record[2], 'Unlocking started: “to try it”.', 'with the reason asked for (1.13.2)');
-      assert.equal(record[3], 'The wait was lengthened from 3 seconds to 5 seconds, without unlocking.');
-      assert.equal(record[4], 'Locked away, with a wait of 3 seconds.');
-      assert.equal(record[5], 'The record began.', "the table's last row, from 1.13.1");
+      assert.match(recordLine, /^5 entries since .+, the latest on .+: Locked away again, with the same wait of 5 seconds\. See them among every try\.$/);
+      assert.equal(await browser.run("return document.querySelector('#lockbox-record-line a').getAttribute('href')"), 'tries.html#password');
       const events = await browser.fx.send('WebDriver:ExecuteAsyncScript', {
         script: `const done = arguments[arguments.length - 1]; browser.storage.local.get('lockboxEvents').then((got) => done((got.lockboxEvents ?? []).map(({ event }) => event)), (e) => done([]));`,
         args: [],
@@ -861,6 +857,22 @@ describe('Firefox', { skip: findFirefox() ? false : 'no Firefox found (set FIREF
       const again = await storedBox();
       assert.equal(again.version, 1, 'locked away again as one puzzle, with the whole wait');
       assert.equal(again.delay, 5);
+
+      // The entries are rows among every try, in the password page's words, newest first, the beginning last (1.14.0).
+      await browser.visit(`moz-extension://${new URL(settings.url).host}/tries.html#password`);
+      let record = [];
+      for (let i = 0; i < 40 && record.length < 6; i++) {
+        if (i) await sleep(250);
+        record = await browser.run("return Array.from(document.querySelectorAll('.day tbody tr'), (row) => [row.cells[1].textContent, row.cells[2].textContent])");
+      }
+      assert.deepEqual(record.map(([site]) => site), Array(6).fill('Locked-away password'), JSON.stringify(record));
+      assert.equal(record[0][1], 'Locked away again, with the same wait of 5 seconds.');
+      assert.match(record[1][1], /^The password was shown \(unlocking started .+: “to try it”\)\.$/);
+      assert.equal(record[2][1], 'Unlocking started: “to try it”.', 'with the reason asked for (1.13.2)');
+      assert.equal(record[3][1], 'The wait was lengthened from 3 seconds to 5 seconds, without unlocking.');
+      assert.equal(record[4][1], 'Locked away, with a wait of 3 seconds.');
+      assert.equal(record[5][1], 'The record began.', 'the last row, from 1.13.1');
+      assert.equal(await browser.run("return document.getElementById('filter-site').textContent"), 'the locked-away password');
 
       // And the settings page's line counts the unlock.
       await browser.fx.send('WebDriver:SwitchToWindow', { handle: settings.handle });
