@@ -513,6 +513,21 @@ code {
   border-left: 3px solid var(--bad);
 }
 
+/* The locked-away password's record among the tries: its page's words, in the latch's colour; the row
+   that says when that record began is muted. */
+.day tr.password td:nth-child(2) {
+  color: var(--muted);
+}
+
+.day tr.password td:last-child {
+  color: var(--latch);
+}
+
+.day tr.began td:last-child {
+  color: var(--muted);
+  font-weight: 400;
+}
+
 /* Locked-away password */
 
 #lockbox label:not(.button) {

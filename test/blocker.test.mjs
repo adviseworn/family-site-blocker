@@ -537,6 +537,21 @@ test('the timeline lays the times the add-on was off among the tries, by day, ne
   assert.equal(days[4].entries[0].during, null, 'a try after it');
   assert.deepEqual(timeline([], watching).map(({ entries }) => entries.length), [1, 1, 1, 1], 'days with only a time off are days all the same, the one across midnight in two');
   assert.deepEqual(timeline(attempts, null).map(({ entries }) => entries.length), [1, 1, 1, 3], 'with nothing known, tries alone');
+  // Other entries (the locked-away password's record, 1.14.0) go in by their time, as given, after the tries at the same moment and in the order given among themselves.
+  const others = [{ at: at(20, 23, 50), note: 'b' }, { at: at(20, 23, 50), note: 'a' }, { at: at(24, 8), note: 'c' }, { at: NaN, note: 'junk' }, null, { note: 'no time' }];
+  assert.deepEqual(
+    timeline(attempts, watching, others).map(({ day, entries }) => [new Date(day).toDateString(), entries.map((entry) => entry.note ?? shape(entry))]),
+    [
+      ['Tue Oct 27 2026', ['a.test']],
+      ['Sun Oct 25 2026', ['off 25@0-26@0']],
+      ['Sat Oct 24 2026', ['c']],
+      ['Fri Oct 23 2026', ['off 23@0-23@1', 'a.test (off)']],
+      ['Thu Oct 22 2026', ['off 22@23-23@0', 'a.test (off)']],
+      ['Tue Oct 20 2026', ['b.test', 'b', 'a', 'off 20@21-20@23', 'a.test (off)', 'a.test']],
+    ],
+  );
+  assert.deepEqual(timeline([], null, others).map(({ entries }) => entries.map(({ note }) => note)), [['c'], ['b', 'a']], 'alone, with nothing else known');
+  assert.deepEqual(timeline(attempts, watching, 'junk').map(({ entries }) => entries.length), [1, 1, 2, 2, 4]);
   assert.deepEqual(offDuring(off, at(20, 22)), off[0]);
   assert.equal(offDuring(off, at(20, 21, 12)), null, 'the stroke it went off is the last beat of the add-on running');
   assert.equal(offDuring(off, at(20, 23, 40)), null, 'and the stroke it came back is the first');

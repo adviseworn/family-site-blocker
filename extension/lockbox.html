@@ -103,14 +103,8 @@
 
     <section id="lockbox-record" aria-labelledby="lockbox-record-heading" hidden>
       <h2 id="lockbox-record-heading">What has happened</h2>
-      <p>Everything done with the locked-away password on this page, with the time, newest first: locked away, unlocking started, carried on or stopped, the password shown and locked away again, a backup file restored, the password deleted. The record stays when the password is deleted or replaced, and nothing on this page can clear it.</p>
-      <table id="lockbox-events" class="attempts">
-        <thead>
-          <tr><th scope="col">When</th><th scope="col">What happened</th></tr>
-        </thead>
-        <tbody></tbody>
-      </table>
-      <p><button id="lockbox-events-more" class="secondary" type="button" hidden>Show all</button></p>
+      <p id="lockbox-record-line" aria-live="polite"></p>
+      <p>Everything done with the locked-away password on this page is noted with the time: locked away, unlocking started, carried on or stopped, the password shown and locked away again, a backup file restored, the password deleted. The entries are rows among every try in the record of blocked attempts, so that what was done with the password can be read beside what happened in the browser. The record stays when the password is deleted or replaced, and nothing on this page can clear it.</p>
     </section>
   </main>
   <script type="module" src="lockbox.js"></script>

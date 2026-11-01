@@ -203,20 +203,25 @@ export function offDuring(off, at) {
 }
 
 /**
- * The record and the times the add-on was off (lib/watching.js) as one timeline, by calendar day (in this
- * computer's time zone), newest day first, each day's entries newest first: [{ day: <midnight, ms>, entries }].
- * An entry is a try, { at, attempt, during }, with `during` the time the add-on was off that the try falls
- * in, or null; or a time the add-on was off, { at, off, from, to }: `off` the time as stored, `from` and
- * `to` the part of it that falls in that day, since a time that crosses midnight is an entry in each day it
- * touches, and `at` that part's end, so that the entry comes before the tries made inside it, newest first.
- * A day with only a time the add-on was off is a day all the same.
+ * The record and the times the add-on was off (lib/watching.js) as one timeline, with any other entries
+ * placed among them by their time, by calendar day (in this computer's time zone), newest day first, each
+ * day's entries newest first: [{ day: <midnight, ms>, entries }]. An entry is a try, { at, attempt, during },
+ * with `during` the time the add-on was off that the try falls in, or null; a time the add-on was off,
+ * { at, off, from, to }: `off` the time as stored, `from` and `to` the part of it that falls in that day,
+ * since a time that crosses midnight is an entry in each day it touches, and `at` that part's end, so that
+ * the entry comes before the tries made inside it, newest first; or one of `others`, as given, { at, … }
+ * each, in their order where the time is the same (the locked-away password's record, on tries.html). A day
+ * with only a time the add-on was off, or only other entries, is a day all the same.
  */
-export function timeline(attempts, watching) {
+export function timeline(attempts, watching, others = []) {
   const off = normalize(watching).off;
   const days = new Map();
   const entriesOf = (day) => days.get(day) ?? days.set(day, []).get(day);
   for (const attempt of Array.isArray(attempts) ? attempts : []) {
     entriesOf(midnightBefore(attempt.at)).push({ at: attempt.at, attempt, during: offDuring(off, attempt.at) });
+  }
+  for (const other of Array.isArray(others) ? others : []) {
+    if (Number.isFinite(other?.at)) entriesOf(midnightBefore(other.at)).push(other);
   }
   for (const time of off) {
     // A time that ends on the stroke of midnight ends in the day before it.
