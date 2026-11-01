@@ -873,6 +873,7 @@ test('manifest points at files that exist', () => {
   assert.ok(manifest.permissions.includes('history'), "adding earlier visits needs the browser's history");
   assert.ok(manifest.permissions.includes('bookmarks'), 'removing bookmarks to listed sites, so the address bar stops suggesting them');
   assert.ok(manifest.host_permissions.includes('<all_urls>'), 'redirect rules need host access');
+  assert.ok(manifest.permissions.includes('scripting'), 'a tab already showing a listed site is sent to the block page in place of its page (1.17.1)');
   for (const { path } of manifest.declarative_net_request.rule_resources) {
     assert.ok(existsSync(join(EXT, path)), path);
   }

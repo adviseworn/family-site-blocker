@@ -9,12 +9,13 @@
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { accessSync, constants, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { accessSync, constants, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { parseDomainList } from '../extension/lib/domains.js';
 import { BLOCKLIST_DIR } from '../scripts/build-rules.mjs';
 import { filterEntries, filterSites } from '../scripts/firefox-lock.mjs';
+import { packageFirefox } from '../scripts/package-firefox.mjs';
 import { EXTENSION_DIR, startStubInternet } from './helpers/browser.mjs';
 import { findFirefox, launchFirefox } from './helpers/firefox.mjs';
 import { BACKGROUND_MARKS, FAKE_CAMERA_PREFS, MARKS, backgroundsPage, cameraPage, extensionWithStandInClassifier, galleryPage, servePictures, serveVideos, videoPage } from './helpers/pictures.mjs';
@@ -118,6 +119,26 @@ describe('Firefox', { skip: findFirefox() ? false : 'no Firefox found (set FIREF
 
     test('Expected, with the add-on: the website is blocked (http)', () => assertBlocked(BLOCKED_URL));
     test('Expected, with the add-on: the website is blocked (https)', () => assertBlocked(`https://${SITE}/`));
+
+    test('a tab already showing the website when the add-on is installed is sent to the block page, as it is when a site is added to the list (1.17.1)', async () => {
+      const plain = await launchFirefox(stub, { extension: false });
+      const outDir = mkdtempSync(join(tmpdir(), 'family-site-blocker-install-'));
+      try {
+        assert.equal((await plain.visit(BLOCKED_URL)).outcome, 'site loaded', 'no add-on yet');
+        const tab = await plain.fx.send('WebDriver:GetWindowHandle');
+        await sleep(500); // the page's own late requests (its icon)
+        stub.clear();
+        await plain.fx.send('Addon:Install', { path: packageFirefox({ extensionDir: EXTENSION_DIR, outDir }).zip, temporary: true });
+        await plain.fx.send('WebDriver:SwitchToWindow', { handle: tab });
+        const url = await plain.waitForUrl((at) => /\/blocked\.html$/.test(at));
+        assert.match(url, /^moz-extension:\/\/[0-9a-f-]+\/blocked\.html$/, 'the tab shows the block page');
+        assert.match(await plain.run('return document.body.innerText'), /This site is blocked/);
+        assert.equal(stub.reached(SITE), false, 'a request reached the site');
+      } finally {
+        await plain.close();
+        rmSync(outDir, { recursive: true, force: true });
+      }
+    });
   });
 
   describe('the same site, written in other ways, is blocked', () => {
@@ -277,6 +298,48 @@ describe('Firefox', { skip: findFirefox() ? false : 'no Firefox found (set FIREF
         args: [],
       });
       assert.deepEqual(self, { installType: 'development', mayDisable: true });
+    });
+
+    test('a tab already showing a site is sent to the block page when the site is added on the settings page, in place of the page, so "Go back" leads to the page before it (1.17.1)', async () => {
+      const settings = tabsAfterInstall.find(({ url }) => url.endsWith('/options.html'));
+      const open = await browser.newTab();
+      assert.equal((await browser.visit('http://allowed.test/before')).outcome, 'site loaded');
+      assert.equal((await browser.visit('http://custom-blocked.test/already-open')).outcome, 'site loaded', 'not listed yet');
+      const other = await browser.newTab();
+      assert.equal((await browser.visit('http://allowed.test/stays')).outcome, 'site loaded');
+
+      /** Saves the box on the settings page, as a person does, and returns what the status line says. */
+      const saveList = async (value) => {
+        await browser.fx.send('WebDriver:SwitchToWindow', { handle: settings.handle });
+        await browser.run(
+          "document.getElementById('custom').value = arguments[0]; document.getElementById('status').textContent = ''; document.getElementById('save').click();",
+          value,
+        );
+        const until = Date.now() + 10_000;
+        let status = '';
+        while (!/Saved|Couldn/.test(status) && Date.now() < until) {
+          await sleep(150);
+          status = await browser.run("return document.getElementById('status').textContent");
+        }
+        return status;
+      };
+      stub.clear();
+      try {
+        assert.match(await saveList('custom-blocked.test'), /^Saved\. 1 site on your list\./);
+        await browser.fx.send('WebDriver:SwitchToWindow', { handle: open });
+        const url = await browser.waitForUrl((at) => /\/blocked\.html$/.test(at));
+        assert.match(url, /^moz-extension:\/\/[0-9a-f-]+\/blocked\.html$/, 'the tab shows the block page');
+        assert.match(await browser.run('return document.body.innerText'), /This site is blocked/);
+        assert.equal(stub.reached('custom-blocked.test'), false, 'a request reached the site');
+        await browser.fx.send('WebDriver:SwitchToWindow', { handle: other });
+        assert.equal(await browser.currentUrl(), 'http://allowed.test/stays', 'a tab on another site is left alone');
+        // The block page took the site's place in the tab's history, so the page can't be brought back.
+        await browser.fx.send('WebDriver:SwitchToWindow', { handle: open });
+        await browser.run("document.getElementById('back').click()");
+        assert.equal(await browser.waitForUrl((at) => at === 'http://allowed.test/before'), 'http://allowed.test/before');
+      } finally {
+        assert.match(await saveList(''), /^Saved\. 0 sites on your list\./);
+      }
     });
 
     /** The record page in a tab of its own, where the browser's history is looked through from (#70); its handle. */
