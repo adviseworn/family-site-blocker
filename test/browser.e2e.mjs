@@ -8,8 +8,13 @@ import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { webcrypto } from 'node:crypto';
 import { EXTENSION_DIR, findPage, launchBrowser, startStubInternet, visit } from './helpers/browser.mjs';
 import { BACKGROUND_MARKS, FAKE_CAMERA_ARGS, MARKS, STAND_IN_SCORES, backgroundsPage, cameraPage, extensionWithStandInClassifier, galleryPage, servePictures, serveVideos, videoPage } from './helpers/pictures.mjs';
+
+globalThis.crypto ??= webcrypto; // Node 18 has Web Crypto, but not on globalThis
+// What the waits know a box by (1.13.0), to check what the page stores.
+const { boxKey } = await import('../extension/lib/lockbox.js');
 
 const VERSION = JSON.parse(readFileSync(join(EXTENSION_DIR, 'manifest.json'), 'utf8')).version;
 const BUILT_IN = JSON.parse(readFileSync(join(EXTENSION_DIR, 'rules', 'domains.json'), 'utf8')).length;
@@ -1750,9 +1755,10 @@ describe('real browser', () => {
         page.once('dialog', (dialog) => dialog.accept());
         await page.click('#lockbox-delete');
         await page.locator('#lockbox-empty').waitFor({ state: 'visible' });
-        // The password and the progress are gone; the record stays, and says so (#75). Only the lockbox's own
-        // keys count: the background script's note of when it is running can be written at any moment (#131).
-        assert.deepEqual(Object.keys(await storedLockbox(page)).filter((key) => key.startsWith('lockbox')).sort(), ['lockboxEvents', 'lockboxEventsSince']);
+        // The password and the progress are gone; the record stays, and says so (#75), and so do the waits set
+        // for each password (1.13.0). Only the lockbox's own keys count: the background script's note of when it
+        // is running can be written at any moment (#131).
+        assert.deepEqual(Object.keys(await storedLockbox(page)).filter((key) => key.startsWith('lockbox')).sort(), ['lockboxEvents', 'lockboxEventsSince', 'lockboxWaits']);
         assert.deepEqual(await recordedEvents(page), ['locked', 'deleted']);
         assert.equal(await page.locator('#lockbox-record').isVisible(), true);
         assert.equal((await shownRecord(page))[0].what, 'Deleted.');
@@ -1779,6 +1785,95 @@ describe('real browser', () => {
         assert.equal(await page.inputValue('#lockbox-revealed'), SECRET);
         await page.waitForFunction(() => document.getElementById('lockbox-status').textContent === '', null, { timeout: 15_000 });
         assert.deepEqual(await recordedEvents(page), ['locked', 'deleted', 'restored', 'started', 'shown', 'sealed']);
+        assert.deepEqual(page.errors, []);
+      } finally {
+        await page.close();
+      }
+    });
+
+    // A backup file saved before the wait was lengthened can't be changed, but this profile notes the boxes that
+    // have held each password and the wait set for it (lib/lockbox.js WAITS), and lengthens such a file's box to
+    // that wait as it is restored, as Lengthen the wait does (1.13.0).
+    slowTest('a backup file from before the wait was lengthened gets the longer wait as it is restored here', async () => {
+      const page = await freshSettings();
+      try {
+        await lockAway(page, SECRET, 2);
+        const first = (await storedLockbox(page)).lockbox;
+        const [early] = await Promise.all([page.waitForEvent('download'), page.click('#lockbox-backup')]);
+        const earlyFile = await early.path();
+        await lengthenTo(page, 6);
+        const longer = (await storedLockbox(page)).lockbox;
+        const [late] = await Promise.all([page.waitForEvent('download'), page.click('#lockbox-backup')]);
+        const lateFile = await late.path();
+        // The password's boxes so far, each by its key, and the wait set for it.
+        const { lockboxWaits: waits } = await storedLockbox(page);
+        assert.deepEqual(waits, [{ delay: 6, boxes: [{ key: await boxKey(first), delay: 2 }, { key: await boxKey(longer), delay: 6 }] }]);
+
+        page.once('dialog', (dialog) => dialog.accept());
+        await page.click('#lockbox-delete');
+        await page.locator('#lockbox-empty').waitFor({ state: 'visible' });
+        assert.deepEqual((await storedLockbox(page)).lockboxWaits, waits, 'kept when the password is deleted: that is when a file comes back');
+
+        // The file saved after lengthening is the box stored last, and restores as it is.
+        await page.setInputFiles('#lockbox-restore', lateFile);
+        await page.locator('#lockbox-locked').waitFor({ state: 'visible' });
+        assert.equal(await lockboxStatus(page), 'Restored from the backup file. It is still locked away.');
+        assert.deepEqual((await storedLockbox(page)).lockbox, longer);
+        assert.deepEqual((await storedLockbox(page)).lockboxWaits, waits, 'nothing to add');
+        page.once('dialog', (dialog) => dialog.accept());
+        await page.click('#lockbox-delete');
+        await page.locator('#lockbox-empty').waitFor({ state: 'visible' });
+
+        // The file saved before: its box goes inside a puzzle that takes the rest of the 6 seconds.
+        await page.setInputFiles('#lockbox-restore', earlyFile);
+        await page.locator('#lockbox-locked').waitFor({ state: 'visible', timeout: 15_000 });
+        assert.equal(
+          await lockboxStatus(page),
+          'Restored from the backup file, and the wait lengthened from 2 seconds to the 6 seconds set here since the file was saved. It is still locked away. The file itself still opens after 2 seconds anywhere else: delete it (and empty the Trash) and save a new one.',
+        );
+        const restored = (await storedLockbox(page)).lockbox;
+        assert.equal(restored.version, 2);
+        assert.equal(restored.holds, 'box');
+        assert.equal(restored.delay, 6, 'the whole wait');
+        assert.deepEqual(restored.inside, [{ steps: first.steps, rate: first.rate }], "the file's box inside");
+        assert.equal(restored.lockedAt, first.lockedAt);
+        assert.ok(restored.lengthenedAt, 'lengthened now');
+        assert.ok(!JSON.stringify(await storedLockbox(page)).includes(first.data), 'the old box is inside the new puzzle, not beside it');
+        assert.match(await page.locator('#lockbox-summary').innerText(), /^A password is locked away \(since .+, wait lengthened .+\)\. Getting it back takes about [5-7] seconds of computing/);
+        assert.deepEqual(await recordedEvents(page), ['locked', 'lengthened', 'deleted', 'restored', 'deleted', 'restored']);
+        const { lockboxEvents: events } = await storedLockbox(page);
+        assert.deepEqual([events.at(-1).from, events.at(-1).to, events.at(-1).lockedAt], [2, 6, first.lockedAt]);
+        assert.match((await shownRecord(page))[0].what, /^Restored from a backup file, sealed .+\d:\d\d.*, with the wait lengthened from 2 seconds to the 6 seconds set here after the file was saved\.$/);
+        assert.deepEqual((await storedLockbox(page)).lockboxWaits, [{ delay: 6, boxes: [...waits[0].boxes, { key: await boxKey(restored), delay: 6 }] }], 'the box made joins the password');
+        assert.ok(!JSON.stringify(await storedLockbox(page)).includes(first.n), 'the waits hold no piece of any box, not even its modulus');
+
+        // Unlocking takes the puzzle added here, then the file's own, and ends in the password.
+        const started = Date.now();
+        await page.click('#lockbox-start');
+        await page.locator('#lockbox-open').waitFor({ state: 'visible', timeout: 30_000 });
+        const took = (Date.now() - started) / 1000;
+        assert.ok(took >= 3, `opened after ${took} s, sooner than the 6-second wait allows`);
+        assert.equal(await page.inputValue('#lockbox-revealed'), SECRET);
+        await page.waitForFunction(() => document.getElementById('lockbox-status').textContent === '', null, { timeout: 15_000 });
+        const again = (await storedLockbox(page)).lockbox;
+        assert.equal(again.delay, 6, 'locked away again with the whole wait');
+        assert.equal((await storedLockbox(page)).lockboxWaits[0].boxes.length, 4, 'the fresh box joins too');
+        await page.click('#lockbox-hide');
+        await page.locator('#lockbox-locked').waitFor({ state: 'visible' });
+
+        // A new password locked away with a short wait has a wait of its own: the old file still gets the 6 seconds.
+        page.once('dialog', (dialog) => dialog.accept());
+        await page.click('#lockbox-delete');
+        await page.locator('#lockbox-empty').waitFor({ state: 'visible' });
+        await lockAway(page, 'Another-Password', 2);
+        assert.equal((await storedLockbox(page)).lockboxWaits.length, 2, 'a password of its own');
+        page.once('dialog', (dialog) => dialog.accept());
+        await page.click('#lockbox-delete');
+        await page.locator('#lockbox-empty').waitFor({ state: 'visible' });
+        await page.setInputFiles('#lockbox-restore', earlyFile);
+        await page.locator('#lockbox-locked').waitFor({ state: 'visible', timeout: 15_000 });
+        assert.match(await lockboxStatus(page), /^Restored from the backup file, and the wait lengthened from 2 seconds to the 6 seconds set here/);
+        assert.equal((await storedLockbox(page)).lockbox.delay, 6);
         assert.deepEqual(page.errors, []);
       } finally {
         await page.close();
@@ -1844,7 +1939,7 @@ describe('real browser', () => {
         assert.deepEqual(await page.$$eval('#lockbox-longer option', (options) => options.filter((option) => option.disabled).map((option) => option.value)), [], 'every wait offered is longer than 2 seconds');
 
         await lengthenTo(page, 5);
-        assert.match(await lockboxStatus(page), /^The wait is now [4-6] seconds\. Save a new backup file: one saved before this still opens after the old wait\.$/);
+        assert.match(await lockboxStatus(page), /^The wait is now [4-6] seconds\. Save a new backup file: one saved before this still opens after the old wait anywhere but here\.$/);
         const longer = (await storedLockbox(page)).lockbox;
         assert.equal(longer.version, 2);
         assert.equal(longer.holds, 'box');
