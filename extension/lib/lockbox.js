@@ -1,7 +1,7 @@
 // What the locked-away password's page (lockbox.html) and the settings page share: where the box, the
-// unlocking progress and the record of what has happened are kept, how long a wait reads, the one line
-// that says where things stand, and the words for each entry in the record.
-import { isBox, stepsOf, waitOf } from './timelock.js';
+// unlocking progress, the record of what has happened and the waits set for each password are kept, how
+// long a wait reads, the one line that says where things stand, and the words for each entry in the record.
+import { isBox, modulusOf, stepsOf, waitOf } from './timelock.js';
 
 export const BOX = 'lockbox'; // the sealed box (lib/timelock.js)
 // The unlocking under way: { n, x, done, before, inner, startedAt, workedAt }. n is the stored box's
@@ -18,13 +18,26 @@ export const EVENTS_SINCE = 'lockboxEventsSince';
 
 /** How many entries the record keeps; the oldest go when it is longer. */
 export const EVENTS_KEPT = 500;
+// The wait set here for each password locked away, and the boxes that have held it (from 1.13.0): [{ delay,
+// boxes: [{ key, delay }] }], one entry per password, the one touched last at the end. A box joins the entry
+// of the box it was made from (lengthening, or restoring a backup file that gets lengthened) or whose
+// password it holds again (shown and locked away again), else starts one; `delay` is the wait last chosen
+// for the password (locked away, lengthened, locked away again), and each box's `delay` its own wait as it
+// was when stored. So a backup file of an earlier box, which can't be changed, restores here with the wait
+// set since (longerWaitFor). Kept when the password is deleted, which is just when it matters. A box is
+// known by `key` (boxKey), which gives nothing of it away.
+export const WAITS = 'lockboxWaits';
+/** How many boxes the waits remember in all; the oldest go, from the password longest untouched. */
+export const WAITS_KEPT = 200;
 
 /**
  * The events the page records, and what each carries besides `at` (an ISO time) and `event`:
  * locked { delay }, lengthened { from, to }, started {}, resumed { done, steps }, stopped { done, steps },
- * shown { startedAt }, sealed { delay, previous? }, seal-failed {}, restored { lockedAt }, deleted {}. An
- * unlock is a `started` … `shown` pair; `sealed` or `seal-failed` follows `shown` straight away, and
+ * shown { startedAt }, sealed { delay, previous? }, seal-failed {}, restored { lockedAt, from?, to? }, deleted {}.
+ * An unlock is a `started` … `shown` pair; `sealed` or `seal-failed` follows `shown` straight away, and
  * `sealed` with `previous` is the password locked away again with a wait of the person's choosing (#76).
+ * `restored` with `from` and `to` is a backup file whose wait was lengthened to the one set here as it was
+ * restored (1.13.0).
  */
 export const EVENT_NAMES = ['locked', 'lengthened', 'started', 'resumed', 'stopped', 'shown', 'sealed', 'seal-failed', 'restored', 'deleted'];
 
@@ -89,6 +102,67 @@ export async function recordEvent(store, event, details = {}) {
   // The beginning is kept before the oldest entry can go: the time stored, else the oldest entry's, else this first entry's.
   await store.set({ [EVENTS]: [...record.slice(-(EVENTS_KEPT - 1)), entry], [EVENTS_SINCE]: recordBegan(record, since) ?? entry.at });
   return entry;
+}
+
+const hex = (bytes) => Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+
+/**
+ * What a box is known by in the waits: a hash of its modulus, written the one way (a backup file's `n` padded
+ * with noughts is still the same box). The modulus can't be changed without breaking the puzzle, and the hash
+ * says nothing of the box, so the waits hold no piece of any box.
+ */
+export const boxKey = async (box) => hex(new Uint8Array(await globalThis.crypto.subtle.digest('SHA-256', new TextEncoder().encode(modulusOf(box).toString(16)))));
+/** A box's own wait in whole seconds, as chosen when it was made; 0 when the box doesn't say. */
+const delayOf = (box) => (Number.isFinite(box.delay) && box.delay > 0 ? box.delay : 0);
+const isKnownBox = (value) => typeof value?.key === 'string' && /^[0-9a-f]{64}$/.test(value.key) && Number.isFinite(value.delay) && value.delay >= 0;
+const isPassword = (value) => Number.isFinite(value?.delay) && value.delay >= 0 && Array.isArray(value.boxes) && value.boxes.length > 0 && value.boxes.every(isKnownBox);
+const holds = (password, key) => password.boxes.some((known) => known.key === key);
+
+/** The waits set here, dropping anything in storage that isn't an entry. */
+async function loadWaits(store) {
+  const { [WAITS]: waits } = await store.get(WAITS);
+  return Array.isArray(waits) ? waits.filter(isPassword) : [];
+}
+
+/**
+ * Notes that `box` is stored here: as a box of the password that `previous` held (the box it was made from
+ * by lengthening, or whose password was shown and locked away again in it), else of a password of its own.
+ * `delay` is the wait chosen for the password, when one was (locking away, lengthening, locking away again);
+ * without it, the password keeps the wait set. A box stored before this was kept (1.13.0) is taken as it is.
+ */
+export async function noteBox(store, box, { previous = null, delay = null } = {}) {
+  const waits = await loadWaits(store);
+  const key = await boxKey(box);
+  const previousKey = previous ? await boxKey(previous) : null;
+  let password = waits.find((candidate) => holds(candidate, key)) ?? (previous ? waits.find((candidate) => holds(candidate, previousKey)) : undefined);
+  if (password) waits.splice(waits.indexOf(password), 1);
+  else if (previous) password = { delay: delayOf(previous), boxes: [{ key: previousKey, delay: delayOf(previous) }] };
+  else password = { delay: delayOf(box), boxes: [] };
+  if (!holds(password, key)) password.boxes.push({ key, delay: delayOf(box) });
+  if (Number.isFinite(delay)) password.delay = delay;
+  waits.push(password);
+  let count = waits.reduce((sum, { boxes }) => sum + boxes.length, 0);
+  while (count > WAITS_KEPT) {
+    waits[0].boxes.shift();
+    count -= 1;
+    if (waits[0].boxes.length === 0) waits.shift();
+  }
+  await store.set({ [WAITS]: waits });
+}
+
+/**
+ * The wait set here for the password that a box from a backup file holds, when the box was stored here and
+ * the wait set since is longer than its own: { delay, from } in seconds, `from` the box's wait as noted when
+ * it was stored (not as the file says it, which anyone can change); null for a box never stored here, or one
+ * whose wait is the one set.
+ */
+export async function longerWaitFor(store, box) {
+  const key = await boxKey(box);
+  for (const password of await loadWaits(store)) {
+    const known = password.boxes.find((candidate) => candidate.key === key);
+    if (known) return password.delay > known.delay ? { delay: password.delay, from: known.delay } : null;
+  }
+  return null;
 }
 
 /**
@@ -175,8 +249,13 @@ export function describeEvent(entry) {
       return typeof entry.delay === 'number' ? `Locked away again, with the same wait of ${duration(entry.delay)}.` : 'Locked away again, with the same wait.';
     case 'seal-failed':
       return 'Couldn’t be locked away again with a fresh puzzle, so the old one was kept.';
-    case 'restored':
-      return isTime(entry.lockedAt) ? `Restored from a backup file, sealed ${when(entry.lockedAt)}.` : 'Restored from a backup file.';
+    case 'restored': {
+      const sealed = isTime(entry.lockedAt) ? `, sealed ${when(entry.lockedAt)}` : '';
+      if (typeof entry.from === 'number' && typeof entry.to === 'number') {
+        return `Restored from a backup file${sealed}, with the wait lengthened from ${duration(entry.from)} to the ${duration(entry.to)} set here after the file was saved.`;
+      }
+      return `Restored from a backup file${sealed}.`;
+    }
     case 'deleted':
       return 'Deleted.';
     default:

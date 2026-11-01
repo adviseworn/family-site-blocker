@@ -4,8 +4,10 @@
 // layer when the wait has been lengthened, each layer's puzzle giving the box inside it and the last the
 // password. Progress is saved as it goes, so closing the page pauses the work rather than losing it.
 // Everything done here is written to a record (lib/lockbox.js, EVENTS) that the page shows below the
-// password, newest first, and that stays when the password is deleted or replaced (#75).
-import { BOX, PROGRESS, describeEvent, describeRecord, duration, fractionDone, layerUnderWork, loadBox, recordEvent, sinceText } from './lib/lockbox.js';
+// password, newest first, and that stays when the password is deleted or replaced (#75). The boxes that
+// have held each password are noted too (WAITS), with the wait last set for it, so that a backup file
+// saved before the wait was lengthened is lengthened to it as it is restored here (1.13.0).
+import { BOX, PROGRESS, describeEvent, describeRecord, duration, fractionDone, layerUnderWork, loadBox, longerWaitFor, noteBox, recordEvent, sinceText } from './lib/lockbox.js';
 import { element, showVersion, whenFormat } from './lib/page.js';
 import { START, isBox, lengthen, modulusOf, open, seal, secondsOf, stepsOf, waitOf } from './lib/timelock.js';
 
@@ -17,9 +19,10 @@ const SAVE_EVERY_MS = 5000;
 /** How many entries of the record the page shows before "Show all". */
 const EVENTS_SHOWN = 10;
 // What a longer wait can't undo, said when the password is locked away again with one from the open panel
-// (the locked panel's note says it before the wait is lengthened there).
+// (the locked panel's note says it before the wait is lengthened there). "Anywhere but here": this profile
+// lengthens such a file as it is restored (restore), but the file itself is as it was.
 const OLD_BACKUPS =
-  'A backup file saved before this still opens after the old wait: delete it (and empty the Trash) or make up a new password, and save a new backup file.';
+  'A backup file saved before this still opens after the old wait anywhere but here: delete it (and empty the Trash) or make up a new password, and save a new backup file.';
 // How the password shown leaves the page, said under it: Hide and Lock it away again clear it from the clipboard
 // (clearClipboard); closing the page can't, since the browser only lets the page write to the clipboard after a click.
 const STAYS = 'It stays on this page until you click Hide or close the page. Hide and Lock it away again also clear it from the clipboard if it was copied here; closing the page doesn’t.';
@@ -37,6 +40,9 @@ const record = (event, details) =>
     console.warn(`Family Site Blocker: couldn’t record "${event}" for the locked-away password: ${error.message}`);
     return { at: new Date().toISOString(), event, ...details };
   });
+// Likewise noting a box among those that have held its password (lib/lockbox.js noteBox).
+const note = (box, details) =>
+  noteBox(store, box, details).catch((error) => console.warn(`Family Site Blocker: couldn’t note the locked-away password’s box: ${error.message}`));
 
 function say(text) {
   $('lockbox-status').textContent = text;
@@ -81,12 +87,17 @@ function showOnly(id) {
   for (const part of ['lockbox-empty', 'lockbox-locked', 'lockbox-open']) $(part).hidden = part !== id;
 }
 
-/** Times this computer, locks `secret` away with a wait of `delay` seconds in place of whatever is stored, and throws any unlocking progress away. */
-async function lockAway(secret, delay) {
+/**
+ * Times this computer, locks `secret` away with a wait of `delay` seconds in place of whatever is stored, and
+ * throws any unlocking progress away. `whose` says which password the new box holds and whether the wait was
+ * chosen for it (noteBox): the box it was in before as `previous`, and `delay` when chosen.
+ */
+async function lockAway(secret, delay, whose = {}) {
   const rate = await measureRate();
   const box = await seal(secret, { steps: Math.max(1, Math.round(delay * rate)), delay, rate });
   await store.set({ [BOX]: box });
   await store.remove(PROGRESS);
+  await note(box, whose);
   return box;
 }
 
@@ -179,7 +190,7 @@ async function lock() {
   $('lockbox-lock').disabled = true;
   say('Timing this computer to set the wait…');
   try {
-    await lockAway(secret, delay);
+    await lockAway(secret, delay, { delay });
     await record('locked', { delay });
     $('lockbox-secret').value = '';
     await render();
@@ -205,20 +216,21 @@ async function lengthenWait() {
   if (progress && !confirm('Lengthening the wait throws away the unlocking done so far. Carry on?')) return;
   $('lockbox-lengthen').disabled = true;
   say('Timing this computer to set the wait…');
-  let note;
+  let said;
   try {
     const rate = await measureRate();
     if (worker) throw new Error('unlocking was started meanwhile');
     const longer = await lengthen(box, { steps: Math.max(1, Math.round((target - present) * rate)), delay: target, rate });
     await store.set({ [BOX]: longer });
     await store.remove(PROGRESS);
+    await note(longer, { previous: box, delay: target });
     await record('lengthened', { from: box.delay, to: target });
-    note = `The wait is now ${duration(waitOf(longer))}. Save a new backup file: one saved before this still opens after the old wait.`;
+    said = `The wait is now ${duration(waitOf(longer))}. Save a new backup file: one saved before this still opens after the old wait anywhere but here.`;
   } catch (error) {
-    note = `Couldn’t lengthen the wait: ${error.message}`;
+    said = `Couldn’t lengthen the wait: ${error.message}`;
   }
   await render();
-  say(note);
+  say(said);
 }
 
 async function startUnlocking() {
@@ -273,10 +285,12 @@ function work(box, before, inner, x, done) {
         return;
       }
       // A box inside: its puzzle comes next. Saved at once, so that closing the page now keeps the layer just done.
+      // The box inside held this password too (a backup file of it may be about), which the stored box couldn't say.
       const opened = before + layer.steps;
       latestDone = opened;
       lastSaved = Date.now();
       await store.set({ [PROGRESS]: { n: box.n, inner: found, x: START.toString(16), done: 0, before: opened, startedAt, workedAt: new Date().toISOString() } });
+      await note(found, { previous: box });
       work(box, opened, found, START, 0);
     }
   };
@@ -303,7 +317,7 @@ async function reveal(box, secret) {
   await record('shown', { startedAt });
   say('Locking it away again…');
   try {
-    await lockAway(secret, box.delay);
+    await lockAway(secret, box.delay, { previous: box });
     await record('sealed', { delay: box.delay });
     $('lockbox-again').textContent = `It’s already locked away again with the same wait (${duration(box.delay)}). ${STAYS}`;
     say('');
@@ -328,7 +342,7 @@ async function relock() {
   $('lockbox-relock').disabled = true;
   say('Timing this computer to set the wait…');
   try {
-    await lockAway(secret, delay);
+    await lockAway(secret, delay, { previous: box, delay });
     await record('sealed', { delay, previous: box?.delay });
     $('lockbox-again').textContent = `It’s locked away again with a wait of ${duration(delay)}. ${STAYS}`;
     say(`Locked away again with a wait of ${duration(delay)}.${await clearing}${longer ? ` ${OLD_BACKUPS}` : ''}`);
@@ -386,11 +400,31 @@ async function restore(event) {
     say('That file isn’t a backup of a locked-away password.');
     return;
   }
-  await store.set({ [BOX]: box });
+  // A box stored here before, whose password has had its wait lengthened since (or been locked away again
+  // with a longer one): the file can't know, so the box goes inside a longer puzzle, as Lengthen the wait
+  // does, before it is stored. The file itself is as it was, and opens after its own wait anywhere else.
+  const longer = await longerWaitFor(store, box);
+  let stored = box;
+  if (longer) {
+    say('Timing this computer to set the wait…');
+    try {
+      const rate = await measureRate();
+      stored = await lengthen(box, { steps: Math.max(1, Math.round((longer.delay - longer.from) * rate)), delay: longer.delay, rate });
+    } catch (error) {
+      say(`Couldn’t restore it: the wait set here for this password is ${duration(longer.delay)}, and lengthening the file’s ${duration(longer.from)} to it failed (${error.message}). Try again.`);
+      return;
+    }
+  }
+  await store.set({ [BOX]: stored });
   await store.remove(PROGRESS);
-  await record('restored', { lockedAt: box.lockedAt });
+  await note(stored, longer ? { previous: box } : {});
+  await record('restored', { lockedAt: box.lockedAt, ...(longer && { from: longer.from, to: longer.delay }) });
   await render();
-  say('Restored from the backup file. It is still locked away.');
+  say(
+    longer
+      ? `Restored from the backup file, and the wait lengthened from ${duration(longer.from)} to the ${duration(longer.delay)} set here since the file was saved. It is still locked away. The file itself still opens after ${duration(longer.from)} anywhere else: delete it (and empty the Trash) and save a new one.`
+      : 'Restored from the backup file. It is still locked away.',
+  );
 }
 
 // Letters and digits that can't be mistaken for each other (no 0/O, 1/l/I), in groups of four.
