@@ -98,12 +98,12 @@ The update address only works from a version that carries it, so an account whos
 
 #### On an Android phone (Firefox)
 
-Firefox for Android, the ordinary one from Google Play, can install the signed `.xpi` from the **Releases** page; Chrome and the other Android browsers can't run extensions, so a phone is covered only inside Firefox. Mozilla documents the route on Extension Workshop, under "Installing self-distributed extensions": the add-on isn't on Mozilla's site, so the item that installs it from a file stays hidden until the debug menu is on.
+Firefox for Android, the ordinary one from Google Play, can install the signed `.xpi` from the **Releases** page; Chrome and the other Android browsers can't run extensions, so a phone is covered only inside Firefox. Mozilla documents the route on Extension Workshop, under "Installing self-distributed extensions": the add-on isn't on Mozilla's site, so the item that installs it from a file stays hidden until the debug menu is on (Firefox's own code shows the item whenever that menu is on, in every edition of Firefox for Android).
 
 1. Install Firefox from Google Play (not Nightly or Beta) and open it once.
 2. In Firefox, open this repository's **Releases** page and, under **Assets** of the newest release, tap the `.xpi`. Firefox downloads the file rather than installing it, since it doesn't come from Mozilla's site.
 3. Tap the menu (**⋮**), **Settings**, **About Firefox**, then tap the Firefox logo five times quickly, until a note says "Debug menu enabled". The menu switches itself off when Firefox restarts; the add-on doesn't.
-4. Go back to **Settings** and scroll down to **Install extension from file**, which has appeared. Tap it, pick the downloaded `.xpi` (usually under **Downloads**) and, when Firefox lists what the add-on asks for, tap **Add**. Tick **Allow in private browsing** if Firefox offers it; otherwise the switch is under **⋮ → Extensions → Family Site Blocker**.
+4. Go back to **Settings** and scroll down to **Advanced**: under **Extensions**, **Install extension from file** has appeared. Tap it, pick the downloaded `.xpi` (usually under **Downloads**) and, when Firefox lists what the add-on asks for, tap **Add**. Tick **Allow in private browsing** if Firefox offers it; otherwise the switch is under **⋮ → Extensions → Family Site Blocker**.
 5. Type `exampleadultsite.com` in the address bar. You should see "This site is blocked".
 6. The settings page is under **⋮ → Extensions → Family Site Blocker → Settings**. If its **Is it working?** board says Firefox hasn't given the add-on access to websites, tap **Allow access** there.
 
