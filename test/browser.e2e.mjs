@@ -53,7 +53,12 @@ async function openSettings() {
   page.errors = [];
   page.on('pageerror', (error) => page.errors.push(error.message));
   await page.goto(`chrome-extension://${browser.extensionId}/options.html`);
-  await page.waitForFunction(() => document.querySelector('#check-note')?.textContent.length > 0);
+  // Until the rule check has run: the line starts as "Checking…", and runChecks() empties it before it
+  // fills it in, so a line that merely has text may be read in that moment (it was, on a slow Mac).
+  await page.waitForFunction(() => {
+    const text = document.querySelector('#check-note')?.textContent ?? '';
+    return text.length > 0 && !text.startsWith('Checking');
+  });
   return page;
 }
 
