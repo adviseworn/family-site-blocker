@@ -1,4 +1,5 @@
 // Small helpers the record pages share (attempts.html, tries.html, pictures.html, unlisted.html).
+import { borderline, countHidden, hiddenBySite } from './pictures.js';
 
 /** An element with text and attributes. */
 export function element(tag, text, attributes = {}) {
@@ -16,9 +17,10 @@ export const everyTryWords = (count) => (count ? `See every try (${count})` : 'S
 
 /**
  * Whether Every try (tries.html) has anything to show, so that the links to it show: a try, a time the
- * add-on was off (lib/watching.js's `off`) or an entry in the locked-away password's record (lib/lockbox.js).
+ * add-on was off (lib/watching.js's `off`), a picture hidden (lib/pictures.js) or an entry in the
+ * locked-away password's record (lib/lockbox.js).
  */
-export const everyTryShows = ({ attempts, off, events }) => attempts.length > 0 || off.length > 0 || events.length > 0;
+export const everyTryShows = ({ attempts, off, events, pictures = [] }) => attempts.length > 0 || off.length > 0 || events.length > 0 || pictures.length > 0;
 
 export const whenFormat = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' });
 export const dayFormat = new Intl.DateTimeFormat(undefined, { dateStyle: 'full' });
@@ -60,4 +62,20 @@ export function offVisitsWords(off, counts, tracked) {
   if (counts.off) return `${visits(counts.off)} while the extension was off, the latest on ${whenFormat.format(counts.latestOff)}.`;
   if (off.length) return `No visit to a listed site found from ${off.length === 1 ? 'then' : 'those times'}.`;
   return tracked ? "No time found when this browser was in use while the extension wasn't running." : '';
+}
+
+/**
+ * The pictures hidden summed up (lib/pictures.js), for the pictures page and Every try: "3 pictures and
+ * 1 video hidden on 2 sites, the latest at …. 1 of them is borderline."; for one site, "… hidden at
+ * a.test, the latest at …". '' with none hidden.
+ */
+export function hiddenWords(record, site = null) {
+  const list = Array.isArray(record) ? record : [];
+  if (list.length === 0) return '';
+  const close = list.filter(borderline).length;
+  const where = site ? `at ${site}` : `on ${plural(hiddenBySite(list).length, 'site')}`;
+  return (
+    `${countHidden(list)} hidden ${where}, the latest at ${whenFormat.format(Math.max(...list.map((entry) => entry.at)))}.` +
+    (close ? ` ${close === 1 ? '1 of them is' : `${close} of them are`} borderline.` : '')
+  );
 }

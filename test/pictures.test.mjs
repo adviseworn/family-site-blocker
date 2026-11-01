@@ -8,7 +8,8 @@ import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import jpeg from 'jpeg-js';
-import { BORDERLINE, CLASSES, DEFAULT_STRICTNESS, MAX_PICTURES, MIN_SIZE, STRICTNESS_CHOICES, THRESHOLD, borderline, countHidden, hiddenBySite, isVideo, recordHidden, strictnessOf, verdict } from '../extension/lib/pictures.js';
+import { BORDERLINE, CLASSES, DEFAULT_STRICTNESS, MAX_PICTURES, MIN_SIZE, STRICTNESS_CHOICES, THRESHOLD, borderline, countHidden, describeHidden, hiddenBySite, isVideo, recordHidden, strictnessOf, verdict } from '../extension/lib/pictures.js';
+import { hiddenWords } from '../extension/lib/page.js';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const EXT = join(ROOT, 'extension');
@@ -66,6 +67,25 @@ test('pictures: the record of hidden pictures keeps rounded scores, caps its len
   assert.equal(many.length, MAX_PICTURES);
   assert.equal(many[0].url, 'u3', 'the oldest go');
   assert.deepEqual(hiddenBySite(undefined), []);
+});
+
+test('pictures: a row among every try says what was hidden and why, with the two scores the pages show (1.16.0)', () => {
+  assert.equal(describeHidden({ reason: 'nudity', scores: { porn: 0.9, hentai: 0.02, sexy: 0.02 } }), 'Picture hidden for nudity: nudity 0.92, suggestive 0.02.');
+  assert.equal(describeHidden({ reason: 'suggestive', scores: { porn: 0.1, hentai: 0, sexy: 0.35 }, kind: 'video' }), 'Video hidden as suggestive: nudity 0.10, suggestive 0.35.');
+  assert.equal(describeHidden({ reason: 'other', scores: {} }), 'Picture hidden: nudity 0.00, suggestive 0.00.', 'a reason the pages do not know, and no scores');
+  assert.equal(describeHidden({ scores: { porn: -1, sexy: 'x' } }), 'Picture hidden: nudity 0.00, suggestive 0.00.', 'junk scores count for nothing');
+});
+
+test('pictures: the pages sum the record up in the same words, for every site or for one (1.16.0)', () => {
+  const when = (at) => new Date(at).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+  let record = recordHidden(undefined, { at: 1000, site: 'a.test', url: 'https://a.test/x.jpg', reason: 'nudity', scores: { porn: 0.9 } });
+  assert.equal(hiddenWords(record), `1 picture hidden on 1 site, the latest at ${when(1000)}.`);
+  record = recordHidden(record, { at: 3000, site: 'b.test', url: 'https://b.test/clip.mp4', reason: 'suggestive', scores: { sexy: 0.45 }, kind: 'video' });
+  record = recordHidden(record, { at: 2000, site: 'a.test', url: 'https://a.test/y.jpg', reason: 'nudity', scores: { porn: 0.5 } });
+  assert.equal(hiddenWords(record), `2 pictures and 1 video hidden on 2 sites, the latest at ${when(3000)}. 2 of them are borderline.`, 'the latest by time, whatever the order stored');
+  assert.equal(hiddenWords(record.filter((entry) => entry.site === 'a.test'), 'a.test'), `2 pictures hidden at a.test, the latest at ${when(2000)}. 1 of them is borderline.`);
+  assert.equal(hiddenWords([]), '');
+  assert.equal(hiddenWords(undefined), '');
 });
 
 test('pictures: a hidden video is noted as one, counted apart in the summaries, and counted with the pictures by site', () => {

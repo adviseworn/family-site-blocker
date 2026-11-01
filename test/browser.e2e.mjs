@@ -1267,31 +1267,52 @@ describe('real browser', () => {
         assert.equal(byUrl['drawn.jpg'].reason, 'nudity', 'hentai counts as nudity');
         assert.equal(byUrl['photo.jpg'], undefined, 'shown pictures are not recorded');
 
-        // The record page sums them up in a line; the pictures page lists them (#54).
+        // The record page sums them up in a line; the pictures page sums them up by site (#54), and Every try lists them (1.16.0).
         await record.goto(`chrome-extension://${judge.extensionId}/attempts.html`);
         await record.waitForFunction(() => /^\d+ pictures hidden on \d+ sites?, the latest at /.test(document.querySelector('#pictures-line span').textContent));
         assert.equal(await record.locator('#pictures-line a').getAttribute('href'), 'pictures.html');
-        assert.equal(await record.locator('#hidden-pictures-table').count(), 0, 'no picture tables on the record page');
         await record.goto(`chrome-extension://${judge.extensionId}/pictures.html`);
-        await record.waitForFunction(() => document.querySelectorAll('#hidden-pictures-table tbody tr').length >= 3);
+        await record.waitForFunction(() => document.querySelectorAll('#hidden-sites-table tbody tr').length >= 1);
         assert.match(await record.locator('#summary').innerText(), /^\d+ pictures hidden on \d+ sites?, the latest at .+\. \d+ of them (is|are) borderline\.$/);
         const sites = await record.evaluate(() => [...document.querySelectorAll('#hidden-sites-table tbody tr')].map((row) => [...row.cells].map((cell) => cell.textContent)));
         assert.ok(sites.some((row) => row[0] === 'allowed.test' && Number(row[1]) >= 3), JSON.stringify(sites));
-        const rows = await record.evaluate(() => [...document.querySelectorAll('#hidden-pictures-table tbody tr')].map((row) => [...row.cells].map((cell) => cell.textContent)));
-        const nude = rows.find((row) => row[2].endsWith('/nude.jpg'));
-        assert.deepEqual(nude.slice(1), ['allowed.test', 'http://pics.test/pics/nude.jpg', 'Nudity', '0.92', '0.02', 'Copy address'], JSON.stringify(rows));
-        assert.equal(rows.find((row) => row[2].endsWith('/lingerie.jpg'))[3], 'Suggestive');
+        assert.equal(await record.locator('#hidden-sites-table tr[data-site="allowed.test"] a').getAttribute('href'), 'tries.html#site=allowed.test&pictures');
+        assert.equal(await record.locator('#hidden-pictures-table').count(), 0, 'the table is gone: the rows are among every try');
+        assert.equal(await record.locator('#hidden-pictures-line a').getAttribute('href'), 'tries.html#pictures');
+        await record.click('#hidden-pictures-line a');
+        await record.waitForFunction(() => document.querySelectorAll('.day tbody tr.picture').length >= 3);
+        assert.equal(await record.locator('#filter-site').innerText(), 'the pictures hidden');
+        assert.match(await record.locator('#summary').innerText(), /^\d+ pictures hidden on \d+ sites?, the latest at .+\. \d+ of them (is|are) borderline\.$/);
+        assert.equal(await record.locator('.day tbody tr:not(.picture)').count(), 0, 'the pictures alone');
+        assert.equal(await record.locator('#pictures-alone').isVisible(), false, 'already alone');
+        const rows = await record.evaluate(() =>
+          [...document.querySelectorAll('.day tbody tr.picture')].map((row) => [row.cells[1].textContent, row.querySelector('.picture-url').textContent, row.cells[2].firstChild.textContent, row.className]),
+        );
+        const nude = rows.find((row) => row[1].endsWith('/nude.jpg'));
+        assert.deepEqual(nude, ['allowed.test', 'http://pics.test/pics/nude.jpg', 'Picture hidden for nudity: nudity 0.92, suggestive 0.02.', 'picture'], JSON.stringify(rows));
+        assert.match(rows.find((row) => row[1].endsWith('/lingerie.jpg'))[2], /^Picture hidden as suggestive: nudity 0\.\d\d, suggestive 0\.\d\d\.$/);
         // The drawn picture was hidden on 0.53, a close call: marked borderline, the likelier mistake (#56).
-        const drawn = rows.find((row) => row[2].endsWith('/drawn.jpg'));
-        assert.equal(drawn[3], 'Nudityborderline');
-        assert.equal(await record.locator('#hidden-pictures-table tr.borderline').count(), 1, 'only the close call is marked');
+        const drawn = rows.find((row) => row[1].endsWith('/drawn.jpg'));
+        assert.equal(drawn[3], 'picture borderline');
+        assert.equal(await record.locator('.day tbody tr.picture .borderline-mark').count(), 1, 'only the close call is marked');
         // Copy address puts the picture's address on the clipboard, to be opened in a browser without the extension.
         await judge.context.grantPermissions(['clipboard-read', 'clipboard-write']);
-        const drawnRow = record.locator('#hidden-pictures-table tbody tr', { hasText: 'drawn.jpg' });
+        const drawnRow = record.locator('.day tbody tr.picture', { hasText: 'drawn.jpg' });
         await drawnRow.locator('button').click();
         await record.waitForFunction(() => /Address copied/.test(document.getElementById('copy-status').textContent));
         assert.equal(await record.evaluate(() => navigator.clipboard.readText()), 'http://pics.test/pics/drawn.jpg');
         assert.equal(await drawnRow.locator('button').innerText(), 'Copied');
+        // One site's pictures, from the by-site table; and the whole timeline has them among the tries, explained.
+        await record.goto(`chrome-extension://${judge.extensionId}/tries.html#site=allowed.test&pictures`);
+        await record.waitForFunction(() => document.getElementById('filter-site').textContent === 'allowed.test, the pictures hidden');
+        assert.ok((await record.locator('.day tbody tr.picture').count()) >= 3);
+        assert.deepEqual(await record.evaluate(() => [...new Set([...document.querySelectorAll('.day tbody tr.picture td:nth-child(2)')].map((cell) => cell.textContent))]), ['allowed.test']);
+        assert.match(await record.locator('#summary').innerText(), /^\d+ pictures hidden at allowed\.test, the latest at /);
+        await record.goto(`chrome-extension://${judge.extensionId}/tries.html`);
+        await record.waitForFunction(() => document.getElementById('filter').hidden && document.querySelectorAll('.day tbody tr.picture').length >= 3);
+        assert.equal(await record.locator('#pictures-intro').isVisible(), true);
+        assert.equal(await record.locator('#pictures-alone a').getAttribute('href'), 'tries.html#pictures');
+        assert.match(await record.locator('.day h3 small').first().innerText(), /^\d+ pictures hidden$/, 'the day counts them');
 
         await settings.waitForFunction(() => /pictures? judged, \d+ hidden/.test(document.getElementById('picture-status').textContent));
         assert.match(await settings.locator('#picture-status').innerText(), /^Pictures and videos are judged before they show: since the browser started, \d+ pictures judged, \d+ hidden \(stand-in\)\.$/);
@@ -1530,13 +1551,17 @@ describe('real browser', () => {
         await record.goto(`chrome-extension://${judge.extensionId}/attempts.html`);
         await record.waitForFunction(() => /^\d+ pictures and \d+ videos hidden on \d+ sites?, the latest at /.test(document.querySelector('#pictures-line span').textContent));
         await record.goto(`chrome-extension://${judge.extensionId}/pictures.html`);
-        await record.waitForFunction(() => document.querySelectorAll('#hidden-pictures-table tbody tr').length >= 6);
+        await record.waitForFunction(() => /videos hidden/.test(document.getElementById('summary').textContent));
         assert.match(await record.locator('#summary').innerText(), /^\d+ pictures and \d+ videos hidden on \d+ sites?, the latest at /);
-        const rows = await record.evaluate(() => [...document.querySelectorAll('#hidden-pictures-table tbody tr')].map((row) => [...row.cells].map((cell) => cell.textContent)));
-        const redRow = rows.find((row) => row[2].endsWith('/videos/red.webm'));
-        assert.deepEqual(redRow.slice(1), ['allowed.test', 'videohttp://allowed.test/videos/red.webm', 'Nudity', '0.92', '0.02', 'Copy address'], JSON.stringify(rows));
-        assert.equal(await record.locator('#hidden-pictures-table tbody tr', { hasText: '/videos/red.webm' }).locator('.kind-mark').textContent(), 'video');
-        assert.equal(await record.locator('#hidden-pictures-table tbody tr', { hasText: '/pics/nude.jpg' }).locator('.kind-mark').count(), 0, 'pictures carry no mark');
+        await record.goto(`chrome-extension://${judge.extensionId}/tries.html#pictures`);
+        await record.waitForFunction(() => document.querySelectorAll('.day tbody tr.picture').length >= 6);
+        const rows = await record.evaluate(() =>
+          [...document.querySelectorAll('.day tbody tr.picture')].map((row) => [row.cells[1].textContent, row.querySelector('.picture-url').textContent, row.cells[2].firstChild.textContent, row.className]),
+        );
+        const redRow = rows.find((row) => row[1].endsWith('/videos/red.webm'));
+        assert.deepEqual(redRow, ['allowed.test', 'http://allowed.test/videos/red.webm', 'Video hidden for nudity: nudity 0.92, suggestive 0.02.', 'picture video'], JSON.stringify(rows));
+        assert.ok(rows.find((row) => row[1].endsWith('/pics/nude.jpg'))[2].startsWith('Picture hidden '), 'a picture is a picture');
+        assert.match(await record.locator('.day h3 small').first().innerText(), /^(\d+ pictures?( and \d+ videos?)?|\d+ videos?) hidden$/, 'the day counts both');
 
         await settings.waitForFunction(() => /video frames judged/.test(document.getElementById('picture-status').textContent));
         assert.match(await settings.locator('#picture-status').innerText(), /^Pictures and videos are judged before they show: since the browser started, \d+ pictures judged, \d+ hidden; \d+ video frames judged, \d+ videos hidden \(stand-in\)\.$/);
