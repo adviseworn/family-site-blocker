@@ -1,4 +1,5 @@
 // Small helpers the record pages share (attempts.html, tries.html, pictures.html, unlisted.html).
+import { borderline, countHidden, hiddenBySite } from './pictures.js';
 
 /** An element with text and attributes. */
 export function element(tag, text, attributes = {}) {
@@ -51,4 +52,20 @@ export function offVisitsWords(off, counts, tracked) {
   if (counts.off) return `${visits(counts.off)} while the extension was off, the latest on ${whenFormat.format(counts.latestOff)}.`;
   if (off.length) return `No visit to a listed site found from ${off.length === 1 ? 'then' : 'those times'}.`;
   return tracked ? "No time found when this browser was in use while the extension wasn't running." : '';
+}
+
+/**
+ * The pictures hidden summed up (lib/pictures.js), for the pictures page and Every try: "3 pictures and
+ * 1 video hidden on 2 sites, the latest at …. 1 of them is borderline."; for one site, "… hidden at
+ * a.test, the latest at …". '' with none hidden.
+ */
+export function hiddenWords(record, site = null) {
+  const list = Array.isArray(record) ? record : [];
+  if (list.length === 0) return '';
+  const close = list.filter(borderline).length;
+  const where = site ? `at ${site}` : `on ${plural(hiddenBySite(list).length, 'site')}`;
+  return (
+    `${countHidden(list)} hidden ${where}, the latest at ${whenFormat.format(Math.max(...list.map((entry) => entry.at)))}.` +
+    (close ? ` ${close === 1 ? '1 of them is' : `${close} of them are`} borderline.` : '')
+  );
 }

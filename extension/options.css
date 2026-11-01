@@ -528,6 +528,42 @@ code {
   font-weight: 400;
 }
 
+/* A picture or video the picture filter kept hidden, among the tries: what the record says, the mark of a
+   close call beside it, and under them the address to copy, cut short when long, with its button. */
+.day tr.picture td:last-child {
+  white-space: normal;
+}
+
+.day tr.picture .borderline-mark {
+  display: inline;
+  margin-left: 0.4em;
+}
+
+.day .picture-where {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin-top: 0.25rem;
+}
+
+.day .picture-url {
+  min-width: 0;
+  max-width: 18rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+/* On a phone the address wraps instead, so that the other columns keep their room. */
+@media (max-width: 600px) {
+  .day .picture-url {
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+}
+
 /* Locked-away password */
 
 #lockbox label:not(.button) {
@@ -616,26 +652,6 @@ button.small {
   display: block;
   color: var(--latch);
   font-weight: 600;
-}
-
-.kind-mark {
-  display: block;
-  color: var(--muted);
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-}
-
-#hidden-pictures-table td.picture-url {
-  max-width: 18rem;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 0.85rem;
-}
-
-#hidden-pictures-table td:first-child {
-  white-space: nowrap;
 }
 
 #lockbox progress {
