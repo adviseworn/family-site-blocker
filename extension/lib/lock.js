@@ -8,15 +8,23 @@
 // built-in list does, and installing a new copy takes the administrator password, so a Mac can sit on an
 // old one. So the profile also carries a stamp, through Firefox's 3rdparty policy, which hands values to
 // one add-on as its managed storage (browser.storage.managed): the version of the add-on it was built
-// with, and how many entries Firefox's own copy of the list has (scripts/firefox-lock.mjs writes the same
-// stamp into extension/rules/lock.json, so the add-on knows which copy belongs to its own version). Only a
-// policy can write managed storage, so the stamp can be trusted; and Firefox reads policies when it
-// starts, so the line describes the lock as of Firefox's last start.
+// with, how many entries Firefox's own copy of the list has and, from DIGEST_FROM, a digest of that copy
+// and the lock's other settings (scripts/firefox-lock.mjs writes the same stamp into
+// extension/rules/lock.json, the add-on's own copy, so it knows which profile belongs to its version). The
+// copies are compared by the digest, so a profile from an older version is fine while nothing in it has
+// changed (#78), and a profile from before the digest by its version, against the version the add-on's
+// own list and settings date from (sameSince in its own copy). Only a policy can write managed storage,
+// so the stamp can be trusted; and Firefox reads policies when it starts, so the line describes the lock
+// as of Firefox's last start.
 
 /** The key under which the profile's 3rdparty policy sets the stamp, and the add-on reads it. */
 export const STAMP = 'lock';
 /** The first version whose profile carries the stamp: a lock without one is a copy from before it. */
 export const STAMP_FROM = '1.8.0';
+/** The first version whose stamp carries the digest: a stamp without one is compared by its version. */
+export const DIGEST_FROM = '1.15.0';
+/** The add-on's own copy of the stamp, in its package (the build writes it). */
+export const STAMP_FILE = 'rules/lock.json';
 
 /** Compares two dotted version numbers: negative when a is older, 0 when the same, positive when newer. */
 export function compareVersions(a, b) {
@@ -29,9 +37,14 @@ export function compareVersions(a, b) {
   return 0;
 }
 
+const isVersion = (value) => typeof value === 'string' && /^\d+(\.\d+)*$/.test(value);
+
 /** Whether a value is a stamp as the profile writes it. */
 export const isStamp = (value) =>
-  value != null && typeof value === 'object' && typeof value.version === 'string' && /^\d+(\.\d+)*$/.test(value.version) && Number.isInteger(value.entries) && value.entries >= 0;
+  value != null && typeof value === 'object' && isVersion(value.version) && Number.isInteger(value.entries) && value.entries >= 0;
+
+/** Whether a stamp carries the digest (from DIGEST_FROM), as the build writes it. */
+export const hasDigest = (stamp) => isStamp(stamp) && typeof stamp.digest === 'string' && /^[0-9a-f]+$/.test(stamp.digest);
 
 /**
  * The stamp the installed profile carries, from the add-on's managed storage, or null: when there is no
@@ -44,6 +57,34 @@ export async function managedStamp(storage) {
   } catch {
     return null;
   }
+}
+
+/**
+ * The add-on's own copy of the stamp, the one its version's profile carries (STAMP_FILE), or null when it
+ * can't be read. `runtime` is the browser's runtime API, for the file's address; `fetcher` fetches it.
+ */
+export async function ownStamp(runtime, fetcher = globalThis.fetch) {
+  try {
+    const stamp = await (await fetcher(runtime.getURL(STAMP_FILE))).json();
+    return isStamp(stamp) ? stamp : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Whether the profile a stamp comes from carries the same list and settings as the add-on's own version's
+ * (`own`, the add-on's own copy of the stamp): true, false, or null when it can't be told, as without the
+ * own copy. A stamp with a digest is compared by it. One from before the digest is the same when its
+ * version is from when the add-on's own list and settings were first what they are (sameSince) or later,
+ * and it has as many entries.
+ */
+export function sameSettings(stamp, own) {
+  if (!isStamp(stamp) || !isStamp(own)) return null;
+  // Any digest at all is compared, so a malformed one can't pass for a copy from before the digest.
+  if (typeof stamp.digest === 'string') return typeof own.digest === 'string' ? stamp.digest === own.digest : null;
+  if (!isVersion(own.sameSince)) return null;
+  return stamp.entries === own.entries && compareVersions(stamp.version, own.sameSince) >= 0;
 }
 
 // Firefox's own copy of the list is counted in entries: an entry is a site, or a whole top-level domain.
@@ -61,13 +102,15 @@ const IN_FORCE = 'The Firefox lock is in force: Firefox installed the add-on its
  */
 export const locked = ({ installType, mayDisable }) => installType === 'admin' || mayDisable === false;
 
+const CATCH_UP = "Install the current profile so Firefox's own list and the lock's other settings catch up. ";
+
 /**
  * What the lock line says and how it is marked. `installType` and `mayDisable` are management.getSelf()'s;
- * `stamp` the installed profile's (managedStamp), or null; `own` the add-on's version; `firefox` whether this
- * is Firefox. Returns { state: 'ok' | 'todo', parts }, the parts being strings and { anchor, text } links
- * into the README.
+ * `stamp` the installed profile's (managedStamp), or null; `own` the add-on's version; `ownStamp` the
+ * add-on's own copy of the stamp (ownStamp), or null; `firefox` whether this is Firefox. Returns
+ * { state: 'ok' | 'todo', parts }, the parts being strings and { anchor, text } links into the README.
  */
-export function describeLock({ installType, mayDisable, stamp = null, own, firefox }) {
+export function describeLock({ installType, mayDisable, stamp = null, own, ownStamp = null, firefox }) {
   const byPolicy = locked({ installType, mayDisable });
   if (byPolicy && firefox) {
     if (!stamp) {
@@ -81,11 +124,17 @@ export function describeLock({ installType, mayDisable, stamp = null, own, firef
       };
     }
     const age = compareVersions(stamp.version, own);
+    // A copy from another version is fine while its list and settings are this version's (#78); without
+    // a way to tell (no own copy of the stamp), the version has to say.
+    const same = sameSettings(stamp, ownStamp);
+    if (same === true && age !== 0) {
+      return { state: 'ok', parts: [`${IN_FORCE} The lock installed is the copy from version ${stamp.version}, with the same list and settings as this version's (${own}): ${entries(stamp.entries)} in Firefox's own list.`] };
+    }
     if (age < 0) {
       return {
         state: 'todo',
         parts: [
-          `The Firefox lock is in force, but it's an older copy: from version ${stamp.version}, with ${entries(stamp.entries)} in Firefox's own list, while this is version ${own}. Install the current profile so Firefox's own list catches up. `,
+          `The Firefox lock is in force, but it's an older copy: from version ${stamp.version}, with ${entries(stamp.entries)} in Firefox's own list, while this is version ${own}. ${CATCH_UP}`,
           link(LOCK_IT, 'How to install it'),
           '.',
         ],
@@ -93,6 +142,17 @@ export function describeLock({ installType, mayDisable, stamp = null, own, firef
     }
     if (age > 0) {
       return { state: 'ok', parts: [`${IN_FORCE} The lock installed is the copy from version ${stamp.version}, newer than this add-on (${own}), which updates itself.`] };
+    }
+    if (same === false) {
+      // Stamped with this version, but built from another list or other settings (a local build, say).
+      return {
+        state: 'todo',
+        parts: [
+          `The Firefox lock is in force, but the copy installed isn't this version's (${own}): its list or settings differ, with ${entries(stamp.entries)} in Firefox's own list. ${CATCH_UP}`,
+          link(LOCK_IT, 'How to install it'),
+          '.',
+        ],
+      };
     }
     return { state: 'ok', parts: [`${IN_FORCE} The lock installed is this version's copy (${own}), with ${entries(stamp.entries)} in Firefox's own list.`] };
   }
