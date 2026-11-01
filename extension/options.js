@@ -6,10 +6,11 @@ import { parseDomainList } from './lib/domains.js';
 import { describeLock, lockInForce, managedStamp, ownStamp } from './lib/lock.js';
 import { BOX, EVENTS, PROGRESS, describeBox, loadBox } from './lib/lockbox.js';
 import { MY_LIST_CHANGED, myList, saveMyList } from './lib/mylist.js';
+import { everyTryShows, everyTryWords } from './lib/page.js';
 import { PICTURES, STRICTNESS, STRICTNESS_CHOICES, countHidden, hiddenBySite, strictnessOf } from './lib/pictures.js';
 import { ENGINES } from './lib/safesearch.js';
 import { UNLISTED } from './lib/suspects.js';
-import { WATCHING } from './lib/watching.js';
+import { WATCHING, normalize } from './lib/watching.js';
 
 // Firefox provides `browser`; Chrome, Edge and Brave provide `chrome`. Both return promises here.
 const api = globalThis.browser ?? globalThis.chrome;
@@ -207,9 +208,11 @@ async function checkPrivateWindows() {
 
 // --- The record -----------------------------------------------------------------------------------------
 // The background script notes every attempt to open a listed site (see lib/attempts.js). The latest
-// few are shown here, newest first; the whole record is on attempts.html, in its own tab, with the look
-// through the browser's history. The pictures hidden and the sites that might belong on the list get a
-// line each. Nothing here can clear the record.
+// few are shown here, newest first, with a link straight to every try on tries.html (which lays the times
+// the extension was off and the locked-away password's record in among them) and one to the record page,
+// attempts.html, which sums the record up by site and has the look through the browser's history; each
+// opens in its own tab. The pictures hidden and the sites that might belong on the list get a line each.
+// Nothing here can clear the record.
 const SHOWN = 3;
 const when = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' });
 const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
@@ -230,21 +233,30 @@ function renderPicturesLine(pictures) {
     : 'No picture hidden so far.';
 }
 
+// What the links to Every try depend on of the times the extension was off, so that the minute-by-minute
+// notes of running don't redraw the section.
+let offShown = '';
+const offPart = (state) => JSON.stringify(normalize(state).off);
+
 async function renderAttempts() {
-  const stored = await api.storage.local.get([ATTEMPTS, UNLISTED, PICTURES, WATCHING]);
+  const [stored, { events }] = await Promise.all([api.storage.local.get([ATTEMPTS, UNLISTED, PICTURES, WATCHING]), loadBox(api.storage.local)]);
   const attempts = Array.isArray(stored[ATTEMPTS]) ? [...stored[ATTEMPTS]].reverse() : [];
   const watching = stored[WATCHING] ?? null; // places the visits from the history (lib/watching.js)
+  offShown = offPart(watching);
   renderUnlisted(stored[UNLISTED]);
   renderPicturesLine(stored[PICTURES]);
   const table = $('attempts-table');
-  const all = $('attempts-all');
   const rows = table.querySelector('tbody');
   rows.replaceChildren();
+
+  // Every try holds the tries, the times the extension was off, the pictures hidden and the password's
+  // record: the links to it and to the record page show whenever it has any of them, and the count is the tries.
+  $('record-links').hidden = !everyTryShows({ attempts, off: normalize(watching).off, events, pictures: Array.isArray(stored[PICTURES]) ? stored[PICTURES] : [] });
+  $('every-try').textContent = everyTryWords(attempts.length);
 
   if (attempts.length === 0) {
     $('attempts-summary').textContent = 'No attempts so far.';
     table.hidden = true;
-    all.hidden = true;
     return;
   }
 
@@ -267,15 +279,14 @@ async function renderAttempts() {
     rows.append(row);
   }
   table.hidden = false;
-  all.hidden = false;
-  all.textContent = `See the whole record (${attempts.length})`;
 }
 
 // Keep the record current while the page is open, and the box with the person's list when the record
 // page adds to it (unless the box holds unsaved edits, which must not be thrown away).
 api.storage.onChanged.addListener((changes, area) => {
   if (area !== 'local') return;
-  if (changes[ATTEMPTS] || changes[UNLISTED] || changes[PICTURES]) renderAttempts();
+  if (changes[ATTEMPTS] || changes[UNLISTED] || changes[PICTURES] || changes[EVENTS]) renderAttempts();
+  else if (changes[WATCHING] && offPart(changes[WATCHING].newValue) !== offShown) renderAttempts();
   if (changes[BOX] || changes[PROGRESS] || changes[EVENTS]) renderLockbox();
   if (changes[MY_LIST_CHANGED] && $('custom').value === loaded) refresh().catch(() => {});
 });

@@ -86,7 +86,10 @@
         </thead>
         <tbody></tbody>
       </table>
-      <p><a id="attempts-all" class="button secondary" href="attempts.html" target="_blank" rel="noopener" hidden>See the whole record</a></p>
+      <div id="record-links" class="actions" hidden>
+        <a id="every-try" class="button secondary" href="tries.html" target="_blank" rel="noopener">See every try</a>
+        <a id="record-page" href="attempts.html" target="_blank" rel="noopener">See the record by site, and whether it was ever off</a>
+      </div>
       <p id="pictures-line" aria-live="polite"><span></span> <a href="pictures.html" target="_blank" rel="noopener">See the pictures hidden</a>.</p>
       <p id="unlisted-note" aria-live="polite" hidden><span></span><a href="unlisted.html" target="_blank" rel="noopener">see which</a>.</p>
       <p class="muted">Every try at a listed site is noted with the time, whether it was blocked or got through; visits from before the extension was watching are added from this browser’s own history, and listed sites are kept out of the address bar. <a href="https://github.com/adviseworn/family-site-blocker#blocked-attempts" target="_blank" rel="noopener">How the record works.</a></p>

@@ -495,17 +495,23 @@ describe('Firefox', { skip: findFirefox() ? false : 'no Firefox found (set FIREF
     test('the whole record has a page of its own, opened from the settings page, with the record by site and a file to save', async () => {
       const settings = tabsAfterInstall.find(({ url }) => url.endsWith('/options.html'));
       await browser.fx.send('WebDriver:SwitchToWindow', { handle: settings.handle });
-      const link = await browser.run(`const link = document.getElementById('attempts-all'); return { hidden: link.hidden, text: link.textContent, href: link.href, target: link.target }`);
-      assert.equal(link.hidden, false);
-      assert.match(link.text, /^See the whole record \(\d+\)$/);
-      assert.equal(link.target, '_blank');
-      const count = Number(link.text.match(/\d+/)[0]);
+      const links = await browser.run(
+        `const every = document.getElementById('every-try'); const link = document.getElementById('record-page'); return { hidden: document.getElementById('record-links').hidden, everyTry: every.textContent, everyHref: every.href, everyTarget: every.target, text: link.textContent, href: link.href, target: link.target }`,
+      );
+      assert.equal(links.hidden, false);
+      assert.match(links.everyTry, /^See every try \(\d+\)$/, 'straight to every try from the settings page (1.15.1)');
+      assert.ok(links.everyHref.endsWith('/tries.html'), links.everyHref);
+      assert.equal(links.everyTarget, '_blank');
+      assert.equal(links.text, 'See the record by site, and whether it was ever off');
+      assert.ok(links.href.endsWith('/attempts.html'), links.href);
+      assert.equal(links.target, '_blank');
+      const count = Number(links.everyTry.match(/\d+/)[0]);
       const shownOnSettings = await browser.run(`return document.querySelectorAll('#attempts-table tbody tr').length`);
       assert.ok(shownOnSettings <= 3 && shownOnSettings <= count, 'the settings page shows the latest three at most');
 
       const before = (await browser.tabs()).map(({ handle }) => handle); // tabs() leaves another tab current
       await browser.fx.send('WebDriver:SwitchToWindow', { handle: settings.handle });
-      await browser.run(`document.getElementById('attempts-all').click()`);
+      await browser.run(`document.getElementById('record-page').click()`);
       let opened = null;
       for (let i = 0; i < 40 && !opened; i++) {
         await sleep(250);

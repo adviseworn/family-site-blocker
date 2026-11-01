@@ -9,7 +9,7 @@ import { dirname, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { FROM_HISTORY, LABELS, MAX_ATTEMPTS, SAME_ATTEMPT_MS, bookmarksTo, bySite, hostOf, listedDomain, mergeVisits, offDuring, outcome as whatHappened, record, summarize, timeline, toCsv } from '../extension/lib/attempts.js';
-import { offVisitsWords, offWords, spanWords } from '../extension/lib/page.js';
+import { everyTryShows, everyTryWords, offVisitsWords, offWords, spanWords } from '../extension/lib/page.js';
 import { GAP_MS, MAX_OFF, MAX_PERIODS, WRITE_EVERY_MS, beat, earliestLiveTry, gapsOf, kindOfVisit, normalize, noteGaps, started, wasRunning } from '../extension/lib/watching.js';
 import { normalizeDomain, parseDomainList } from '../extension/lib/domains.js';
 import { MAX_UNLISTED, looksAdult, siteOf, tallyUnlisted } from '../extension/lib/suspects.js';
@@ -579,6 +579,19 @@ test('the words for the times the add-on was off, shared by the record page and 
   assert.equal(offVisitsWords(two, none, true), 'No visit to a listed site found from those times.');
   assert.equal(offVisitsWords(one, { off: 2, latestOff: at(20, 22) }, true), `2 visits to listed sites while the extension was off, the latest on ${when.format(at(20, 22))}.`);
   assert.equal(offVisitsWords([], { off: 1, latestOff: at(20, 22) }, false), `1 visit to a listed site while the extension was off, the latest on ${when.format(at(20, 22))}.`);
+});
+
+test('the link to every try, shared by the settings page and the record page: shown whenever that page has something to show, counting the tries (1.15.1)', () => {
+  assert.equal(everyTryWords(0), 'See every try');
+  assert.equal(everyTryWords(1), 'See every try (1)');
+  assert.equal(everyTryWords(60), 'See every try (60)');
+  const nothing = { attempts: [], off: [], events: [], pictures: [] };
+  assert.equal(everyTryShows(nothing), false);
+  assert.equal(everyTryShows({ attempts: [], off: [], events: [] }), false, 'a page that reads no pictures');
+  assert.equal(everyTryShows({ ...nothing, pictures: [{ at: 1, site: 'a.test', url: 'u', reason: 'nudity', scores: {} }] }), true, 'a picture hidden (1.16.0)');
+  assert.equal(everyTryShows({ ...nothing, attempts: [{ at: 1, site: 'a.test' }] }), true, 'a try');
+  assert.equal(everyTryShows({ ...nothing, off: [{ from: 1, to: 2, pages: 0 }] }), true, 'a time the add-on was off');
+  assert.equal(everyTryShows({ ...nothing, events: [{ at: '2026-11-01T21:00:00Z', event: 'locked' }] }), true, "an entry in the password's record");
 });
 
 test('watching: the first start is noted once, exactly on an install and as "at least" for a profile that had an earlier version', () => {
@@ -1282,6 +1295,19 @@ test("every link in the settings page's contents line lands on a section of the 
     assert.ok(section, `#${id} is not a section of the page`);
     assert.equal(section[1], text, `the link to #${id} should carry the heading's name`);
   }
+});
+
+test("the settings page's record section links straight to every try and to the record page, each in a tab of its own (1.15.1)", () => {
+  const html = readFileSync(join(EXT, 'options.html'), 'utf8');
+  const links = [...html.matchAll(/<a id="(every-try|record-page)" ([^>]*)>([^<]+)<\/a>/g)].map((m) => ({ id: m[1], attributes: m[2], text: m[3] }));
+  assert.deepEqual(
+    links.map(({ id, text }) => [id, text]),
+    [['every-try', 'See every try'], ['record-page', 'See the record by site, and whether it was ever off']],
+  );
+  assert.ok(links[0].attributes.includes('href="tries.html"'), 'every try, straight from the settings page');
+  assert.ok(links[1].attributes.includes('href="attempts.html"'), 'the record page');
+  for (const { id, attributes } of links) assert.ok(attributes.includes('target="_blank"'), `${id} opens in a tab of its own`);
+  assert.ok(/<div id="record-links" class="actions" hidden>/.test(html), 'both hidden until there is something to see');
 });
 
 test('module imports resolve', () => {
