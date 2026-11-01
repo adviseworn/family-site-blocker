@@ -1185,6 +1185,17 @@ test('every file the pages reference exists', () => {
   }
 });
 
+test("every link in the settings page's contents line lands on a section of the page, under the heading's own name", () => {
+  const html = readFileSync(join(EXT, 'options.html'), 'utf8');
+  const links = [...html.matchAll(/<li><a href="#([\w-]+)">([^<]+)<\/a><\/li>/g)].map((m) => ({ id: m[1], text: m[2] }));
+  assert.equal(links.length, 5, 'one link per section');
+  for (const { id, text } of links) {
+    const section = html.match(new RegExp(`<section id="${id}"[^>]*>\\s*<h2[^>]*>([^<]+)</h2>`));
+    assert.ok(section, `#${id} is not a section of the page`);
+    assert.equal(section[1], text, `the link to #${id} should carry the heading's name`);
+  }
+});
+
 test('module imports resolve', () => {
   for (const file of ['background.js', 'options.js', 'attempts.js', 'tries.js', 'pictures.js', 'unlisted.js', 'lockbox.js', 'lockbox-worker.js', 'lib/attempts.js', 'lib/domains.js', 'lib/lockbox.js', 'lib/mylist.js', 'lib/page.js', 'lib/pictures.js', 'lib/rules.js', 'lib/safesearch.js', 'lib/suspects.js', 'lib/timelock.js', 'lib/watching.js']) {
     const source = readFileSync(join(EXT, file), 'utf8');

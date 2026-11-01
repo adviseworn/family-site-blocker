@@ -89,10 +89,38 @@ p {
   color: var(--muted);
 }
 
+/* The contents line under the title: a link to each section, with a dot between. */
+.contents {
+  display: flex;
+  flex-wrap: wrap;
+  margin: 0.75rem 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: 0.95rem;
+  line-height: 1.8;
+}
+
+.contents a {
+  color: var(--gate);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.contents a:hover {
+  text-decoration: underline;
+}
+
+.contents li + li::before {
+  content: "·";
+  margin: 0 0.5em;
+  color: var(--muted);
+}
+
 section {
   margin-top: 2.5rem;
   padding-top: 1.75rem;
   border-top: 1px solid var(--line);
+  scroll-margin-top: 1rem; /* a jump from the contents line leaves a little room above the heading */
 }
 
 .button,
