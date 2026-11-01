@@ -20,11 +20,17 @@ const EVENTS_SHOWN = 10;
 // (the locked panel's note says it before the wait is lengthened there).
 const OLD_BACKUPS =
   'A backup file saved before this still opens after the old wait: delete it (and empty the Trash) or make up a new password, and save a new backup file.';
+// How the password shown leaves the page, said under it: Hide and Lock it away again clear it from the clipboard
+// (clearClipboard); closing the page can't, since the browser only lets the page write to the clipboard after a click.
+const STAYS = 'It stays on this page until you click Hide or close the page. Hide and Lock it away again also clear it from the clipboard if it was copied here; closing the page doesn’t.';
 
 let worker = null;
 let lastSaved = 0;
 let startedAt = null; // when the unlocking under way was started, for the progress record and the `shown` entry
 let latestDone = 0; // the squarings done so far by the worker, over every layer, which is ahead of the progress saved
+// Whether the password is on the clipboard from this page (Copy, or ⌘C/Ctrl+C on one of its boxes) and hasn't been
+// cleared from it since: what clearClipboard() goes by, since reading the clipboard would take a permission of its own.
+let onClipboard = false;
 // A failure to write the record must not stop what the person asked for; it is noted in the console.
 const record = (event, details) =>
   recordEvent(store, event, details).catch((error) => {
@@ -34,6 +40,25 @@ const record = (event, details) =>
 
 function say(text) {
   $('lockbox-status').textContent = text;
+}
+
+/**
+ * Clears the clipboard when the password is on it from this page, so that locking it away or hiding it doesn't
+ * leave it there to paste. Called first thing from the click, before anything is awaited: without a permission of
+ * its own, the browser only lets the page write to the clipboard for a few seconds after a click on it, which is
+ * also why closing the page can't clear it. Resolves to what the status line should add: nothing when there was
+ * nothing to clear.
+ */
+async function clearClipboard() {
+  if (!onClipboard) return '';
+  try {
+    await navigator.clipboard.writeText('');
+    onClipboard = false;
+    $('lockbox-copied').hidden = true;
+    return ' Cleared from the clipboard too.';
+  } catch (error) {
+    return ` It couldn’t be cleared from the clipboard (${error.message}): copy something else to replace it.`;
+  }
 }
 
 function startWorker() {
@@ -149,6 +174,7 @@ async function lock() {
     say('Type the password to lock away first.');
     return;
   }
+  const clearing = clearClipboard(); // now, while the click still lets the page write to the clipboard
   const delay = Number($('lockbox-delay').value);
   $('lockbox-lock').disabled = true;
   say('Timing this computer to set the wait…');
@@ -157,9 +183,9 @@ async function lock() {
     await record('locked', { delay });
     $('lockbox-secret').value = '';
     await render();
-    say(`Locked away. Save a backup file so it isn’t lost if the extension is removed.`);
+    say(`Locked away.${await clearing} Save a backup file so it isn’t lost if the extension is removed.`);
   } catch (error) {
-    say(`Couldn’t lock it away: ${error.message}`);
+    say(`Couldn’t lock it away: ${error.message}.${await clearing}`);
   } finally {
     $('lockbox-lock').disabled = false;
   }
@@ -279,11 +305,11 @@ async function reveal(box, secret) {
   try {
     await lockAway(secret, box.delay);
     await record('sealed', { delay: box.delay });
-    $('lockbox-again').textContent = `It’s already locked away again with the same wait (${duration(box.delay)}). It stays on this page until you click Hide or close the page.`;
+    $('lockbox-again').textContent = `It’s already locked away again with the same wait (${duration(box.delay)}). ${STAYS}`;
     say('');
   } catch (error) {
     // The old box is still stored, so the password stays locked away, but unlocking it starts from the beginning.
-    $('lockbox-again').textContent = 'The old puzzle is kept, so it’s still locked away. It stays on this page until you click Hide or close the page.';
+    $('lockbox-again').textContent = `The old puzzle is kept, so it’s still locked away. ${STAYS}`;
     await store.remove(PROGRESS).catch(() => {});
     await record('seal-failed');
     say(`Couldn’t lock it away again with a fresh puzzle (${error.message}), so the old one is kept.`);
@@ -295,6 +321,7 @@ async function reveal(box, secret) {
 async function relock() {
   const secret = $('lockbox-revealed').value;
   if (!secret) return;
+  const clearing = clearClipboard(); // now, while the click still lets the page write to the clipboard
   const delay = Number($('lockbox-new-wait').value);
   const { box } = await load();
   const longer = box !== null && delay > Math.round(waitOf(box));
@@ -303,10 +330,10 @@ async function relock() {
   try {
     await lockAway(secret, delay);
     await record('sealed', { delay, previous: box?.delay });
-    $('lockbox-again').textContent = `It’s locked away again with a wait of ${duration(delay)}. It stays on this page until you click Hide or close the page.`;
-    say(`Locked away again with a wait of ${duration(delay)}.${longer ? ` ${OLD_BACKUPS}` : ''}`);
+    $('lockbox-again').textContent = `It’s locked away again with a wait of ${duration(delay)}. ${STAYS}`;
+    say(`Locked away again with a wait of ${duration(delay)}.${await clearing}${longer ? ` ${OLD_BACKUPS}` : ''}`);
   } catch (error) {
-    say(`Couldn’t lock it away again with that wait: ${error.message}`);
+    say(`Couldn’t lock it away again with that wait: ${error.message}.${await clearing}`);
   } finally {
     $('lockbox-relock').disabled = false;
   }
@@ -388,15 +415,19 @@ function makeOne() {
   say('Copy it (⌘C or Ctrl+C) and make it the administrator password first, then come back and lock it away.');
 }
 
-function hide() {
+async function hide() {
+  const clearing = clearClipboard(); // now, while the click still lets the page write to the clipboard
   $('lockbox-revealed').value = '';
-  render();
+  await render();
+  const note = await clearing;
+  if (note) say(`Hidden.${note}`);
 }
 
 // Says "Copied" beside the button, not on the status line at the foot of the panel, where it was easy to miss.
 async function copy() {
   try {
     await navigator.clipboard.writeText($('lockbox-revealed').value);
+    onClipboard = true;
     $('lockbox-copied').hidden = false;
   } catch (error) {
     say(`Couldn’t copy it: ${error.message}. Select the password and copy it (⌘C or Ctrl+C).`);
@@ -415,6 +446,14 @@ $('lockbox-hide').addEventListener('click', hide);
 $('lockbox-copy').addEventListener('click', copy);
 $('lockbox-relock').addEventListener('click', relock);
 $('lockbox-events-more').addEventListener('click', showAllEvents);
+// Copying out of either box by hand (⌘C or Ctrl+C, or the menu) puts the password on the clipboard as Copy does.
+for (const id of ['lockbox-secret', 'lockbox-revealed']) {
+  for (const type of ['copy', 'cut']) {
+    $(id).addEventListener(type, ({ target }) => {
+      if (target.selectionEnd > target.selectionStart) onClipboard = true;
+    });
+  }
+}
 
 showVersion(api);
 render().catch((error) => say(`Couldn’t read the locked-away password: ${error.message}`));
