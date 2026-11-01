@@ -1582,14 +1582,11 @@ describe('real browser', () => {
         assert.equal(stored.lockboxEvents[0].delay, 3);
         assert.ok(Math.abs(Date.parse(stored.lockboxEvents[0].at) - Date.now()) < 60_000, stored.lockboxEvents[0].at);
         assert.equal(await page.locator('#lockbox-record').isVisible(), true);
-        assert.deepEqual((await shownRecord(page)).map(({ what, hidden }) => [what, hidden]), [['Locked away, with a wait of 3 seconds.', false]]);
+        assert.deepEqual((await shownRecord(page)).map(({ what, hidden }) => [what, hidden]), [['Locked away, with a wait of 3 seconds.', false], ['The record began.', false]], 'the entry, and the beginning as the last row');
         assert.match((await shownRecord(page))[0].when, /\d{4}.*\d:\d\d/, 'the day and the time');
         assert.equal(await page.locator('#lockbox-events-more').isVisible(), false, 'nothing folded away');
-        // And a line says when the record began (1.11.4): now, which is kept for when the oldest entries go.
-        assert.equal(
-          await page.locator('#lockbox-record-since').innerText(),
-          `The record began ${(await shownRecord(page))[0].when}; everything done with the password on this page since then is in it.`,
-        );
+        // And the table's last row says when the record began (1.11.4; a row from 1.13.1): now, kept for when the oldest entries go.
+        assert.equal((await shownRecord(page)).at(-1).when, (await shownRecord(page))[0].when, "the beginning is the first entry's time");
         assert.equal(stored.lockboxEventsSince, stored.lockboxEvents[0].at);
         assert.deepEqual(page.errors, []);
         // The settings page says where it stands, and follows along.
@@ -1896,25 +1893,21 @@ describe('real browser', () => {
         await page.reload();
         await page.locator('#lockbox-record').waitFor({ state: 'visible' });
         const rows = await shownRecord(page);
-        assert.equal(rows.length, 14);
-        assert.deepEqual(rows.map(({ hidden }) => hidden), [...Array(10).fill(false), ...Array(4).fill(true)]);
+        assert.equal(rows.length, 15, 'the 14 entries and the beginning');
+        assert.deepEqual(rows.map(({ hidden }) => hidden), [...Array(10).fill(false), ...Array(4).fill(true), false], 'the beginning stays in view below the rows folded away');
         assert.deepEqual(rows.map(({ what }) => what).slice(0, 4), [
           'Locked away, with a wait of 2 days.',
           'Deleted.',
           'Couldn’t be locked away again with a fresh puzzle, so the old one was kept.',
           'The password was shown.',
         ]);
-        assert.equal(rows.at(-1).what, 'Locked away, with a wait of 2 days.');
-        assert.equal(
-          await page.locator('#lockbox-record-since').innerText(),
-          `The record began ${rows.at(-1).when}; everything done with the password on this page since then is in it.`,
-          'a record from before 1.11.4 began at its oldest entry',
-        );
-        assert.equal(rows.at(-3).what, 'Unlocking stopped at 7% done; the work was thrown away.');
-        assert.notEqual(rows[0].when, rows.at(-1).when, 'each row has its own time');
+        assert.equal(rows.at(-2).what, 'Locked away, with a wait of 2 days.');
+        assert.deepEqual([rows.at(-1).what, rows.at(-1).when], ['The record began.', rows.at(-2).when], 'a record from before 1.11.4 began at its oldest entry');
+        assert.equal(rows.at(-4).what, 'Unlocking stopped at 7% done; the work was thrown away.');
+        assert.notEqual(rows[0].when, rows.at(-2).when, 'each row has its own time');
         assert.equal(await page.locator('#lockbox-events-more').innerText(), 'Show all 14');
         await page.click('#lockbox-events-more');
-        assert.deepEqual((await shownRecord(page)).map(({ hidden }) => hidden), Array(14).fill(false));
+        assert.deepEqual((await shownRecord(page)).map(({ hidden }) => hidden), Array(15).fill(false));
         assert.equal(await page.locator('#lockbox-events-more').isVisible(), false);
         // The settings page's line reads the record too: the password now locked away is the last one.
         const settings = await openSettings();

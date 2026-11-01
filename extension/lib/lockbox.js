@@ -213,16 +213,16 @@ export function describeBox({ box, progress, events = [] }) {
 }
 
 /**
- * The line under the record's heading on the password's page: when the record began and, once its oldest
- * entries have gone (EVENTS_KEPT), how far back it still reaches. "" with no record.
+ * The last row of the record's table on the password's page, below its oldest entry: when the record began
+ * and, once its oldest entries have gone (EVENTS_KEPT), how far back it still reaches: { at, what }, null
+ * with no record.
  */
-export function describeRecord({ events = [], since = null }) {
+export function beginningOf({ events = [], since = null }) {
   const began = recordBegan(events, since);
-  if (!began || events.length === 0) return '';
+  if (!began || events.length === 0) return null;
   const oldest = events[0].at;
-  return Date.parse(oldest) > Date.parse(began)
-    ? `The record began ${when(began)}, but it keeps only the latest ${EVENTS_KEPT} entries, so those before ${when(oldest)} have gone.`
-    : `The record began ${when(began)}; everything done with the password on this page since then is in it.`;
+  const gone = Date.parse(oldest) > Date.parse(began);
+  return { at: began, what: gone ? `The record began. It keeps only the latest ${EVENTS_KEPT} entries, so those before ${when(oldest)} have gone.` : 'The record began.' };
 }
 
 /** What an entry of the record says happened, in words, for the record on the password's page. */
