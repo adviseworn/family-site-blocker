@@ -5,7 +5,7 @@
 // password. Progress is saved as it goes, so closing the page pauses the work rather than losing it.
 // Everything done here is written to a record (lib/lockbox.js, EVENTS) that the page shows below the
 // password, newest first, and that stays when the password is deleted or replaced (#75).
-import { BOX, PROGRESS, describeEvent, duration, fractionDone, layerUnderWork, loadBox, recordEvent, sinceText } from './lib/lockbox.js';
+import { BOX, PROGRESS, describeEvent, describeRecord, duration, fractionDone, layerUnderWork, loadBox, recordEvent, sinceText } from './lib/lockbox.js';
 import { element, showVersion, whenFormat } from './lib/page.js';
 import { START, isBox, lengthen, modulusOf, open, seal, secondsOf, stepsOf, waitOf } from './lib/timelock.js';
 
@@ -92,10 +92,11 @@ function showProgress(box, progress, rate) {
   $('lockbox-progress-text').textContent = `${Math.floor(fraction * 100)}% done, about ${duration(toGo)} to go.`;
 }
 
-/** The record, newest first: the latest few entries, and a button that shows the rest. */
-function renderEvents(events) {
+/** The record, newest first: when it began, the latest few entries, and a button that shows the rest. */
+function renderEvents({ events, since }) {
   const section = $('lockbox-record');
   section.hidden = events.length === 0;
+  $('lockbox-record-since').textContent = describeRecord({ events, since });
   const body = $('lockbox-events').querySelector('tbody');
   body.replaceChildren();
   const newestFirst = [...events].reverse();
@@ -115,8 +116,9 @@ function showAllEvents() {
 }
 
 async function render() {
-  const { box, progress, events } = await load();
-  renderEvents(events);
+  const loaded = await load();
+  const { box, progress, events } = loaded;
+  renderEvents(loaded);
   if (!box) {
     showOnly('lockbox-empty');
     return;
@@ -285,7 +287,7 @@ async function reveal(box, secret) {
     await record('seal-failed');
     say(`Couldn’t lock it away again with a fresh puzzle (${error.message}), so the old one is kept.`);
   }
-  renderEvents((await load()).events);
+  renderEvents(await load());
 }
 
 // Locks the password shown away again with the wait chosen on the open panel, in place of the box just made.
@@ -307,7 +309,7 @@ async function relock() {
   } finally {
     $('lockbox-relock').disabled = false;
   }
-  renderEvents((await load()).events);
+  renderEvents(await load());
 }
 
 async function stopUnlocking() {

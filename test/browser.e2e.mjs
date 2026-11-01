@@ -1561,6 +1561,12 @@ describe('real browser', () => {
         assert.deepEqual((await shownRecord(page)).map(({ what, hidden }) => [what, hidden]), [['Locked away, with a wait of 3 seconds.', false]]);
         assert.match((await shownRecord(page))[0].when, /\d{4}.*\d:\d\d/, 'the day and the time');
         assert.equal(await page.locator('#lockbox-events-more').isVisible(), false, 'nothing folded away');
+        // And a line says when the record began (1.11.4): now, which is kept for when the oldest entries go.
+        assert.equal(
+          await page.locator('#lockbox-record-since').innerText(),
+          `The record began ${(await shownRecord(page))[0].when}; everything done with the password on this page since then is in it.`,
+        );
+        assert.equal(stored.lockboxEventsSince, stored.lockboxEvents[0].at);
         assert.deepEqual(page.errors, []);
         // The settings page says where it stands, and follows along.
         const settings = await openSettings();
@@ -1702,7 +1708,7 @@ describe('real browser', () => {
         await page.locator('#lockbox-empty').waitFor({ state: 'visible' });
         // The password and the progress are gone; the record stays, and says so (#75). Only the lockbox's own
         // keys count: the background script's note of when it is running can be written at any moment (#131).
-        assert.deepEqual(Object.keys(await storedLockbox(page)).filter((key) => key.startsWith('lockbox')), ['lockboxEvents']);
+        assert.deepEqual(Object.keys(await storedLockbox(page)).filter((key) => key.startsWith('lockbox')).sort(), ['lockboxEvents', 'lockboxEventsSince']);
         assert.deepEqual(await recordedEvents(page), ['locked', 'deleted']);
         assert.equal(await page.locator('#lockbox-record').isVisible(), true);
         assert.equal((await shownRecord(page))[0].what, 'Deleted.');
@@ -1760,6 +1766,11 @@ describe('real browser', () => {
           'The password was shown.',
         ]);
         assert.equal(rows.at(-1).what, 'Locked away, with a wait of 2 days.');
+        assert.equal(
+          await page.locator('#lockbox-record-since').innerText(),
+          `The record began ${rows.at(-1).when}; everything done with the password on this page since then is in it.`,
+          'a record from before 1.11.4 began at its oldest entry',
+        );
         assert.equal(rows.at(-3).what, 'Unlocking stopped at 7% done; the work was thrown away.');
         assert.notEqual(rows[0].when, rows.at(-1).when, 'each row has its own time');
         assert.equal(await page.locator('#lockbox-events-more').innerText(), 'Show all 14');

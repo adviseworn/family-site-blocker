@@ -8,7 +8,7 @@ import { webcrypto } from 'node:crypto';
 
 globalThis.crypto ??= webcrypto; // Node 18 has Web Crypto, but not on globalThis
 
-const { BOX, EVENTS, EVENTS_KEPT, EVENT_NAMES, PROGRESS, describeBox, describeEvent, duration, fractionDone, isEvent, layerUnderWork, loadBox, recordEvent, sinceOf, sinceText, thisPassword, times } =
+const { BOX, EVENTS, EVENTS_KEPT, EVENTS_SINCE, EVENT_NAMES, PROGRESS, describeBox, describeEvent, describeRecord, duration, fractionDone, isEvent, layerUnderWork, loadBox, recordBegan, recordEvent, sinceOf, sinceText, thisPassword, times } =
   await import('../extension/lib/lockbox.js');
 const { lengthen, seal } = await import('../extension/lib/timelock.js');
 
@@ -52,7 +52,7 @@ test('an entry is a time and an event name; the record keeps only such entries',
   assert.deepEqual((await loadBox(fakeStore({ [EVENTS]: 'junk' }))).events, []);
 });
 
-test('recording adds the entry with the time, oldest first, and drops the oldest once the record is long', async () => {
+test('recording adds the entry with the time, oldest first, drops the oldest once the record is long, and keeps when the record began', async () => {
   const store = fakeStore();
   const before = Date.now();
   const first = await recordEvent(store, 'locked', { delay: 172800 });
@@ -62,12 +62,50 @@ test('recording adds the entry with the time, oldest first, and drops the oldest
   await recordEvent(store, 'started');
   assert.deepEqual(store.data[EVENTS].map(({ event }) => event), ['locked', 'started']);
   assert.ok(store.data[EVENTS].every(isEvent));
+  assert.equal(store.data[EVENTS_SINCE], first.at, 'when the record began: its first entry (1.11.4)');
 
   const long = fakeStore({ [EVENTS]: Array.from({ length: EVENTS_KEPT }, (_, i) => at(new Date(i * 1000).toISOString(), 'resumed', { done: i, steps: 9 })) });
   await recordEvent(long, 'stopped', { done: 5, steps: 9 });
   assert.equal(long.data[EVENTS].length, EVENTS_KEPT);
   assert.equal(long.data[EVENTS][0].done, 1, 'the oldest went');
   assert.equal(long.data[EVENTS].at(-1).event, 'stopped');
+  assert.equal(long.data[EVENTS_SINCE], new Date(0).toISOString(), 'a record from before 1.11.4 began at its oldest entry, kept as that entry goes');
+  await recordEvent(long, 'started');
+  assert.equal(long.data[EVENTS_SINCE], new Date(0).toISOString(), 'and it stays');
+
+  const kept = fakeStore({ [EVENTS]: [at(T.started, 'started')], [EVENTS_SINCE]: T.locked });
+  await recordEvent(kept, 'shown');
+  assert.equal(kept.data[EVENTS_SINCE], T.locked, 'the time stored stays, before the entries left');
+});
+
+test('when the record began, and the line that says so under its heading (1.11.4)', async () => {
+  assert.equal(recordBegan([], undefined), null, 'no record');
+  assert.equal(recordBegan([at(T.started, 'started')], undefined), T.started, 'a record from before 1.11.4: its oldest entry');
+  assert.equal(recordBegan([at(T.started, 'started')], 'junk'), T.started);
+  assert.equal(recordBegan([at(T.started, 'started')], T.locked), T.locked, 'the time kept, once the entry has gone');
+  assert.equal(recordBegan([at(T.locked, 'locked')], T.started), T.locked, 'whichever is earlier');
+  assert.equal(recordBegan([], T.locked), T.locked);
+
+  assert.equal((await loadBox(fakeStore())).since, null);
+  assert.equal((await loadBox(fakeStore({ [EVENTS]: [at(T.started, 'started')] }))).since, T.started);
+  assert.equal((await loadBox(fakeStore({ [EVENTS]: [at(T.started, 'started')], [EVENTS_SINCE]: T.locked }))).since, T.locked);
+
+  assert.equal(describeRecord({ events: [] }), '', 'nothing to say with no record');
+  assert.equal(describeRecord({ events: [], since: T.locked }), '');
+  assert.equal(
+    describeRecord({ events: [at(T.locked, 'locked', { delay: 60 }), at(T.started, 'started')], since: T.locked }),
+    `The record began ${when(T.locked)}; everything done with the password on this page since then is in it.`,
+  );
+  assert.equal(
+    describeRecord({ events: [at(T.started, 'started')] }),
+    `The record began ${when(T.started)}; everything done with the password on this page since then is in it.`,
+    'a record from before 1.11.4 reads from its oldest entry',
+  );
+  assert.equal(
+    describeRecord({ events: [at(T.started, 'started'), at(T.shown, 'shown')], since: T.locked }),
+    `The record began ${when(T.locked)}, but it keeps only the latest ${EVENTS_KEPT} entries, so those before ${when(T.started)} have gone.`,
+    'once the oldest entries have gone',
+  );
 });
 
 test('the part of the record about the password now locked away starts at the last locking or restoring', () => {
@@ -162,7 +200,7 @@ test('the small words: times, and the keys the pages share', () => {
   assert.equal(times(1), 'once');
   assert.equal(times(2), 'twice');
   assert.equal(times(3), '3 times');
-  assert.deepEqual([BOX, PROGRESS, EVENTS], ['lockbox', 'lockboxProgress', 'lockboxEvents']);
+  assert.deepEqual([BOX, PROGRESS, EVENTS, EVENTS_SINCE], ['lockbox', 'lockboxProgress', 'lockboxEvents', 'lockboxEventsSince']);
 });
 
 // The wait lengthened (#76): a box inside a box, read layer by layer.
@@ -206,9 +244,9 @@ test('the line gives the whole wait of a lengthened box, says when it was length
 });
 
 test('reading storage gives the box and the progress made on it, layer and all, or nothing', async () => {
-  assert.deepEqual(await loadBox(fakeStore({ [BOX]: { format: 'family-site-blocker-lockbox', version: 1 } })), { box: null, progress: null, events: [] }, 'not a box');
-  assert.deepEqual(await loadBox(fakeStore({ [BOX]: inner })), { box: inner, progress: null, events: [] });
-  assert.deepEqual(await loadBox(fakeStore({ [BOX]: outer })), { box: outer, progress: null, events: [] });
+  assert.deepEqual(await loadBox(fakeStore({ [BOX]: { format: 'family-site-blocker-lockbox', version: 1 } })), { box: null, progress: null, events: [], since: null }, 'not a box');
+  assert.deepEqual(await loadBox(fakeStore({ [BOX]: inner })), { box: inner, progress: null, events: [], since: null });
+  assert.deepEqual(await loadBox(fakeStore({ [BOX]: outer })), { box: outer, progress: null, events: [], since: null });
   const progress = { n: outer.n, x: 'ff', done: 7, before: 0 };
   assert.deepEqual((await loadBox(fakeStore({ [BOX]: outer, [PROGRESS]: progress }))).progress, progress);
   assert.equal((await loadBox(fakeStore({ [BOX]: outer, [PROGRESS]: { n: inner.n, x: 'ff', done: 7 } }))).progress, null, 'progress on another box does not count');
