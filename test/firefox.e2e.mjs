@@ -839,7 +839,7 @@ describe('Firefox', { skip: findFirefox() ? false : 'no Firefox found (set FIREF
       // The record of what happened (#75): under the password, newest first, once it has been locked away again.
       const recordUntil = Date.now() + 15_000;
       let record = [];
-      while (record.length < 5 && Date.now() < recordUntil) {
+      while (record.length < 6 && Date.now() < recordUntil) {
         await sleep(200);
         record = await browser.run("return Array.from(document.querySelectorAll('#lockbox-events tbody tr'), (row) => row.cells[1].textContent)");
       }
@@ -848,6 +848,7 @@ describe('Firefox', { skip: findFirefox() ? false : 'no Firefox found (set FIREF
       assert.equal(record[2], 'Unlocking started.');
       assert.equal(record[3], 'The wait was lengthened from 3 seconds to 5 seconds, without unlocking.');
       assert.equal(record[4], 'Locked away, with a wait of 3 seconds.');
+      assert.equal(record[5], 'The record began.', "the table's last row, from 1.13.1");
       const events = await browser.fx.send('WebDriver:ExecuteAsyncScript', {
         script: `const done = arguments[arguments.length - 1]; browser.storage.local.get('lockboxEvents').then((got) => done((got.lockboxEvents ?? []).map(({ event }) => event)), (e) => done([]));`,
         args: [],
