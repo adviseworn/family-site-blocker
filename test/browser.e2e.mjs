@@ -1683,8 +1683,9 @@ describe('real browser', () => {
         page.once('dialog', (dialog) => dialog.accept());
         await page.click('#lockbox-delete');
         await page.locator('#lockbox-empty').waitFor({ state: 'visible' });
-        // The password and the progress are gone; the record stays, and says so (#75).
-        assert.deepEqual(Object.keys(await storedLockbox(page)), ['lockboxEvents']);
+        // The password and the progress are gone; the record stays, and says so (#75). Only the lockbox's own
+        // keys count: the background script's note of when it is running can be written at any moment (#131).
+        assert.deepEqual(Object.keys(await storedLockbox(page)).filter((key) => key.startsWith('lockbox')), ['lockboxEvents']);
         assert.deepEqual(await recordedEvents(page), ['locked', 'deleted']);
         assert.equal(await page.locator('#lockbox-record').isVisible(), true);
         assert.equal((await shownRecord(page))[0].what, 'Deleted.');
