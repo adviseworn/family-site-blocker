@@ -225,7 +225,25 @@ export function beginningOf({ events = [], since = null }) {
   return { at: began, what: gone ? `The record began. It keeps only the latest ${EVENTS_KEPT} entries, so those before ${when(oldest)} have gone.` : 'The record began.' };
 }
 
-/** What an entry of the record says happened, in words, for the record on the password's page. */
+/**
+ * The record summed up in a line, for the password's page and for Every try: how many entries since when
+ * the record began, and the latest; once the oldest entries have gone (EVENTS_KEPT), from when it still
+ * reaches. '' with no record.
+ */
+export function describeRecord({ events = [], since = null }) {
+  if (events.length === 0) return '';
+  const began = recordBegan(events, since);
+  const last = events.at(-1);
+  const latest = `${when(last.at)}: ${describeEvent(last)}`;
+  if (events.length === 1) return `1 entry, on ${latest}`;
+  const gone = Date.parse(events[0].at) > Date.parse(began);
+  const span = gone
+    ? `The latest ${events.length} entries, from ${when(events[0].at)} (the record began ${when(began)}; the entries before have gone)`
+    : `${events.length} entries since ${when(began)}`;
+  return `${span}, the latest on ${latest}`;
+}
+
+/** What an entry of the record says happened, in words, for the record on the password's page and among every try. */
 export function describeEvent(entry) {
   switch (entry.event) {
     case 'locked':
