@@ -8,8 +8,8 @@ import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import jpeg from 'jpeg-js';
-import { BORDERLINE, CLASSES, DEFAULT_STRICTNESS, MAX_PICTURES, MIN_SIZE, STRICTNESS_CHOICES, THRESHOLD, borderline, countHidden, describeHidden, hiddenBySite, isVideo, recordHidden, strictnessOf, verdict } from '../extension/lib/pictures.js';
-import { hiddenWords } from '../extension/lib/page.js';
+import { BORDERLINE, CLASSES, DEFAULT_STRICTNESS, LOOKS_KEPT, MAX_PICTURES, MIN_SIZE, STRICTNESS_CHOICES, THRESHOLD, WHY_LENGTH, borderline, countHidden, describeHidden, hiddenBySite, isVideo, lookedAt, markHidden, markedMistake, noteLook, recordHidden, sameHidden, strictnessOf, verdict } from '../extension/lib/pictures.js';
+import { hiddenWords, lookWords } from '../extension/lib/page.js';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const EXT = join(ROOT, 'extension');
@@ -86,6 +86,73 @@ test('pictures: the pages sum the record up in the same words, for every site or
   assert.equal(hiddenWords(record.filter((entry) => entry.site === 'a.test'), 'a.test'), `2 pictures hidden at a.test, the latest at ${when(2000)}. 1 of them is borderline.`);
   assert.equal(hiddenWords([]), '');
   assert.equal(hiddenWords(undefined), '');
+});
+
+test("pictures: a look at a hidden picture from the add-on's page, and the mark given after it, go on the picture's entry (1.17.0)", () => {
+  let record = recordHidden(undefined, { at: 1000, site: 'a.test', url: 'https://a.test/x.jpg', reason: 'nudity', scores: { porn: 0.9 } });
+  record = recordHidden(record, { at: 2000, site: 'a.test', url: 'https://a.test/y.jpg', reason: 'suggestive', scores: { sexy: 0.5 } });
+  const key = { at: 2000, url: 'https://a.test/y.jpg' };
+  assert.equal(sameHidden(record[1], key), true);
+  assert.equal(sameHidden(record[0], key), false);
+  assert.equal(sameHidden(record[1], { at: 2001, url: key.url }), false, 'the moment must match too');
+  assert.equal(lookedAt(record[1]), false);
+  const before = record;
+  record = noteLook(record, key, { at: 5000, why: 'checking a close call' });
+  assert.notEqual(record, before, 'a new list');
+  assert.deepEqual(record[1].looks, [{ at: 5000, why: 'checking a close call' }]);
+  assert.equal(record[1].url, key.url, 'the rest of the entry stays');
+  assert.equal(record[0].looks, undefined, 'the other entry is untouched');
+  assert.equal(lookedAt(record[1]), true);
+  record = noteLook(record, key, { at: 6000, why: 'x'.repeat(300) });
+  assert.equal(record[1].looks.length, 2);
+  assert.equal(record[1].looks[1].why.length, WHY_LENGTH, 'a long reason is cut');
+  assert.equal(noteLook(record, { at: 2000, url: 'https://a.test/other.jpg' }, { at: 7000, why: 'w' }), record, 'no such entry: the list as it was');
+  assert.equal(noteLook(record, { at: 2001, url: key.url }, { at: 7000, why: 'w' }), record);
+  assert.deepEqual(noteLook(undefined, key, { at: 1, why: 'w' }), []);
+  let many = record;
+  for (let i = 0; i < LOOKS_KEPT + 5; i += 1) many = noteLook(many, key, { at: 10_000 + i, why: `look ${i}` });
+  assert.equal(many[1].looks.length, LOOKS_KEPT, 'the oldest looks go');
+  assert.equal(many[1].looks[LOOKS_KEPT - 1].why, `look ${LOOKS_KEPT + 4}`);
+  assert.equal(many[1].looks[0].why, 'look 5', 'the two looks from before went first');
+  assert.equal(noteLook(record, key, { at: 8000, why: undefined })[1].looks[2].why, '', 'no reason is kept as none');
+
+  assert.equal(markedMistake(record[1]), false);
+  record = markHidden(record, key, { at: 8000, mistake: true });
+  assert.deepEqual(record[1].mark, { at: 8000, mistake: true });
+  assert.equal(markedMistake(record[1]), true);
+  assert.equal(record[1].looks.length, 2, 'the looks stay');
+  record = markHidden(record, key, { at: 9000, mistake: false });
+  assert.deepEqual(record[1].mark, { at: 9000, mistake: false }, 'the latest mark replaces the earlier');
+  assert.equal(markedMistake(record[1]), false);
+  assert.equal(markHidden(record, key, { at: 9500, mistake: 'yes' })[1].mark.mistake, false, 'only true is a mistake');
+  assert.equal(markHidden(record, { at: 1, url: 'u' }, { at: 1, mistake: true }), record, 'no such entry: the list as it was');
+  assert.equal(record[0].mark, undefined);
+});
+
+test('pictures: the row says of the looks and the mark, and the summary counts the pictures looked at and the mistakes (1.17.0)', () => {
+  const when = (at) => new Date(at).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+  let record = recordHidden(undefined, { at: 1000, site: 'a.test', url: 'https://a.test/x.jpg', reason: 'nudity', scores: { porn: 0.9 } });
+  record = recordHidden(record, { at: 2000, site: 'a.test', url: 'https://a.test/y.jpg', reason: 'suggestive', scores: { sexy: 0.5 } });
+  record = recordHidden(record, { at: 3000, site: 'b.test', url: 'https://b.test/z.jpg', reason: 'nudity', scores: { porn: 0.7 } });
+  assert.equal(lookWords(record[1]), '');
+  assert.equal(hiddenWords(record), `3 pictures hidden on 2 sites, the latest at ${when(3000)}. 1 of them is borderline.`);
+  record = noteLook(record, { at: 2000, url: 'https://a.test/y.jpg' }, { at: 5000, why: 'checking a close call' });
+  assert.equal(lookWords(record[1]), `Looked at once, at ${when(5000)}: “checking a close call”.`);
+  assert.equal(hiddenWords(record), `3 pictures hidden on 2 sites, the latest at ${when(3000)}. 1 of them is borderline. 1 looked at.`);
+  record = markHidden(record, { at: 2000, url: 'https://a.test/y.jpg' }, { at: 6000, mistake: true });
+  assert.equal(lookWords(record[1]), `Looked at once, at ${when(5000)}: “checking a close call”. Marked hidden by mistake at ${when(6000)}.`);
+  assert.equal(hiddenWords(record), `3 pictures hidden on 2 sites, the latest at ${when(3000)}. 1 of them is borderline. 1 looked at, 1 marked hidden by mistake.`);
+  assert.equal(hiddenWords(record.filter((entry) => entry.site === 'a.test'), 'a.test'), `2 pictures hidden at a.test, the latest at ${when(2000)}. 1 of them is borderline. 1 looked at, 1 marked hidden by mistake.`);
+  assert.equal(hiddenWords(record.filter((entry) => entry.site === 'b.test'), 'b.test'), `1 picture hidden at b.test, the latest at ${when(3000)}.`, 'nothing looked at there');
+  record = noteLook(record, { at: 2000, url: 'https://a.test/y.jpg' }, { at: 7000, why: '' });
+  record = noteLook(record, { at: 2000, url: 'https://a.test/y.jpg' }, { at: 8000, why: 'again' });
+  record = markHidden(record, { at: 2000, url: 'https://a.test/y.jpg' }, { at: 9000, mistake: false });
+  assert.equal(lookWords(record[1]), `Looked at 3 times, the latest at ${when(8000)}: “again”. Marked rightly hidden at ${when(9000)}.`);
+  assert.equal(hiddenWords(record), `3 pictures hidden on 2 sites, the latest at ${when(3000)}. 1 of them is borderline. 1 looked at.`, 'no longer a mistake');
+  record = noteLook(record, { at: 1000, url: 'https://a.test/x.jpg' }, { at: 9500, why: '' });
+  assert.equal(lookWords(record[0]), `Looked at once, at ${when(9500)}.`, 'a look with no reason');
+  assert.equal(hiddenWords(record), `3 pictures hidden on 2 sites, the latest at ${when(3000)}. 1 of them is borderline. 2 looked at.`);
+  assert.equal(lookWords({ looks: 'junk', mark: { mistake: 'yes' } }), '', 'junk says nothing');
 });
 
 test('pictures: a hidden video is noted as one, counted apart in the summaries, and counted with the pictures by site', () => {

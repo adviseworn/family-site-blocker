@@ -1,5 +1,5 @@
 // Small helpers the record pages share (attempts.html, tries.html, pictures.html, unlisted.html).
-import { borderline, countHidden, hiddenBySite } from './pictures.js';
+import { borderline, countHidden, hiddenBySite, lookedAt, markedMistake } from './pictures.js';
 
 /** An element with text and attributes. */
 export function element(tag, text, attributes = {}) {
@@ -66,16 +66,42 @@ export function offVisitsWords(off, counts, tracked) {
 
 /**
  * The pictures hidden summed up (lib/pictures.js), for the pictures page and Every try: "3 pictures and
- * 1 video hidden on 2 sites, the latest at …. 1 of them is borderline."; for one site, "… hidden at
- * a.test, the latest at …". '' with none hidden.
+ * 1 video hidden on 2 sites, the latest at …. 1 of them is borderline. 2 looked at, 1 marked hidden by
+ * mistake."; for one site, "… hidden at a.test, the latest at …". The last sentence counts the pictures
+ * looked at from Every try and those marked as the filter's mistakes (1.17.0), when there are any. '' with
+ * none hidden.
  */
 export function hiddenWords(record, site = null) {
   const list = Array.isArray(record) ? record : [];
   if (list.length === 0) return '';
   const close = list.filter(borderline).length;
   const where = site ? `at ${site}` : `on ${plural(hiddenBySite(list).length, 'site')}`;
+  const looked = list.filter(lookedAt).length;
+  const mistakes = list.filter(markedMistake).length;
+  const checked = [looked ? `${looked} looked at` : '', mistakes ? `${mistakes} marked hidden by mistake` : ''].filter(Boolean).join(', ');
   return (
     `${countHidden(list)} hidden ${where}, the latest at ${whenFormat.format(Math.max(...list.map((entry) => entry.at)))}.` +
-    (close ? ` ${close === 1 ? '1 of them is' : `${close} of them are`} borderline.` : '')
+    (close ? ` ${close === 1 ? '1 of them is' : `${close} of them are`} borderline.` : '') +
+    (checked ? ` ${checked}.` : '')
   );
+}
+
+const times = (count) => (count === 1 ? 'once' : count === 2 ? 'twice' : `${count} times`);
+
+/**
+ * What a hidden picture's row says of the looks at it from Every try and of its mark (lib/pictures.js
+ * noteLook, markHidden): "Looked at once, at Nov 1, 2026, 6:03 PM: “checking a close call”. Marked hidden
+ * by mistake at Nov 1, 2026, 6:04 PM." With more looks, "Looked at 3 times, the latest at …", with the
+ * latest reason. '' with neither.
+ */
+export function lookWords(entry) {
+  const looks = Array.isArray(entry?.looks) ? entry.looks : [];
+  const parts = [];
+  if (looks.length) {
+    const latest = looks[looks.length - 1];
+    const why = typeof latest.why === 'string' && latest.why ? `: “${latest.why}”` : '';
+    parts.push(`Looked at ${times(looks.length)}, ${looks.length === 1 ? 'at' : 'the latest at'} ${whenFormat.format(latest.at)}${why}.`);
+  }
+  if (typeof entry?.mark?.mistake === 'boolean') parts.push(`Marked ${entry.mark.mistake ? 'hidden by mistake' : 'rightly hidden'} at ${whenFormat.format(entry.mark.at)}.`);
+  return parts.join(' ');
 }

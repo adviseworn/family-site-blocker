@@ -17,7 +17,15 @@
         <button id="save-file" type="button" class="secondary" hidden>Save as a file</button>
         <span id="save-status" role="status"></span>
       </div>
-      <p id="pictures-intro" hidden>Rows marked <strong>Picture hidden</strong> or <strong>Video hidden</strong> are the picture filter’s record, summed up by site on <a href="pictures.html">its page</a>: why, with the judge’s scores (how sure it was, from 0 to 1, that the picture, or the video’s frame, showed nudity or was suggestive; one hidden on a score under 0.6 is marked <strong>borderline</strong>, where a harmless picture hidden by mistake will be), and the picture’s address: to look at it, copy the address into a browser without the extension. <span id="pictures-alone"><a href="tries.html#pictures">Show them alone</a>.</span></p>
+      <p id="pictures-intro" hidden>Rows marked <strong>Picture hidden</strong> or <strong>Video hidden</strong> are the picture filter’s record, summed up by site on <a href="pictures.html">its page</a>: why, with the judge’s scores (how sure it was, from 0 to 1, that the picture, or the video’s frame, showed nudity or was suggestive; one hidden on a score under 0.6 is marked <strong>borderline</strong>, where a harmless picture hidden by mistake will be), and the picture’s address. To look at one, <strong>Look at it</strong> on its row: say why, which goes into the record with the look, and the picture shows there, on this page, where the filter doesn’t run; then mark it <strong>Hidden by mistake</strong> or <strong>Rightly hidden</strong>. There is no password: anyone who can open this page can look, and every look is on the record. <strong>Copy address</strong> is for a browser without the extension. <span id="pictures-alone"><a href="tries.html#pictures">Show them alone</a>.</span></p>
+      <div id="look-why-area" hidden>
+        <label for="look-why">Why are you looking? Your answer goes into the record with each look from this page.</label>
+        <div class="look-why-row">
+          <input id="look-why" type="text" maxlength="200" autocomplete="off">
+          <button id="look-go" type="button">Look</button>
+        </div>
+      </div>
+      <p id="look-status" role="status"></p>
       <p id="copy-status" role="status"></p>
       <p id="password-intro" hidden>Rows marked <strong>Locked-away password</strong> are the password’s own record, in the words of <a href="lockbox.html">its page</a>: locked away, unlocking started, carried on or stopped, the password shown and locked away again, a backup file restored, the password deleted. The last of them, <strong>The record began</strong>, is where that record starts. <a href="tries.html#password">Show them alone</a>.</p>
       <p id="off-intro" hidden>A band marks a time this browser was in use while the add-on wasn’t running: switched off, in Firefox’s Troubleshoot Mode, or removed. The visits to listed sites from then, found in this browser’s history, are listed under it; the pages counted are the others the history held from that time when it was last looked at.</p>
