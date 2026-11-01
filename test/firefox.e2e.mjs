@@ -408,7 +408,13 @@ describe('Firefox', { skip: findFirefox() ? false : 'no Firefox found (set FIREF
     test("listed sites are taken out of Firefox's history and bookmarks once they are in the record, so the address bar stops suggesting them", async () => {
       const settings = tabsAfterInstall.find(({ url }) => url.endsWith('/options.html'));
       // What the address bar fills in for some typed letters, once Firefox has worked out how often each
-      // site is used (it does that in idle moments; here it is asked to do it now).
+      // site is used (it does that in idle moments; here it is asked to do it now). The lookup is the one
+      // typing starts (startQuery, asked to fill in as it does for typed letters), read once Firefox has
+      // finished it rather than after a fixed wait, and then undone: handleRevert puts the address bar back
+      // to the page, and leaving it takes the lookup's results and the selected one out of the drop-down.
+      // Left as it was, the lookup lingered: Firefox only clears it on its own when the focus settles after a
+      // tab switch, a moment after the switch itself, and Enter in the new tab below acted on the lookup's
+      // selected result when that moment came late (on a slow Mac, typing the site ended at a search for "exa").
       const autofill = async (typed) => {
         await browser.inFirefox(`const done = arguments[arguments.length - 1];
           const recalculator = Cc['@mozilla.org/places/frecency-recalculator;1'].getService(Ci.nsIObserver).wrappedJSObject;
@@ -417,9 +423,14 @@ describe('Firefox', { skip: findFirefox() ? false : 'no Firefox found (set FIREF
           `const done = arguments[arguments.length - 1];
           const win = Services.wm.getMostRecentWindow('navigator:browser');
           win.gURLBar.focus();
-          win.gURLBar.value = '';
-          win.gURLBar.search(arguments[0]);
-          setTimeout(() => { const value = win.gURLBar.value; win.gURLBar.value = ''; win.gURLBar.view.close(); done(value); }, 1500);`,
+          win.gURLBar.value = arguments[0];
+          win.gURLBar.startQuery({ searchString: arguments[0], allowAutofill: true, autofillIgnoresSelection: true });
+          win.gURLBar.lastQueryContextPromise.then(() => {
+            const value = win.gURLBar.value;
+            win.gURLBar.handleRevert();
+            win.gURLBar.inputField.blur();
+            done(value);
+          }, (e) => done('error: ' + e));`,
           typed,
         );
       };
@@ -468,16 +479,25 @@ describe('Firefox', { skip: findFirefox() ? false : 'no Firefox found (set FIREF
       const list = await storedAttempts();
       assert.ok(list.some((entry) => entry.site === SITE && entry.from === 'history' && Math.abs(entry.at - (Date.now() - 7 * 86_400_000)) < 120_000), 'the visit stays in the record');
 
-      // Live: the site typed into the address bar, as a person would. Firefox puts the typed address into
-      // its history as the block page takes over; a moment later the add-on has taken it out again.
+      // Live: the site typed into the address bar and Enter pressed, as a person would (search types it;
+      // Enter acts on what the drop-down has selected, so it waits, as fingers do, for Firefox to finish
+      // looking the typed site up and select "Visit exampleadultsite.com"). Firefox puts the typed address
+      // into its history as the block page takes over; a moment later the add-on has taken it out again.
       await browser.newTab();
       const landed = await browser.inFirefox(
         `const done = arguments[arguments.length - 1];
         const win = Services.wm.getMostRecentWindow('navigator:browser');
-        win.gURLBar.focus();
-        win.gURLBar.value = arguments[0];
-        win.gURLBar.handleCommand();
-        setTimeout(() => done(win.gBrowser.selectedBrowser.currentURI.spec), 2000);`,
+        win.gURLBar.search(arguments[0]);
+        win.gURLBar.lastQueryContextPromise.then(() => {
+          win.gURLBar.handleCommand();
+          const until = Date.now() + 8000;
+          const where = () => {
+            const spec = win.gBrowser.selectedBrowser.currentURI.spec;
+            if (/\\/blocked\\.html$/.test(spec) || Date.now() > until) done(spec);
+            else setTimeout(where, 100);
+          };
+          setTimeout(where, 100);
+        }, (e) => done('error: ' + e));`,
         SITE,
       );
       assert.match(landed, /^moz-extension:\/\/.+\/blocked\.html$/, `typing ${SITE} ended at ${landed}`);
