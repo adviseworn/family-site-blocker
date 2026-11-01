@@ -776,11 +776,11 @@ describe('real browser', () => {
       }
     });
 
-    test('the latest 3 are shown, with a link to the whole record on a page of its own', async () => {
+    test('the latest 3 are shown, with links to every try and to the record page, each on a page of its own', async () => {
       const page = await freshRecord();
       let record = null;
       try {
-        assert.equal(await page.locator('#attempts-all').isVisible(), false, 'no link while the record is empty');
+        assert.equal(await page.locator('#record-links').isVisible(), false, 'no links while there is nothing to see');
         await page.evaluate(() => {
           const now = Date.now();
           const attempts = Array.from({ length: 60 }, (_, i) => ({ at: now - (60 - i) * 60_000, site: `site${i % 7}.test` }));
@@ -791,12 +791,14 @@ describe('real browser', () => {
         await page.waitForFunction(() => document.querySelectorAll('#attempts-table tbody tr').length === 3);
         assert.equal((await shown(page))[0][1], 'site3.test', 'newest first');
         assert.equal(await page.locator('#attempts-table caption').innerText(), 'The latest 3');
-        await page.locator('#attempts-all').waitFor({ state: 'visible' });
-        assert.equal(await page.locator('#attempts-all').innerText(), 'See the whole record (60)');
+        await page.locator('#record-links').waitFor({ state: 'visible' });
+        assert.equal(await page.locator('#every-try').innerText(), 'See every try (60)');
+        assert.equal(await page.locator('#every-try').getAttribute('href'), 'tries.html', 'straight to every try from the settings page (1.15.1)');
+        assert.equal(await page.locator('#record-page').innerText(), 'See the record by site, and whether it was ever off');
 
         // The link opens the record page in a tab of its own. The new tab can be reported before its
         // address is set, and its blank starting page has already loaded, so wait for the address (#109).
-        [record] = await Promise.all([browser.context.waitForEvent('page'), page.click('#attempts-all')]);
+        [record] = await Promise.all([browser.context.waitForEvent('page'), page.click('#record-page')]);
         record.errors = [];
         record.on('pageerror', (error) => record.errors.push(error.message));
         await record.waitForURL(/\/attempts\.html$/);
@@ -818,12 +820,14 @@ describe('real browser', () => {
         assert.ok(table.every((row) => row.length === 4 && row[2] && row[3]), 'first and latest times');
         assert.equal(await record.locator('.day').count(), 0, 'the tries themselves are on a page of their own (#52)');
 
-        // Every try has a page of its own, by day, newest first, reached from the record page.
+        // Every try has a page of its own, by day, newest first, reached from the record page and, from
+        // 1.15.1, straight from the settings page, in a tab of its own.
         assert.equal(await record.locator('#every-try').innerText(), 'See every try (60)');
-        const tries = await browser.context.newPage();
+        const [tries] = await Promise.all([browser.context.waitForEvent('page'), page.click('#every-try')]);
         tries.errors = [];
         tries.on('pageerror', (error) => tries.errors.push(error.message));
-        await tries.goto(`chrome-extension://${browser.extensionId}/tries.html`);
+        await tries.waitForURL(/\/tries\.html$/);
+        assert.equal(tries.url(), `chrome-extension://${browser.extensionId}/tries.html`);
         const rows = () => tries.evaluate(() => [...document.querySelectorAll('.day tbody tr:not(.band)')].map((row) => [...row.cells].map((cell) => cell.textContent)));
         await tries.waitForFunction(() => document.querySelectorAll('.day tbody tr:not(.band)').length === 60);
         assert.match(await tries.locator('#summary').innerText(), /^60 tries at 7 sites, the latest at .+\. 1 page opened instead of being blocked\. 1 from this browser's history\.$/);
@@ -863,7 +867,7 @@ describe('real browser', () => {
         // Both pages keep up with the record while they are open.
         await page.evaluate(() => chrome.storage.local.get('attempts').then(({ attempts }) => chrome.storage.local.set({ attempts: [...attempts, { at: Date.now(), site: 'site7.test' }] })));
         await record.waitForFunction(() => document.getElementById('summary').textContent.startsWith('61 attempts at 8 sites'));
-        await page.waitForFunction(() => document.getElementById('attempts-all').textContent === 'See the whole record (61)');
+        await page.waitForFunction(() => document.getElementById('every-try').textContent === 'See every try (61)');
         assert.deepEqual(record.errors, []);
         assert.deepEqual(page.errors, []);
       } finally {
@@ -941,6 +945,44 @@ describe('real browser', () => {
             listBefore,
           )
           .catch(() => {});
+        await record.close();
+        await page.close();
+      }
+    });
+
+    test("the links to every try show while that page has something to show, with no try at all: the password's record (1.15.1)", async () => {
+      const page = await freshRecord();
+      const record = await browser.context.newPage();
+      try {
+        assert.equal(await page.locator('#record-links').isVisible(), false, 'nothing to see yet');
+        await record.goto(`chrome-extension://${browser.extensionId}/attempts.html`);
+        await record.waitForFunction(() => document.getElementById('summary').textContent === 'No attempts so far.');
+        assert.equal(await record.locator('#every-try').isVisible(), false);
+
+        // An entry in the locked-away password's record, which Every try lays in among the tries (1.14.0): the links on both pages appear, without a count.
+        await page.evaluate(() => chrome.storage.local.set({ lockboxEvents: [{ at: new Date().toISOString(), event: 'locked', delay: 3 }] }));
+        await page.locator('#record-links').waitFor({ state: 'visible' });
+        assert.equal(await page.locator('#every-try').innerText(), 'See every try');
+        assert.equal(await page.locator('#attempts-summary').innerText(), 'No attempts so far.');
+        assert.equal(await page.locator('#attempts-table').isVisible(), false);
+        await record.locator('#every-try').waitFor({ state: 'visible' });
+        assert.equal(await record.locator('#every-try').innerText(), 'See every try');
+        assert.equal(await record.locator('#sites').isVisible(), false);
+        const tries = await browser.context.newPage();
+        try {
+          await tries.goto(`chrome-extension://${browser.extensionId}/tries.html`);
+          await tries.waitForFunction(() => document.querySelectorAll('.day tbody tr.password').length === 2);
+        } finally {
+          await tries.close();
+        }
+
+        // Gone again once there is nothing to see.
+        await page.evaluate(() => chrome.storage.local.remove('lockboxEvents'));
+        await page.locator('#record-links').waitFor({ state: 'hidden' });
+        await record.locator('#every-try').waitFor({ state: 'hidden' });
+        assert.deepEqual(page.errors, []);
+      } finally {
+        await page.evaluate(() => chrome.storage.local.remove(['lockboxEvents', 'lockboxEventsSince'])).catch(() => {});
         await record.close();
         await page.close();
       }

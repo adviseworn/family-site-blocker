@@ -11,6 +11,15 @@ export function element(tag, text, attributes = {}) {
 export const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
 export const tries = (n) => (n === 1 ? '1 try' : `${n} tries`);
 
+/** The words on the link to Every try (tries.html), on the settings page and on the record page: with how many tries, when there are any. */
+export const everyTryWords = (count) => (count ? `See every try (${count})` : 'See every try');
+
+/**
+ * Whether Every try (tries.html) has anything to show, so that the links to it show: a try, a time the
+ * add-on was off (lib/watching.js's `off`) or an entry in the locked-away password's record (lib/lockbox.js).
+ */
+export const everyTryShows = ({ attempts, off, events }) => attempts.length > 0 || off.length > 0 || events.length > 0;
+
 export const whenFormat = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' });
 export const dayFormat = new Intl.DateTimeFormat(undefined, { dateStyle: 'full' });
 export const timeFormat = new Intl.DateTimeFormat(undefined, { timeStyle: 'short' });
