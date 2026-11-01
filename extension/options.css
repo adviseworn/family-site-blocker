@@ -586,6 +586,7 @@ button.small {
 
 #elsewhere a,
 #pictures-line a,
+#record-page,
 #unlisted-note a {
   color: var(--gate);
   font-weight: 600;
