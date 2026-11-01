@@ -5,7 +5,7 @@
 // record can say whether the extension was ever off. Chrome, Edge and Brave run it as a service worker;
 // Firefox runs it as an event page. Both load it as a module (manifest.json: background.type).
 import { ATTEMPTS, HISTORY_SCAN, bookmarksTo, hostOf, listedDomain, mergeVisits, record } from './lib/attempts.js';
-import { PICTURES, STRICTNESS, recordHidden, strictnessOf, verdict } from './lib/pictures.js';
+import { PICTURES, STRICTNESS, markHidden, noteLook, recordHidden, sameHidden, strictnessOf, verdict } from './lib/pictures.js';
 import { domainsOf } from './lib/rules.js';
 import { UNLISTED, tallyUnlisted } from './lib/suspects.js';
 import { BEAT_EVERY_MINUTES, WATCHING, beat, earliestLiveTry, gapsOf, normalize, noteGaps, started } from './lib/watching.js';
@@ -68,6 +68,11 @@ api.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
   if (message?.type === 'picture-status') {
     sendResponse({ backend: backendInUse(), judged: judgedCount, hidden: hiddenCount, failed: failedCount, frames: frameCount, videos: videoCount });
+    return true;
+  }
+  if (message?.type === 'note-look' || message?.type === 'mark-hidden') {
+    // The Every try page notes a look at a hidden picture, and the mark given after it (lib/pictures.js).
+    changeHidden(message).then(sendResponse, (error) => sendResponse({ error: String(error?.message ?? error) }));
     return true;
   }
   return undefined;
@@ -393,6 +398,29 @@ function noteHidden({ site, url, kind, reason, scores }) {
     })
     .catch(() => {});
   return writing;
+}
+
+/**
+ * Changes a hidden picture's entry for the Every try page (tries.js): a look at it from there
+ * ({ type: 'note-look', at, url, why }) or the mark given after one ({ type: 'mark-hidden', at, url,
+ * mistake }), written here, in turn with the notes of pictures just hidden, so that neither is lost.
+ * Answers { found }: false when the entry has gone from the record (the oldest go once it is full).
+ */
+function changeHidden({ type, at, url, why, mistake }) {
+  const now = Date.now();
+  const key = { at, url };
+  const result = writing.then(async () => {
+    const stored = (await api.storage.local.get(PICTURES))[PICTURES];
+    const list = Array.isArray(stored) ? stored : [];
+    const found = list.some((entry) => sameHidden(entry, key));
+    if (found) {
+      const changed = type === 'note-look' ? noteLook(list, key, { at: now, why }) : markHidden(list, key, { at: now, mistake });
+      await api.storage.local.set({ [PICTURES]: changed });
+    }
+    return { found };
+  });
+  writing = result.catch(() => {});
+  return result;
 }
 
 const siteOf = (sender) => hostOf(sender?.tab?.url ?? sender?.url ?? '') ?? 'unknown';

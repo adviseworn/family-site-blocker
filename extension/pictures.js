@@ -1,8 +1,8 @@
 // The pictures and videos the picture filter kept hidden, on a page of their own: summed up, and by site,
 // each site a link to what was hidden there among every try on tries.html, which lists every one of them
-// (lib/pictures.js) with the judge's scores and the address to copy, and shows them alone from the link
-// here. The record page (attempts.html) links here. This page only reads the record; nothing here can
-// clear it.
+// (lib/pictures.js) with the judge's scores and the address, where each can be looked at, and shows them
+// alone from the link here. The record page (attempts.html) links here. This page only reads the record;
+// nothing here can clear it.
 import { element, hiddenWords, showVersion, whenFormat } from './lib/page.js';
 import { PICTURES, hiddenBySite } from './lib/pictures.js';
 
@@ -25,7 +25,7 @@ function render(record) {
     siteRows.append(tr);
   }
   $('hidden-pictures-line').replaceChildren(
-    'Each one is a row among every try in the record, in its day: the time, the site, why it was hidden, the judge’s scores, and its address to copy. ',
+    'Each one is a row among every try in the record, in its day: the time, the site, why it was hidden, the judge’s scores, and its address, with Look at it. ',
     element('a', `See ${list.length === 1 ? 'it' : 'them'} among every try`, { href: 'tries.html#pictures' }),
     '.',
   );
