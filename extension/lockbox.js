@@ -29,6 +29,7 @@ const STAYS = 'It stays on this page until you click Hide or close the page. Hid
 let worker = null;
 let lastSaved = 0;
 let startedAt = null; // when the unlocking under way was started, for the progress record and the `shown` entry
+let why = null; // why it was started, as typed when it began: kept with the progress and given with the `shown` entry (1.13.2)
 let latestDone = 0; // the squarings done so far by the worker, over every layer, which is ahead of the progress saved
 // Whether the password is on the clipboard from this page (Copy, or ⌘C/Ctrl+C on one of its boxes) and hasn't been
 // cleared from it since: what clearClipboard() goes by, since reading the clipboard would take a permission of its own.
@@ -154,6 +155,7 @@ async function render() {
   const running = worker !== null;
   $('lockbox-start').hidden = running;
   $('lockbox-start').textContent = progress ? 'Carry on unlocking' : 'Start unlocking';
+  $('lockbox-why-area').hidden = running || Boolean(progress); // the reason was given when it began
   $('lockbox-stop').hidden = !running && !progress;
   $('lockbox-delete').hidden = running;
   $('lockbox-lengthen-area').hidden = running;
@@ -222,15 +224,26 @@ async function lengthenWait() {
 async function startUnlocking() {
   const { box, progress } = await load();
   if (!box || worker) return;
+  // Starting needs a reason, which goes into the record (1.13.2); carrying on paused work was given one when it began.
+  const reason = $('lockbox-why').value.trim();
+  if (!progress && !reason) {
+    say('Say why you’re unlocking it first. Your answer goes into the record.');
+    $('lockbox-why').focus();
+    return;
+  }
   worker = startWorker();
   // The record says it was started, or carried on and from where. Work carried on keeps the time it was
-  // first started (progress saved before 1.9.0 has none: then the time it was carried on stands in).
+  // first started (progress saved before 1.9.0 has none: then the time it was carried on stands in) and the
+  // reason it was started for (none before 1.13.2).
   latestDone = progress ? progress.before + progress.done : 0;
   if (progress) {
     const resumed = await record('resumed', { done: latestDone, steps: stepsOf(box) });
     startedAt = typeof progress.startedAt === 'string' ? progress.startedAt : resumed.at;
+    why = typeof progress.why === 'string' ? progress.why : null;
   } else {
-    startedAt = (await record('started')).at;
+    why = reason;
+    startedAt = (await record('started', { why })).at;
+    $('lockbox-why').value = '';
   }
   say('');
   await render();
@@ -245,7 +258,7 @@ async function startUnlocking() {
  */
 function work(box, before, inner, x, done) {
   const layer = inner ?? box;
-  const progressOf = (reached, count) => ({ n: box.n, ...(inner && { inner }), x: reached.toString(16), done: count, before, startedAt, workedAt: new Date().toISOString() });
+  const progressOf = (reached, count) => ({ n: box.n, ...(inner && { inner }), x: reached.toString(16), done: count, before, startedAt, ...(why !== null && { why }), workedAt: new Date().toISOString() });
   worker.onmessage = async ({ data }) => {
     if (data.type === 'progress') {
       latestDone = before + data.done;
@@ -275,7 +288,7 @@ function work(box, before, inner, x, done) {
       const opened = before + layer.steps;
       latestDone = opened;
       lastSaved = Date.now();
-      await store.set({ [PROGRESS]: { n: box.n, inner: found, x: START.toString(16), done: 0, before: opened, startedAt, workedAt: new Date().toISOString() } });
+      await store.set({ [PROGRESS]: { n: box.n, inner: found, x: START.toString(16), done: 0, before: opened, startedAt, ...(why !== null && { why }), workedAt: new Date().toISOString() } });
       await note(found, { previous: box });
       work(box, opened, found, START, 0);
     }
@@ -300,7 +313,7 @@ async function reveal(box, secret) {
   $('lockbox-again').textContent = `Locking it away again with the same wait (${duration(box.delay)})…`;
   showOnly('lockbox-open');
   choose($('lockbox-new-wait'), box.delay);
-  await record('shown', { startedAt });
+  await record('shown', { startedAt, ...(why !== null && { why }) });
   say('Locking it away again…');
   try {
     await lockAway(secret, box.delay, { previous: box });
