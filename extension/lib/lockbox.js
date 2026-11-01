@@ -12,6 +12,9 @@ export const BOX = 'lockbox'; // the sealed box (lib/timelock.js)
 // here gives nothing away); startedAt when the work started and workedAt when it was last saved.
 export const PROGRESS = 'lockboxProgress';
 export const EVENTS = 'lockboxEvents'; // what has happened to the password, oldest first: [{ at, event, … }] (#75)
+// When the record began, as an ISO time: its first entry's, kept as the oldest entries go (from 1.11.4; a
+// record from before carries none until its next entry is written, and reads from its oldest entry meanwhile).
+export const EVENTS_SINCE = 'lockboxEventsSince';
 
 /** How many entries the record keeps; the oldest go when it is longer. */
 export const EVENTS_KEPT = 500;
@@ -47,21 +50,29 @@ const isTime = (value) => typeof value === 'string' && !Number.isNaN(Date.parse(
 /** An entry of the record, as the page writes them. */
 export const isEvent = (value) => typeof value === 'object' && value !== null && isTime(value.at) && typeof value.event === 'string';
 
+/** When the record began, as an ISO time: the time kept since 1.11.4, else (a record from before) its oldest entry's, whichever is earlier; null with neither. */
+export function recordBegan(events, since) {
+  const known = [since, events[0]?.at].filter(isTime);
+  return known.length ? known.reduce((earliest, time) => (Date.parse(time) < Date.parse(earliest) ? time : earliest)) : null;
+}
+
 const day = (time) => new Date(time).toLocaleDateString(undefined, { dateStyle: 'medium' });
 const when = (time) => new Date(time).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
 const percent = ({ done, steps }) => (steps > 0 ? Math.floor((Math.min(done, steps) / steps) * 100) : 0);
 
 /**
- * The stored box, the progress made on it and the record: { box, progress, events }, the first two null
- * when there is none, the record an array (empty when nothing has been recorded).
+ * The stored box, the progress made on it, the record and when it began: { box, progress, events, since },
+ * the first two null when there is none, the record an array (empty when nothing has been recorded) and
+ * `since` an ISO time (null with no record).
  */
 export async function loadBox(store) {
-  const { [BOX]: box, [PROGRESS]: progress, [EVENTS]: events } = await store.get([BOX, PROGRESS, EVENTS]);
+  const { [BOX]: box, [PROGRESS]: progress, [EVENTS]: events, [EVENTS_SINCE]: since } = await store.get([BOX, PROGRESS, EVENTS, EVENTS_SINCE]);
   const record = Array.isArray(events) ? events.filter(isEvent) : [];
-  if (!isBox(box)) return { box: null, progress: null, events: record };
+  const began = recordBegan(record, since);
+  if (!isBox(box)) return { box: null, progress: null, events: record, since: began };
   // Progress only counts for the box it was made on, and the layer it names has to be a box.
-  if (progress?.n !== box.n || (progress.inner !== undefined && !isBox(progress.inner))) return { box, progress: null, events: record };
-  return { box, progress: { before: 0, ...progress }, events: record };
+  if (progress?.n !== box.n || (progress.inner !== undefined && !isBox(progress.inner))) return { box, progress: null, events: record, since: began };
+  return { box, progress: { before: 0, ...progress }, events: record, since: began };
 }
 
 /** The layer being worked on, or to start on: a box inside the stored one that the work has reached, else the stored box. */
@@ -70,12 +81,13 @@ export const layerUnderWork = ({ box, progress }) => progress?.inner ?? box;
 /** How far unlocking has got, as a fraction of all the squarings the stored box takes. */
 export const fractionDone = ({ box, progress }) => (progress ? Math.min(1, ((progress.before ?? 0) + progress.done) / stepsOf(box)) : 0);
 
-/** Adds an entry to the record, with the time, and returns it. The oldest entries go once the record is long. */
+/** Adds an entry to the record, with the time, and returns it. The oldest entries go once the record is long; when it began stays. */
 export async function recordEvent(store, event, details = {}) {
-  const { [EVENTS]: events } = await store.get(EVENTS);
-  const kept = (Array.isArray(events) ? events.filter(isEvent) : []).slice(-(EVENTS_KEPT - 1));
+  const { [EVENTS]: events, [EVENTS_SINCE]: since } = await store.get([EVENTS, EVENTS_SINCE]);
+  const record = Array.isArray(events) ? events.filter(isEvent) : [];
   const entry = { at: new Date().toISOString(), event, ...details };
-  await store.set({ [EVENTS]: [...kept, entry] });
+  // The beginning is kept before the oldest entry can go: the time stored, else the oldest entry's, else this first entry's.
+  await store.set({ [EVENTS]: [...record.slice(-(EVENTS_KEPT - 1)), entry], [EVENTS_SINCE]: recordBegan(record, since) ?? entry.at });
   return entry;
 }
 
@@ -124,6 +136,19 @@ export function describeBox({ box, progress, events = [] }) {
     return `${state}; unlocking it is ${Math.floor(fractionDone({ box, progress }) * 100)}% done${started}.`;
   }
   return `${state}; getting it back takes about ${duration(waitOf(box))}.`;
+}
+
+/**
+ * The line under the record's heading on the password's page: when the record began and, once its oldest
+ * entries have gone (EVENTS_KEPT), how far back it still reaches. "" with no record.
+ */
+export function describeRecord({ events = [], since = null }) {
+  const began = recordBegan(events, since);
+  if (!began || events.length === 0) return '';
+  const oldest = events[0].at;
+  return Date.parse(oldest) > Date.parse(began)
+    ? `The record began ${when(began)}, but it keeps only the latest ${EVENTS_KEPT} entries, so those before ${when(oldest)} have gone.`
+    : `The record began ${when(began)}; everything done with the password on this page since then is in it.`;
 }
 
 /** What an entry of the record says happened, in words, for the record on the password's page. */
