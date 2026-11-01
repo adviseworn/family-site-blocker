@@ -249,9 +249,9 @@ async function renderAttempts() {
   const rows = table.querySelector('tbody');
   rows.replaceChildren();
 
-  // Every try holds the tries, the times the extension was off and the password's record: the links to it
-  // and to the record page show whenever it has any of them, and the count is the tries.
-  $('record-links').hidden = !everyTryShows({ attempts, off: normalize(watching).off, events });
+  // Every try holds the tries, the times the extension was off, the pictures hidden and the password's
+  // record: the links to it and to the record page show whenever it has any of them, and the count is the tries.
+  $('record-links').hidden = !everyTryShows({ attempts, off: normalize(watching).off, events, pictures: Array.isArray(stored[PICTURES]) ? stored[PICTURES] : [] });
   $('every-try').textContent = everyTryWords(attempts.length);
 
   if (attempts.length === 0) {

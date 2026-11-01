@@ -585,8 +585,10 @@ test('the link to every try, shared by the settings page and the record page: sh
   assert.equal(everyTryWords(0), 'See every try');
   assert.equal(everyTryWords(1), 'See every try (1)');
   assert.equal(everyTryWords(60), 'See every try (60)');
-  const nothing = { attempts: [], off: [], events: [] };
+  const nothing = { attempts: [], off: [], events: [], pictures: [] };
   assert.equal(everyTryShows(nothing), false);
+  assert.equal(everyTryShows({ attempts: [], off: [], events: [] }), false, 'a page that reads no pictures');
+  assert.equal(everyTryShows({ ...nothing, pictures: [{ at: 1, site: 'a.test', url: 'u', reason: 'nudity', scores: {} }] }), true, 'a picture hidden (1.16.0)');
   assert.equal(everyTryShows({ ...nothing, attempts: [{ at: 1, site: 'a.test' }] }), true, 'a try');
   assert.equal(everyTryShows({ ...nothing, off: [{ from: 1, to: 2, pages: 0 }] }), true, 'a time the add-on was off');
   assert.equal(everyTryShows({ ...nothing, events: [{ at: '2026-11-01T21:00:00Z', event: 'locked' }] }), true, "an entry in the password's record");

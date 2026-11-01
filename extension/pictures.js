@@ -1,76 +1,34 @@
-// The pictures and videos the picture filter kept hidden, on a page of their own: summed up by site, then
-// one by one, newest first, with the judge's scores (lib/pictures.js). The record page (attempts.html)
-// links here. This page only reads the record; nothing here can clear it.
-import { element, plural, showVersion, whenFormat } from './lib/page.js';
-import { PICTURES, borderline, countHidden, hiddenBySite, isVideo } from './lib/pictures.js';
+// The pictures and videos the picture filter kept hidden, on a page of their own: summed up, and by site,
+// each site a link to what was hidden there among every try on tries.html, which lists every one of them
+// (lib/pictures.js) with the judge's scores and the address to copy, and shows them alone from the link
+// here. The record page (attempts.html) links here. This page only reads the record; nothing here can
+// clear it.
+import { element, hiddenWords, showVersion, whenFormat } from './lib/page.js';
+import { PICTURES, hiddenBySite } from './lib/pictures.js';
 
 const api = globalThis.browser ?? globalThis.chrome;
 const $ = (id) => document.getElementById(id);
-const SHOWN = 50;
-const REASONS = { nudity: 'Nudity', suggestive: 'Suggestive' };
 
 function render(record) {
-  const list = Array.isArray(record) ? [...record].reverse() : [];
+  const list = Array.isArray(record) ? record : [];
   $('hidden-sites').hidden = list.length === 0;
   $('hidden-pictures').hidden = list.length === 0;
-  if (list.length === 0) {
-    $('summary').textContent = 'No picture hidden so far.';
-    return;
-  }
-  const sites = hiddenBySite(list);
-  const close = list.filter(borderline).length;
-  $('summary').textContent =
-    `${countHidden(list)} hidden on ${plural(sites.length, 'site')}, the latest at ${whenFormat.format(list[0].at)}.` +
-    (close ? ` ${close === 1 ? '1 of them is' : `${close} of them are`} borderline.` : '');
+  $('summary').textContent = hiddenWords(list) || 'No picture hidden so far.';
+  if (list.length === 0) return;
   const siteRows = $('hidden-sites-table').querySelector('tbody');
   siteRows.replaceChildren();
-  for (const row of sites) {
-    const tr = element('tr');
-    tr.append(element('td', row.site), element('td', String(row.pictures)), element('td', whenFormat.format(row.last)));
+  for (const row of hiddenBySite(list)) {
+    const tr = element('tr', null, { 'data-site': row.site });
+    const name = element('td');
+    name.append(element('a', row.site, { href: `tries.html#site=${encodeURIComponent(row.site)}&pictures` }));
+    tr.append(name, element('td', String(row.pictures)), element('td', whenFormat.format(row.last)));
     siteRows.append(tr);
   }
-  const table = $('hidden-pictures-table');
-  table.caption.textContent = list.length > SHOWN ? `The latest ${SHOWN}` : '';
-  const rows = table.querySelector('tbody');
-  rows.replaceChildren();
-  for (const entry of list.slice(0, SHOWN)) {
-    const close = borderline(entry);
-    const tr = element('tr', null, close ? { class: 'borderline' } : {});
-    const nudity = (entry.scores?.porn ?? 0) + (entry.scores?.hentai ?? 0);
-    const why = element('td', REASONS[entry.reason] ?? entry.reason ?? '');
-    if (close) why.append(element('small', 'borderline', { class: 'borderline-mark' }));
-    const action = element('td');
-    const copy = element('button', 'Copy address', { type: 'button', class: 'secondary small' });
-    copy.addEventListener('click', () => copyAddress(entry.url, copy));
-    action.append(copy);
-    // A video's address is its own, its poster's, or the page's (lib/pictures.js recordHidden), marked so.
-    const what = element('td', null, { class: 'picture-url', title: entry.url });
-    if (isVideo(entry)) what.append(element('small', 'video', { class: 'kind-mark' }));
-    what.append(entry.url);
-    tr.append(
-      element('td', whenFormat.format(entry.at)),
-      element('td', entry.site),
-      what,
-      why,
-      element('td', nudity.toFixed(2)),
-      element('td', (entry.scores?.sexy ?? 0).toFixed(2)),
-      action,
-    );
-    rows.append(tr);
-  }
-}
-
-async function copyAddress(url, button) {
-  try {
-    await navigator.clipboard.writeText(url);
-    button.textContent = 'Copied';
-    $('copy-status').textContent = 'Address copied. Paste it into a browser without the extension to see the picture.';
-  } catch (error) {
-    $('copy-status').textContent = `Couldn't copy: ${error.message}. The address is in the row; select it to copy it.`;
-  }
-  setTimeout(() => {
-    button.textContent = 'Copy address';
-  }, 2000);
+  $('hidden-pictures-line').replaceChildren(
+    'Each one is a row among every try in the record, in its day: the time, the site, why it was hidden, the judge’s scores, and its address to copy. ',
+    element('a', `See ${list.length === 1 ? 'it' : 'them'} among every try`, { href: 'tries.html#pictures' }),
+    '.',
+  );
 }
 
 async function load() {
