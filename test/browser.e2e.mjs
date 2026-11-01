@@ -1583,7 +1583,7 @@ describe('real browser', () => {
       }
     });
 
-    test('unlocking takes the wait, shows the password, and locks it away again with a fresh puzzle', async () => {
+    slowTest('unlocking takes the wait, shows the password, and locks it away again with a fresh puzzle', async () => {
       const page = await freshSettings();
       try {
         await lockAway(page, SECRET, 3);
@@ -1601,6 +1601,20 @@ describe('real browser', () => {
         await page.waitForFunction(() => document.getElementById('lockbox-status').textContent === '');
         const after = (await storedLockbox(page)).lockbox;
         assert.notEqual(after.n, before.n, 'a new puzzle');
+
+        // Copy puts the password on the clipboard and says so right beside the button, on its line, rather
+        // than on the status line at the foot of the panel, below the wait chooser, where it was easy to miss.
+        assert.equal(await page.locator('#lockbox-copied').isVisible(), false, 'nothing copied yet');
+        await browser.context.grantPermissions(['clipboard-read', 'clipboard-write']);
+        await page.click('#lockbox-copy');
+        await page.locator('#lockbox-copied').waitFor({ state: 'visible' });
+        assert.equal(await page.locator('#lockbox-copied').innerText(), 'Copied');
+        assert.equal(await page.evaluate(() => navigator.clipboard.readText()), SECRET);
+        assert.equal(await lockboxStatus(page), '', 'the status line stays empty');
+        const [copyButton, copied] = await Promise.all([page.locator('#lockbox-copy').boundingBox(), page.locator('#lockbox-copied').boundingBox()]);
+        const gap = copied.x - (copyButton.x + copyButton.width);
+        assert.ok(gap >= 0 && gap <= 24, `"Copied" is ${gap}px right of the Copy button`);
+        assert.ok(Math.abs(copied.y + copied.height / 2 - (copyButton.y + copyButton.height / 2)) <= 4, 'on the button’s line');
         assert.equal(after.delay, 3, 'with the same wait');
         assert.equal((await storedLockbox(page)).lockboxProgress, undefined, "no progress left behind");
         assert.ok(!JSON.stringify(await storedLockbox(page)).includes(SECRET));
@@ -1626,6 +1640,13 @@ describe('real browser', () => {
         await page.click('#lockbox-hide');
         await page.locator('#lockbox-locked').waitFor({ state: 'visible' });
         assert.equal(await page.inputValue('#lockbox-revealed'), '');
+
+        // The next time the password is shown, "Copied" isn't, until Copy is clicked again.
+        await page.click('#lockbox-start');
+        await page.locator('#lockbox-open').waitFor({ state: 'visible', timeout: 20_000 });
+        assert.equal(await page.inputValue('#lockbox-revealed'), SECRET);
+        assert.equal(await page.locator('#lockbox-copied').isVisible(), false, '"Copied" was for the copy just made');
+        await page.waitForFunction(() => document.getElementById('lockbox-status').textContent === '', null, { timeout: 15_000 });
         assert.deepEqual(page.errors, []);
       } finally {
         await page.close();

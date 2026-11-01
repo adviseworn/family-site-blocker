@@ -270,6 +270,7 @@ function stopWorker() {
 // Shows the password, and locks it away again straight away with the same wait, timed afresh.
 async function reveal(box, secret) {
   $('lockbox-revealed').value = secret;
+  $('lockbox-copied').hidden = true;
   $('lockbox-again').textContent = `Locking it away again with the same wait (${duration(box.delay)})…`;
   showOnly('lockbox-open');
   choose($('lockbox-new-wait'), box.delay);
@@ -392,9 +393,14 @@ function hide() {
   render();
 }
 
+// Says "Copied" beside the button, not on the status line at the foot of the panel, where it was easy to miss.
 async function copy() {
-  await navigator.clipboard.writeText($('lockbox-revealed').value);
-  say('Copied.');
+  try {
+    await navigator.clipboard.writeText($('lockbox-revealed').value);
+    $('lockbox-copied').hidden = false;
+  } catch (error) {
+    say(`Couldn’t copy it: ${error.message}. Select the password and copy it (⌘C or Ctrl+C).`);
+  }
 }
 
 $('lockbox-lock').addEventListener('click', lock);

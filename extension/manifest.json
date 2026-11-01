@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Family Site Blocker",
-  "version": "1.12.0",
+  "version": "1.12.1",
   "description": "Blocks adult websites. Starts with a built-in list, lets you add your own, notes blocked attempts, and can test itself.",
   "minimum_chrome_version": "121",
   "browser_specific_settings": {
