@@ -520,8 +520,10 @@ describe('real browser', () => {
         assert.equal(await page.locator('#private-open').isVisible(), true);
         assert.ok(await page.evaluate(() => document.getElementById('private').classList.contains('todo')), 'marked as something to do');
 
-        // The button takes the person to this extension's page in the browser's extensions list.
+        // The button takes the person to this extension's page in the browser's extensions list. The new
+        // tab can be reported before its address is set, so wait for that (#109).
         const [details] = await Promise.all([browser.context.waitForEvent('page'), page.click('#private-open')]);
+        await details.waitForURL(/^chrome:\/\/extensions\//);
         assert.equal(details.url(), `chrome://extensions/?id=${browser.extensionId}`);
         await details.close();
       } finally {
@@ -768,11 +770,12 @@ describe('real browser', () => {
         await page.locator('#attempts-all').waitFor({ state: 'visible' });
         assert.equal(await page.locator('#attempts-all').innerText(), 'See the whole record (60)');
 
-        // The link opens the record page in a tab of its own.
+        // The link opens the record page in a tab of its own. The new tab can be reported before its
+        // address is set, and its blank starting page has already loaded, so wait for the address (#109).
         [record] = await Promise.all([browser.context.waitForEvent('page'), page.click('#attempts-all')]);
         record.errors = [];
         record.on('pageerror', (error) => record.errors.push(error.message));
-        await record.waitForLoadState('domcontentloaded');
+        await record.waitForURL(/\/attempts\.html$/);
         assert.equal(record.url(), `chrome-extension://${browser.extensionId}/attempts.html`);
         await record.waitForFunction(() => document.querySelectorAll('#sites-table tbody tr').length === 7);
         assert.match(await record.locator('#version').innerText(), /^Version \d+\.\d+\.\d+$/);
@@ -1127,6 +1130,10 @@ describe('real browser', () => {
       stub.page('camera.test/streams', cameraPage({ streams: true }));
       standIn = extensionWithStandInClassifier();
       judge = await launchBrowser(stub, { extensionDir: standIn.dir, args: FAKE_CAMERA_ARGS });
+      // This copy opens its settings page on install too, and Chrome puts that page into the tab in front
+      // when that tab is blank, which could be the first test's (#109): let it open, then close it, as the
+      // main group does.
+      await (await findPage(judge.context, (url) => url.endsWith('/options.html')))?.close();
     });
 
     after(async () => {
@@ -1676,8 +1683,9 @@ describe('real browser', () => {
         page.once('dialog', (dialog) => dialog.accept());
         await page.click('#lockbox-delete');
         await page.locator('#lockbox-empty').waitFor({ state: 'visible' });
-        // The password and the progress are gone; the record stays, and says so (#75).
-        assert.deepEqual(Object.keys(await storedLockbox(page)), ['lockboxEvents']);
+        // The password and the progress are gone; the record stays, and says so (#75). Only the lockbox's own
+        // keys count: the background script's note of when it is running can be written at any moment (#131).
+        assert.deepEqual(Object.keys(await storedLockbox(page)).filter((key) => key.startsWith('lockbox')), ['lockboxEvents']);
         assert.deepEqual(await recordedEvents(page), ['locked', 'deleted']);
         assert.equal(await page.locator('#lockbox-record').isVisible(), true);
         assert.equal((await shownRecord(page))[0].what, 'Deleted.');
