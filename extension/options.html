@@ -11,6 +11,15 @@
     <header>
       <h1>Family Site Blocker <span id="version" class="version"></span></h1>
       <p id="summary" aria-live="polite">Loading the lists…</p>
+      <nav aria-label="On this page">
+        <ul class="contents">
+          <li><a href="#working">Is it working?</a></li>
+          <li><a href="#mine">Your blocked sites</a></li>
+          <li><a href="#pictures">Pictures</a></li>
+          <li><a href="#attempts">The record</a></li>
+          <li><a href="#lockbox-section">Locked-away password</a></li>
+        </ul>
+      </nav>
     </header>
 
     <section id="working" aria-labelledby="working-heading">
@@ -49,7 +58,7 @@
       </ul>
     </section>
 
-    <section aria-labelledby="mine-heading">
+    <section id="mine" aria-labelledby="mine-heading">
       <h2 id="mine-heading">Your blocked sites</h2>
       <p>One site per line, added to the built-in list. Subdomains such as www and m are blocked too.</p>
       <label class="visually-hidden" for="custom">Blocked sites, one per line</label>
