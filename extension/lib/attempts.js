@@ -40,7 +40,10 @@ export const LABELS = {
 export const FROM_HISTORY = ['history', 'off', 'unlisted', 'unseen'];
 
 // Two notes of the same site this close together are one attempt: the browser reports each navigation
-// more than once (see background.js), in no fixed order, and a reload is not a new try.
+// more than once (see background.js), in no fixed order, and a reload is not a new try. A visit found in
+// the browser's history is no such report (its time is the history's, not the browser's word that this
+// navigation started), so record() doesn't fold a live try into one; the other way round, the history's
+// copy of a live try, is left out by mergeVisits (#125).
 export const SAME_ATTEMPT_MS = 2000;
 // A page that loads this long after the attempt was noted belongs to that attempt.
 const OPENED_WITHIN_MS = 60_000;
@@ -91,7 +94,10 @@ export function listedDomain(host, domains) {
 /**
  * Notes an attempt, or that a page opened, and returns the new list; or null when nothing changes.
  * `attempt` is { at, site } for a navigation that started, or { at, site, opened: true } for a page
- * that finished loading, which marks the attempt it belongs to rather than adding one.
+ * that finished loading, which marks the attempt it belongs to rather than adding one. A navigation within
+ * SAME_ATTEMPT_MS of the last note of the same site is that note's try reported again, unless the note is
+ * a visit from the history: then it is a new try, noted after the visit (a site added to the list a moment
+ * after it was visited, and tried again at once, gets both).
  */
 export function record(attempts, { at, site, opened = false }) {
   const list = Array.isArray(attempts) ? attempts : [];
@@ -104,7 +110,7 @@ export function record(attempts, { at, site, opened = false }) {
     return trim([...list, { at, site, opened: true }]);
   }
   const last = list[list.length - 1];
-  if (last && last.site === site && Math.abs(at - last.at) < SAME_ATTEMPT_MS) return null;
+  if (last && last.site === site && !last.from && Math.abs(at - last.at) < SAME_ATTEMPT_MS) return null;
   return trim([...list, { at, site }]);
 }
 

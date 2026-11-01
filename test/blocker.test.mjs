@@ -384,7 +384,7 @@ test('blocked attempts: the host of an address, and the listed domain that cover
   assert.equal(listedDomain('com', new Set(['com'])), null, 'a single label is never looked up');
 });
 
-test('blocked attempts: notes are added oldest first, repeats within two seconds are one attempt, and a page that opens marks its attempt', () => {
+test('blocked attempts: notes are added oldest first, repeats within two seconds are one attempt (a visit from the history is not one), and a page that opens marks its attempt', () => {
   const t = 1_700_000_000_000;
   let list = record(undefined, { at: t, site: 'a.test' });
   assert.deepEqual(list, [{ at: t, site: 'a.test' }]);
@@ -404,6 +404,13 @@ test('blocked attempts: notes are added oldest first, repeats within two seconds
   // The browser may report the start of that page load after its end: still the same try.
   assert.equal(record(late, { at: t + 100_500, site: 'a.test' }), null);
   assert.equal(record(late, { at: t + 102_500, site: 'a.test' }).length, 5, 'a later try is new');
+  // A visit found in the history (mergeVisits) a moment before a try is not the browser reporting that try
+  // again: the try is noted after it (#125). The other order, the history's copy of a live try, is left out
+  // by mergeVisits, below.
+  const visited = [{ at: t, site: 'a.test', from: 'history' }];
+  const tried = record(visited, { at: t + 700, site: 'a.test' });
+  assert.deepEqual(tried, [{ at: t, site: 'a.test', from: 'history' }, { at: t + 700, site: 'a.test' }], 'a try right after a visit from the history is new');
+  assert.equal(record(tried, { at: t + 900, site: 'a.test' }), null, 'and its second report is the same try');
   assert.equal(record('not a list', { at: t, site: 'a.test' }).length, 1, 'a damaged record starts over');
 });
 
