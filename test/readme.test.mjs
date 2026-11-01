@@ -23,7 +23,9 @@ test('every anchor the lock line links to is a heading in the README', () => {
   const states = [];
   for (const installType of ['admin', 'development', 'normal']) {
     for (const firefox of [true, false]) {
-      for (const stamp of [null, { version: '1.0.0', entries: 1000 }, { version: '9.0.0', entries: 1000 }]) states.push({ installType, firefox, own: '1.8.0', stamp });
+      for (const stamp of [null, { version: '1.0.0', entries: 1000 }, { version: '9.0.0', entries: 1000 }, { version: '1.0.0', entries: 1000, digest: 'ab' }, { version: '1.8.0', entries: 999, digest: 'ab' }]) {
+        for (const ownStamp of [null, { version: '1.8.0', entries: 1000, digest: 'cd', sameSince: '1.5.0' }]) states.push({ installType, firefox, own: '1.8.0', stamp, ownStamp });
+      }
     }
   }
   const linked = new Set(states.flatMap((state) => describeLock(state).parts).filter((part) => typeof part !== 'string').map((part) => part.anchor));

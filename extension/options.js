@@ -3,7 +3,7 @@
 // the locked-away password stands. The record and the password have pages of their own.
 import { ATTEMPTS, LABELS, outcome, summarize } from './lib/attempts.js';
 import { parseDomainList } from './lib/domains.js';
-import { describeLock, lockInForce, managedStamp } from './lib/lock.js';
+import { describeLock, lockInForce, managedStamp, ownStamp } from './lib/lock.js';
 import { BOX, EVENTS, PROGRESS, describeBox, loadBox } from './lib/lockbox.js';
 import { MY_LIST_CHANGED, myList, saveMyList } from './lib/mylist.js';
 import { PICTURES, STRICTNESS, STRICTNESS_CHOICES, countHidden, hiddenBySite, strictnessOf } from './lib/pictures.js';
@@ -146,9 +146,10 @@ const lockState = (async () => {
   } catch {
     return null; // nothing to say
   }
-  const state = { installType: info.installType, mayDisable: info.mayDisable, firefox: isFirefox, own: api.runtime.getManifest().version, stamp: null };
-  // Only the Firefox lock writes the stamp; in other browsers there is nothing to read.
-  if (lockInForce(state)) state.stamp = await managedStamp(api.storage);
+  const state = { installType: info.installType, mayDisable: info.mayDisable, firefox: isFirefox, own: api.runtime.getManifest().version, stamp: null, ownStamp: null };
+  // Only the Firefox lock writes the stamp; in other browsers there is nothing to read. The add-on's own
+  // copy says which profile belongs to this version.
+  if (lockInForce(state)) [state.stamp, state.ownStamp] = await Promise.all([managedStamp(api.storage), ownStamp(api.runtime)]);
   return state;
 })();
 

@@ -1,4 +1,6 @@
 {
-  "version": "1.14.0",
-  "entries": 1000
+  "version": "1.15.0",
+  "entries": 1000,
+  "digest": "cb99ede1d311",
+  "sameSince": "1.10.5"
 }
