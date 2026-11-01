@@ -104,6 +104,22 @@ describe('Firefox', { skip: findFirefox() ? false : 'no Firefox found (set FIREF
     assert.equal(stub.reached(SITE), false, `${url}: a request reached the site`);
   }
 
+  /**
+   * Waits for the current tab to show the block page: Firefox reports its address as soon as the navigation
+   * commits, before the page's document is in, so the document is waited for too before its words are read.
+   */
+  async function waitForBlockPage(target = browser) {
+    const url = await target.waitForUrl((at) => /\/blocked\.html$/.test(at));
+    assert.match(url, /^moz-extension:\/\/[0-9a-f-]+\/blocked\.html$/, 'the tab shows the block page');
+    const until = Date.now() + 8000;
+    let ready = false;
+    while (!ready && Date.now() < until) {
+      ready = await target.run("return document.readyState === 'complete' && document.body !== null");
+      if (!ready) await sleep(100);
+    }
+    assert.match(await target.run('return document.body.innerText'), /This site is blocked/);
+  }
+
   describe('test case: navigate to exampleadultsite.com', () => {
     test('Actual, with no add-on: the website is allowed (so this test can see a failure)', async () => {
       const plain = await launchFirefox(stub, { extension: false });
@@ -130,9 +146,7 @@ describe('Firefox', { skip: findFirefox() ? false : 'no Firefox found (set FIREF
         stub.clear();
         await plain.fx.send('Addon:Install', { path: packageFirefox({ extensionDir: EXTENSION_DIR, outDir }).zip, temporary: true });
         await plain.fx.send('WebDriver:SwitchToWindow', { handle: tab });
-        const url = await plain.waitForUrl((at) => /\/blocked\.html$/.test(at));
-        assert.match(url, /^moz-extension:\/\/[0-9a-f-]+\/blocked\.html$/, 'the tab shows the block page');
-        assert.match(await plain.run('return document.body.innerText'), /This site is blocked/);
+        await waitForBlockPage(plain);
         assert.equal(stub.reached(SITE), false, 'a request reached the site');
       } finally {
         await plain.close();
@@ -327,9 +341,7 @@ describe('Firefox', { skip: findFirefox() ? false : 'no Firefox found (set FIREF
       try {
         assert.match(await saveList('custom-blocked.test'), /^Saved\. 1 site on your list\./);
         await browser.fx.send('WebDriver:SwitchToWindow', { handle: open });
-        const url = await browser.waitForUrl((at) => /\/blocked\.html$/.test(at));
-        assert.match(url, /^moz-extension:\/\/[0-9a-f-]+\/blocked\.html$/, 'the tab shows the block page');
-        assert.match(await browser.run('return document.body.innerText'), /This site is blocked/);
+        await waitForBlockPage();
         assert.equal(stub.reached('custom-blocked.test'), false, 'a request reached the site');
         await browser.fx.send('WebDriver:SwitchToWindow', { handle: other });
         assert.equal(await browser.currentUrl(), 'http://allowed.test/stays', 'a tab on another site is left alone');
