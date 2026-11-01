@@ -5,8 +5,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
-import { STAMP, STAMP_FROM, compareVersions, describeLock, isStamp, lockInForce, locked, managedStamp, textOf } from '../extension/lib/lock.js';
-import { STAMP_PATH, VERSION, lockStamp } from '../scripts/firefox-lock.mjs';
+import { DIGEST_FROM, STAMP, STAMP_FILE, STAMP_FROM, compareVersions, describeLock, hasDigest, isStamp, lockInForce, locked, managedStamp, ownStamp, sameSettings, textOf } from '../extension/lib/lock.js';
+import { ADDON_ID, STAMP_PATH, VERSION, addonStamp, digestOf, firefoxPolicies, lockSettings, lockStamp, readAddonStamp } from '../scripts/firefox-lock.mjs';
 
 const stamp = { version: '1.8.0', entries: 1000 };
 const describe = (state) => ({ state: describeLock(state).state, text: textOf(describeLock(state).parts) });
@@ -49,7 +49,7 @@ test('the lock line under the Firefox lock: this copy, an older copy, a newer co
   });
   assert.deepEqual(describe({ installType: 'admin', firefox: true, own: '1.9.0', stamp }), {
     state: 'todo',
-    text: "The Firefox lock is in force, but it's an older copy: from version 1.8.0, with 1,000 entries in Firefox's own list, while this is version 1.9.0. Install the current profile so Firefox's own list catches up. How to install it.",
+    text: "The Firefox lock is in force, but it's an older copy: from version 1.8.0, with 1,000 entries in Firefox's own list, while this is version 1.9.0. Install the current profile so Firefox's own list and the lock's other settings catch up. How to install it.",
   });
   assert.deepEqual(links({ installType: 'admin', firefox: true, own: '1.9.0', stamp }), [{ anchor: 'lock-it-so-nobody-can-switch-it-off-firefox-on-a-mac', text: 'How to install it' }]);
   assert.deepEqual(describe({ installType: 'admin', firefox: true, own, stamp: { version: '1.10.0', entries: 1000 } }), {
@@ -62,6 +62,73 @@ test('the lock line under the Firefox lock: this copy, an older copy, a newer co
   });
   assert.equal(STAMP_FROM, '1.8.0', 'the version whose profile first carried the stamp');
   assert.deepEqual(describe({ installType: 'admin', firefox: true, own, stamp: { version: '1.8.0', entries: 1 } }).text.includes('with 1 entry in'), true);
+});
+
+test("from 1.15.0 the stamps carry a digest of Firefox's own list and the lock's other settings, and copies are compared by it, not by version (#78)", () => {
+  const own = '1.15.0';
+  const mine = { version: '1.15.0', entries: 1000, digest: 'cb99ede1d311', sameSince: '1.10.5' }; // the add-on's own copy
+  const at = (stamp, ownStamp = mine) => describe({ installType: 'admin', firefox: true, own, stamp, ownStamp });
+  const same = { version: '1.12.0', entries: 1000, digest: 'cb99ede1d311' };
+  assert.deepEqual(at(same), {
+    state: 'ok',
+    text: "The Firefox lock is in force: Firefox installed the add-on itself and gives no way to switch it off or remove it. The lock installed is the copy from version 1.12.0, with the same list and settings as this version's (1.15.0): 1,000 entries in Firefox's own list.",
+  });
+  assert.deepEqual(at({ ...same, digest: 'ab0000000000' }), {
+    state: 'todo',
+    text: "The Firefox lock is in force, but it's an older copy: from version 1.12.0, with 1,000 entries in Firefox's own list, while this is version 1.15.0. Install the current profile so Firefox's own list and the lock's other settings catch up. How to install it.",
+  }, 'a changed list or setting');
+  assert.deepEqual(at({ version: '1.15.0', entries: 998, digest: 'ab0000000000' }), {
+    state: 'todo',
+    text: "The Firefox lock is in force, but the copy installed isn't this version's (1.15.0): its list or settings differ, with 998 entries in Firefox's own list. Install the current profile so Firefox's own list and the lock's other settings catch up. How to install it.",
+  }, "this version's number on a profile built from other lists or settings");
+  assert.deepEqual(links({ installType: 'admin', firefox: true, own, stamp: { version: '1.15.0', entries: 998, digest: 'ab0000000000' }, ownStamp: mine }), [{ anchor: 'lock-it-so-nobody-can-switch-it-off-firefox-on-a-mac', text: 'How to install it' }]);
+  assert.equal(at({ ...same, version: '1.15.0' }).text, "The Firefox lock is in force: Firefox installed the add-on itself and gives no way to switch it off or remove it. The lock installed is this version's copy (1.15.0), with 1,000 entries in Firefox's own list.");
+  assert.equal(at({ ...same, version: '1.16.0' }).text, "The Firefox lock is in force: Firefox installed the add-on itself and gives no way to switch it off or remove it. The lock installed is the copy from version 1.16.0, with the same list and settings as this version's (1.15.0): 1,000 entries in Firefox's own list.", 'a newer profile with the same list and settings');
+  assert.deepEqual(at({ version: '1.16.0', entries: 1000, digest: 'ab0000000000' }), {
+    state: 'ok',
+    text: 'The Firefox lock is in force: Firefox installed the add-on itself and gives no way to switch it off or remove it. The lock installed is the copy from version 1.16.0, newer than this add-on (1.15.0), which updates itself.',
+  }, 'a newer profile with other settings: the add-on catches up by itself');
+  // A profile from before the digest: its version says, against the version the add-on's own list and settings date from.
+  assert.equal(at({ version: '1.11.3', entries: 1000 }).text, "The Firefox lock is in force: Firefox installed the add-on itself and gives no way to switch it off or remove it. The lock installed is the copy from version 1.11.3, with the same list and settings as this version's (1.15.0): 1,000 entries in Firefox's own list.");
+  assert.equal(at({ version: '1.10.5', entries: 1000 }).state, 'ok', 'from sameSince on');
+  assert.equal(at({ version: '1.9.0', entries: 1000 }).state, 'todo', 'before sameSince');
+  assert.equal(at({ version: '1.11.3', entries: 999 }).state, 'todo', 'not as many entries');
+  assert.equal(at({ version: '1.11.3', entries: 1000 }, { version: '1.15.0', entries: 1000, digest: 'cb99ede1d311' }).state, 'todo', 'an own copy without sameSince: by version');
+  assert.equal(at({ version: '1.11.3', entries: 1000 }, null).state, 'todo', 'no own copy: by version, as before');
+  assert.equal(at(same, null).state, 'todo', 'no own copy to compare the digest with: by version');
+  assert.equal(at({ ...same, digest: 'not even hex' }).state, 'todo', "a malformed digest doesn't pass for a copy from before the digest");
+  assert.equal(compareVersions(DIGEST_FROM, STAMP_FROM) > 0, true);
+});
+
+test('whether two stamps describe the same list and settings: by digest, or by version for a profile from before the digest', () => {
+  const mine = { version: '1.15.0', entries: 1000, digest: 'cb99ede1d311', sameSince: '1.10.5' };
+  assert.equal(sameSettings({ version: '1.12.0', entries: 1000, digest: 'cb99ede1d311' }, mine), true);
+  assert.equal(sameSettings({ version: '1.12.0', entries: 1000, digest: 'ab0000000000' }, mine), false);
+  assert.equal(sameSettings({ version: '1.12.0', entries: 1000, digest: 'cb99ede1d311' }, { version: '1.15.0', entries: 1000 }), null, 'an own copy without a digest');
+  assert.equal(sameSettings({ version: '1.11.3', entries: 1000 }, mine), true, 'from sameSince on, with as many entries');
+  assert.equal(sameSettings({ version: '1.10.5', entries: 1000 }, mine), true);
+  assert.equal(sameSettings({ version: '1.10.4', entries: 1000 }, mine), false);
+  assert.equal(sameSettings({ version: '1.11.3', entries: 1001 }, mine), false);
+  assert.equal(sameSettings({ version: '1.11.3', entries: 1000 }, { ...mine, sameSince: undefined }), null);
+  assert.equal(sameSettings({ version: '1.11.3', entries: 1000 }, null), null);
+  assert.equal(sameSettings(null, mine), null);
+  assert.ok(hasDigest(mine));
+  assert.equal(hasDigest({ version: '1.11.3', entries: 1000 }), false);
+  assert.equal(hasDigest({ ...mine, digest: 'XYZ' }), false, 'hex, as the build writes it');
+  assert.equal(hasDigest({ ...mine, digest: '' }), false);
+});
+
+test("the add-on's own copy of the stamp is read from its package, and anything else is null", async () => {
+  const runtime = { getURL: (path) => `moz-extension://abc/${path}` };
+  const stamp = { version: '1.15.0', entries: 1000, digest: 'cb99ede1d311', sameSince: '1.10.5' };
+  let asked;
+  const serving = (body) => async (url) => { asked = url; return { json: async () => JSON.parse(body) }; };
+  assert.deepEqual(await ownStamp(runtime, serving(JSON.stringify(stamp))), stamp);
+  assert.equal(asked, `moz-extension://abc/${STAMP_FILE}`);
+  assert.equal(STAMP_FILE, 'rules/lock.json');
+  assert.equal(await ownStamp(runtime, serving('{"version":"x"}')), null, 'not a stamp');
+  assert.equal(await ownStamp(runtime, serving('not json')), null);
+  assert.equal(await ownStamp(runtime, async () => { throw new Error('no such file'); }), null);
 });
 
 test('the lock line elsewhere: policy in another browser, a temporary add-on, an ordinary install in Firefox and in the others', () => {
@@ -115,9 +182,39 @@ test('the Firefox lock in force means its other settings are too: private window
 
 test("the add-on's own copy of the stamp matches the profile's, for this version (run npm run build)", () => {
   const own = JSON.parse(readFileSync(STAMP_PATH, 'utf8'));
-  assert.deepEqual(own, lockStamp());
-  assert.deepEqual(own, { version: VERSION, entries: 1000 });
-  assert.ok(isStamp(own));
-  assert.equal(readFileSync(STAMP_PATH, 'utf8'), `${JSON.stringify(lockStamp(), null, 2)}\n`, 'written the way the build writes it');
+  assert.deepEqual(own, addonStamp());
+  assert.deepEqual(own, { version: VERSION, entries: 1000, digest: lockStamp().digest, sameSince: own.sameSince });
+  assert.ok(isStamp(own) && hasDigest(own));
+  assert.match(own.digest, /^[0-9a-f]{12}$/);
+  // 1.10.5 is the first release whose profile carried today's list and settings (a diff of the profile from
+  // that release on touches only the stamp and the description), which seeded sameSince when the digest came in.
+  assert.ok(compareVersions(own.sameSince, '1.10.5') >= 0 && compareVersions(own.sameSince, VERSION) <= 0, `sameSince ${own.sameSince}`);
+  assert.deepEqual(readAddonStamp(), own);
+  assert.equal(readFileSync(STAMP_PATH, 'utf8'), `${JSON.stringify(addonStamp(), null, 2)}\n`, 'written the way the build writes it');
   assert.equal(compareVersions(VERSION, STAMP_FROM) >= 0, true, 'this version carries the stamp');
+  assert.equal(compareVersions(VERSION, DIGEST_FROM) >= 0, true, 'and the digest');
+  assert.deepEqual(firefoxPolicies()['3rdparty'].Extensions[ADDON_ID][STAMP], lockStamp(), "the profile's stamp is the same, without sameSince, which only the add-on needs");
+});
+
+test("the digest covers Firefox's own list and the lock's other settings, not the address the add-on installs from, and sameSince holds while it does", () => {
+  const entries = ['*://*.a.test/*', '*://*.b.test/*'];
+  const stamp = lockStamp(entries, '9.8.7');
+  assert.deepEqual(stamp, { version: '9.8.7', entries: 2, digest: digestOf(lockSettings(entries)) });
+  assert.match(stamp.digest, /^[0-9a-f]{12}$/);
+  assert.equal(lockStamp(entries, '9.9.0').digest, stamp.digest, 'the version is not in it');
+  assert.notEqual(lockStamp(['*://*.a.test/*'], '9.8.7').digest, stamp.digest, 'the list is');
+  assert.notEqual(lockStamp([...entries].reverse(), '9.8.7').digest, stamp.digest, 'in its order');
+  assert.notEqual(digestOf({ ...lockSettings(entries), DisablePrivateBrowsing: false }), stamp.digest, 'a switch is');
+  assert.notEqual(digestOf({ ...lockSettings(entries), Preferences: { 'extensions.dnr.enabled': { Value: true, Status: 'locked' } } }), stamp.digest, 'a locked preference is');
+  assert.equal(firefoxPolicies('http://elsewhere.test/x.xpi', entries)['3rdparty'].Extensions[ADDON_ID][STAMP].digest, stamp.digest, 'the address is not (the lock tests install from a stand-in)');
+  assert.deepEqual(Object.keys(lockSettings(entries)).sort(), ['BlockAboutConfig', 'DisablePrivateBrowsing', 'DisableProfileRefresh', 'DisableSafeMode', 'ExtensionUpdate', 'Extensions', 'Preferences', 'WebsiteFilter'], 'everything but the stamp');
+  assert.deepEqual(lockSettings(entries).Extensions, { Locked: [ADDON_ID] }, 'the lock on the add-on, without the address');
+  assert.equal(digestOf({ b: 1, a: { d: [2, 1], c: 3 } }), digestOf({ a: { c: 3, d: [2, 1] }, b: 1 }), 'keys in any order');
+  assert.notEqual(digestOf({ a: [1, 2] }), digestOf({ a: [2, 1] }), 'the order of a list counts');
+  assert.deepEqual(addonStamp(stamp, null), { ...stamp, sameSince: '9.8.7' }, 'a first build starts sameSince at its version');
+  assert.deepEqual(addonStamp(stamp, { ...stamp, version: '9.0.0', sameSince: '8.0.0' }), { ...stamp, sameSince: '8.0.0' }, 'kept while the digest holds');
+  assert.deepEqual(addonStamp(stamp, { version: '9.0.0', entries: 2, digest: 'ab0000000000', sameSince: '8.0.0' }), { ...stamp, sameSince: '9.8.7' }, 'a new digest starts it afresh');
+  assert.deepEqual(addonStamp(stamp, { version: '9.0.0', entries: 2 }), { ...stamp, sameSince: '9.8.7' }, 'after a copy from before the digest');
+  assert.deepEqual(addonStamp(stamp, { ...stamp, sameSince: 'yesterday' }), { ...stamp, sameSince: '9.8.7' }, 'a sameSince that is not a version');
+  assert.equal(readAddonStamp('/nowhere/lock.json'), null);
 });

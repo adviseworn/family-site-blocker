@@ -78,6 +78,12 @@ function manifestOf(file) {
   return { id: (manifest.browser_specific_settings ?? manifest.applications)?.gecko?.id, version: manifest.version };
 }
 
+/** The add-on's own copy of the lock's stamp that a signed .xpi carries (rules/lock.json, from 1.8.0), or null. */
+function addonStampOf(file) {
+  const entry = readZip(readFileSync(file)).get('rules/lock.json');
+  return entry ? JSON.parse(entry.data) : null;
+}
+
 /** Whether a version of the add-on notes blocked attempts on its settings page (from 1.3.0). */
 function notesAttempts(version) {
   const [major, minor] = String(version).split('.').map(Number);
@@ -309,7 +315,8 @@ describe('Firefox lock', { skip: SKIP }, () => {
 
   // The board (from 1.7.0) says the lock is in force. From STAMP_FROM its lock line also says which copy of the
   // profile is installed: the stamp is the repository's (the lock under test is built from it), the add-on the
-  // signed one, so the line says this version's copy, an older or a newer one, as the two versions compare.
+  // signed one, so the line says this version's copy, an older or a newer one, as the two stamps compare (by
+  // their digests from 1.15.0, by version before; the signed add-on's own copy of the stamp is in its package).
   if (version && hasBoard(version)) {
     test(`the settings page's board says the lock is in force${readsStamp(version) ? ', which copy of it is installed, and that private windows are off' : ''}`, async () => {
       const host = await firefox.chrome('return WebExtensionPolicy.getByID(arguments[0])?.mozExtensionHostname ?? null;', ADDON_ID);
@@ -326,7 +333,7 @@ describe('Firefox lock', { skip: SKIP }, () => {
         lines = await read();
       }
       if (readsStamp(version)) {
-        const expected = describeLock({ installType: 'admin', firefox: true, own: version, stamp: lockStamp() });
+        const expected = describeLock({ installType: 'admin', firefox: true, own: version, stamp: policies.lock['3rdparty'].Extensions[ADDON_ID][STAMP], ownStamp: addonStampOf(SIGNED) });
         assert.deepEqual({ text: lines.lock.text, mark: lines.lock.mark }, { text: textOf(expected.parts), mark: expected.state });
         assert.deepEqual(lines.privateWindows, { text: 'Private windows are turned off by the Firefox lock, so nothing can be opened there.', mark: 'ok' });
       } else {

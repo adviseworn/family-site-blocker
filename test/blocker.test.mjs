@@ -19,7 +19,7 @@ import { BLOCKLIST_DIR, DOMAINS_PATH, MANIFEST_PATH, MAX_RULESET_BYTES, NEVER_FI
 import { ENGINES, FIRST_ID, YOUTUBE, safeSearchAddress, safeSearchRules } from '../extension/lib/safesearch.js';
 import { BANDS, COMMUNITY_PATH, COMMUNITY_URL, LINKS_URL, POPULAR_PATH, POPULAR_SIZE, POPULAR_URL, communityList, inOrder, linkRanks, looksAdult as nameLooksAdult, popularList, rankSites, worthALook } from '../scripts/update-blocklist.mjs';
 import { firefoxManifest, packageFirefox } from '../scripts/package-firefox.mjs';
-import { AGENT_LABEL, AGENT_PATH, FILTER_LIMIT, PROFILE_PATH, SAFE_MODE_KEY_VARIABLE, STAMP_PATH, VERSION as LOCK_VERSION, WHOLE_DOMAINS, XPI_URL, filterEntries, filterPattern, filterSites, firefoxPolicies, launchAgent, lockStamp, mobileconfig, onWholeDomain } from '../scripts/firefox-lock.mjs';
+import { AGENT_LABEL, AGENT_PATH, FILTER_LIMIT, PROFILE_PATH, SAFE_MODE_KEY_VARIABLE, STAMP_PATH, VERSION as LOCK_VERSION, WHOLE_DOMAINS, XPI_URL, addonStamp, digestOf, filterEntries, filterPattern, filterSites, firefoxPolicies, launchAgent, lockSettings, lockStamp, mobileconfig, onWholeDomain } from '../scripts/firefox-lock.mjs';
 import { STAMP } from '../extension/lib/lock.js';
 import { AGENT_INSTALLED_PATH, PKG_IDENTIFIER, TITLE, VERSION as INSTALLER_VERSION, buildInstaller, conclusion, distribution, pkgName, postinstall, welcome } from '../scripts/mac-installer.mjs';
 import { ICNS_PATH, packageSigned } from '../scripts/package-signed.mjs';
@@ -1142,9 +1142,9 @@ test('the Firefox lock installs and locks this add-on and closes the ways round 
   });
   assert.equal(policies.DisableDeveloperTools, undefined, 'not the broad policy: it would disable Marionette too');
   // The stamp that says which copy of the lock this is, as the add-on's managed storage (lib/lock.js reads it).
-  assert.deepEqual(policies['3rdparty'], { Extensions: { [manifest.browser_specific_settings.gecko.id]: { [STAMP]: { version: manifest.version, entries: FILTER_LIMIT } } } });
+  assert.deepEqual(policies['3rdparty'], { Extensions: { [manifest.browser_specific_settings.gecko.id]: { [STAMP]: { version: manifest.version, entries: FILTER_LIMIT, digest: digestOf(lockSettings()) } } } });
   assert.equal(LOCK_VERSION, manifest.version, 'stamped with the version of the add-on it is built with');
-  assert.deepEqual(lockStamp(['*://*.a.test/*', '*://*.b.test/*'], '9.8.7'), { version: '9.8.7', entries: 2 });
+  assert.deepEqual(lockStamp(['*://*.a.test/*', '*://*.b.test/*'], '9.8.7'), { version: '9.8.7', entries: 2, digest: digestOf(lockSettings(['*://*.a.test/*', '*://*.b.test/*'])) });
   assert.deepEqual(firefoxPolicies(XPI_URL, ['*://*.a.test/*'])['3rdparty'].Extensions[manifest.browser_specific_settings.gecko.id][STAMP].entries, 1, 'counts the entries it carries');
 });
 
@@ -1217,9 +1217,9 @@ test('mac/family-site-blocker-firefox.mobileconfig is up to date with blocklists
   assert.ok(profile.includes('<string>*://*.exampleadultsite.com/*</string>'));
   assert.ok(profile.includes('whole adult domains such as .porn and .xxx'), 'the description says what the copy holds');
   // The stamp, as managed storage for the add-on, and the version in the description Device Management shows.
-  assert.match(profile, new RegExp(`<key>3rdparty</key>\\s*<dict>\\s*<key>Extensions</key>\\s*<dict>\\s*<key>${manifest.browser_specific_settings.gecko.id.replace('.', '\\.')}</key>\\s*<dict>\\s*<key>${STAMP}</key>\\s*<dict>\\s*<key>version</key>\\s*<string>${manifest.version.replaceAll('.', '\\.')}</string>\\s*<key>entries</key>\\s*<integer>${FILTER_LIMIT}</integer>\\s*</dict>`));
+  assert.match(profile, new RegExp(`<key>3rdparty</key>\\s*<dict>\\s*<key>Extensions</key>\\s*<dict>\\s*<key>${manifest.browser_specific_settings.gecko.id.replace('.', '\\.')}</key>\\s*<dict>\\s*<key>${STAMP}</key>\\s*<dict>\\s*<key>version</key>\\s*<string>${manifest.version.replaceAll('.', '\\.')}</string>\\s*<key>entries</key>\\s*<integer>${FILTER_LIMIT}</integer>\\s*<key>digest</key>\\s*<string>[0-9a-f]{12}</string>\\s*</dict>`));
   assert.ok(profile.includes(`This is the copy from version ${manifest.version} of Family Site Blocker, with 1,000 entries in Firefox\u2019s own list`), 'the description names the version');
-  assert.equal(readFileSync(STAMP_PATH, 'utf8'), `${JSON.stringify(lockStamp(), null, 2)}\n`, 'extension/rules/lock.json carries the same stamp');
+  assert.equal(readFileSync(STAMP_PATH, 'utf8'), `${JSON.stringify(addonStamp(), null, 2)}\n`, 'extension/rules/lock.json carries the same stamp, with sameSince');
 });
 
 test('the launch agent that closes the Option key is up to date and sets the variable Firefox checks (run npm run build)', () => {
