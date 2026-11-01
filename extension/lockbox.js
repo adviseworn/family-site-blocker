@@ -7,7 +7,7 @@
 // password, newest first, and that stays when the password is deleted or replaced (#75). The boxes that
 // have held each password are noted too (WAITS), with the wait last set for it, so that a backup file
 // saved before the wait was lengthened is lengthened to it as it is restored here (1.13.0).
-import { BOX, PROGRESS, describeEvent, describeRecord, duration, fractionDone, layerUnderWork, loadBox, longerWaitFor, noteBox, recordEvent, sinceText } from './lib/lockbox.js';
+import { BOX, PROGRESS, beginningOf, describeEvent, duration, fractionDone, layerUnderWork, loadBox, longerWaitFor, noteBox, recordEvent, sinceText } from './lib/lockbox.js';
 import { element, showVersion, whenFormat } from './lib/page.js';
 import { START, isBox, lengthen, modulusOf, open, seal, secondsOf, stepsOf, waitOf } from './lib/timelock.js';
 
@@ -128,11 +128,10 @@ function showProgress(box, progress, rate) {
   $('lockbox-progress-text').textContent = `${Math.floor(fraction * 100)}% done, about ${duration(toGo)} to go.`;
 }
 
-/** The record, newest first: when it began, the latest few entries, and a button that shows the rest. */
+/** The record, newest first: the latest few entries, a button that shows the rest, and last, kept in view, when it began. */
 function renderEvents({ events, since }) {
   const section = $('lockbox-record');
   section.hidden = events.length === 0;
-  $('lockbox-record-since').textContent = describeRecord({ events, since });
   const body = $('lockbox-events').querySelector('tbody');
   body.replaceChildren();
   const newestFirst = [...events].reverse();
@@ -141,6 +140,12 @@ function renderEvents({ events, since }) {
     row.append(element('td', whenFormat.format(new Date(entry.at))), element('td', describeEvent(entry)));
     body.append(row);
   });
+  const beginning = beginningOf({ events, since });
+  if (beginning) {
+    const row = element('tr');
+    row.append(element('td', whenFormat.format(new Date(beginning.at))), element('td', beginning.what));
+    body.append(row);
+  }
   const more = $('lockbox-events-more');
   more.hidden = newestFirst.length <= EVENTS_SHOWN;
   more.textContent = `Show all ${newestFirst.length}`;
