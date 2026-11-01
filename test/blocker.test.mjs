@@ -8,7 +8,8 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { FROM_HISTORY, LABELS, MAX_ATTEMPTS, SAME_ATTEMPT_MS, bookmarksTo, byDay, bySite, hostOf, listedDomain, mergeVisits, outcome as whatHappened, record, summarize, toCsv } from '../extension/lib/attempts.js';
+import { FROM_HISTORY, LABELS, MAX_ATTEMPTS, SAME_ATTEMPT_MS, bookmarksTo, bySite, hostOf, listedDomain, mergeVisits, offDuring, outcome as whatHappened, record, summarize, timeline, toCsv } from '../extension/lib/attempts.js';
+import { offVisitsWords, offWords, spanWords } from '../extension/lib/page.js';
 import { GAP_MS, MAX_OFF, MAX_PERIODS, WRITE_EVERY_MS, beat, earliestLiveTry, gapsOf, kindOfVisit, normalize, noteGaps, started, wasRunning } from '../extension/lib/watching.js';
 import { normalizeDomain, parseDomainList } from '../extension/lib/domains.js';
 import { MAX_UNLISTED, looksAdult, siteOf, tallyUnlisted } from '../extension/lib/suspects.js';
@@ -476,9 +477,9 @@ test('blocked attempts: the record page sums the record up by site, most tries f
     tries: 6, sites: 3, latest: noon + 2000, opened: 2, history: 1, off: 1, unlisted: 0, unseen: 0, latestOff: noon - 3 * day, latestUnseen: null,
   });
   assert.deepEqual(summarize([]), { tries: 0, sites: 0, latest: null, opened: 0, history: 0, off: 0, unlisted: 0, unseen: 0, latestOff: null, latestUnseen: null });
-  const days = byDay(attempts);
+  const days = timeline(attempts);
   assert.deepEqual(
-    days.map(({ day: start, attempts: list }) => [new Date(start).toDateString(), list.map((a) => a.site)]),
+    days.map(({ day: start, entries }) => [new Date(start).toDateString(), entries.map((entry) => entry.attempt.site)]),
     [
       ['Sun Oct 18 2026', ['a.test', 'c.test', 'a.test']],
       ['Sat Oct 17 2026', ['a.test', 'b.test']],
@@ -486,11 +487,83 @@ test('blocked attempts: the record page sums the record up by site, most tries f
     ],
   );
   assert.equal(new Date(days[0].day).getHours(), 0, 'each day starts at midnight');
+  assert.ok(days.every(({ entries }) => entries.every((entry) => entry.attempt && entry.during === null)), 'with no time off known, every entry is a try');
   assert.deepEqual(bySite([]), []);
-  assert.deepEqual(byDay(undefined), []);
+  assert.deepEqual(timeline(undefined), []);
   assert.deepEqual(attempts.map((attempt) => whatHappened(attempt)), ['history', 'blocked', 'opened', 'blocked', 'blocked', 'opened']);
   assert.deepEqual(Object.keys(LABELS).sort(), ['blocked', 'history', 'off', 'opened', 'unlisted', 'unseen']);
   assert.deepEqual([...FROM_HISTORY].sort(), ['history', 'off', 'unlisted', 'unseen']);
+});
+
+test('the timeline lays the times the add-on was off among the tries, by day, newest first, each before the tries made inside it', () => {
+  const at = (d, h, m = 0) => new Date(2026, 9, d, h, m).getTime(); // October 2026, in this computer's time zone
+  const off = [
+    { from: at(20, 21, 12), to: at(20, 23, 40), pages: 24 }, // an evening
+    { from: at(22, 23), to: at(23, 1, 12), pages: 3 }, // across midnight
+    { from: at(25, 0), to: at(26, 0), pages: 1 }, // a whole day, ending on the stroke of midnight
+  ];
+  const watching = {
+    since: at(1, 9),
+    periods: [{ from: at(1, 9), to: at(20, 21, 12) }, { from: at(20, 23, 40), to: at(22, 23) }, { from: at(23, 1, 12), to: at(25, 0) }, { from: at(26, 0), to: at(27, 12) }],
+    off,
+  };
+  const attempts = [
+    { at: at(20, 20), site: 'a.test' },
+    { at: at(20, 22), site: 'a.test', from: 'history' },
+    { at: at(20, 23, 50), site: 'b.test' },
+    { at: at(22, 23, 30), site: 'a.test', from: 'history' },
+    { at: at(23, 0, 30), site: 'a.test', from: 'history' },
+    { at: at(27, 11), site: 'a.test' },
+  ];
+  const days = timeline(attempts, watching);
+  const stamp = (ms) => `${new Date(ms).getDate()}@${new Date(ms).getHours()}`;
+  const shape = (entry) => (entry.attempt ? `${entry.attempt.site}${entry.during ? ' (off)' : ''}` : `off ${stamp(entry.from)}-${stamp(entry.to)}`);
+  assert.deepEqual(
+    days.map(({ day, entries }) => [new Date(day).toDateString(), entries.map(shape)]),
+    [
+      ['Tue Oct 27 2026', ['a.test']],
+      ['Sun Oct 25 2026', ['off 25@0-26@0']],
+      ['Fri Oct 23 2026', ['off 23@0-23@1', 'a.test (off)']],
+      ['Thu Oct 22 2026', ['off 22@23-23@0', 'a.test (off)']],
+      ['Tue Oct 20 2026', ['b.test', 'off 20@21-20@23', 'a.test (off)', 'a.test']],
+    ],
+  );
+  assert.deepEqual(days[1].entries[0].off, off[2], 'the time as stored');
+  assert.equal(days[1].entries[0].at, at(26, 0), 'sorted by the end of its part of the day');
+  assert.deepEqual(days[2].entries[0].off, off[1]);
+  assert.deepEqual(days[3].entries[0].off, off[1], 'the same time, in the other day it touches');
+  assert.deepEqual([days[3].entries[0].from, days[3].entries[0].to], [at(22, 23), at(23, 0)]);
+  assert.deepEqual(days[4].entries[2].during, off[0], 'a try inside a time the add-on was off says which');
+  assert.equal(days[4].entries[0].during, null, 'a try after it');
+  assert.deepEqual(timeline([], watching).map(({ entries }) => entries.length), [1, 1, 1, 1], 'days with only a time off are days all the same, the one across midnight in two');
+  assert.deepEqual(timeline(attempts, null).map(({ entries }) => entries.length), [1, 1, 1, 3], 'with nothing known, tries alone');
+  assert.deepEqual(offDuring(off, at(20, 22)), off[0]);
+  assert.equal(offDuring(off, at(20, 21, 12)), null, 'the stroke it went off is the last beat of the add-on running');
+  assert.equal(offDuring(off, at(20, 23, 40)), null, 'and the stroke it came back is the first');
+  assert.equal(offDuring(off, at(21, 12)), null);
+  assert.equal(offDuring(undefined, at(20, 22)), null);
+});
+
+test('the words for the times the add-on was off, shared by the record page and Every try', () => {
+  const at = (d, h, m = 0) => new Date(2026, 9, d, h, m).getTime();
+  const when = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+  const time = new Intl.DateTimeFormat(undefined, { timeStyle: 'short' });
+  const one = [{ from: at(20, 21, 12), to: at(20, 23, 40), pages: 24 }];
+  assert.equal(spanWords(one[0].from, one[0].to), `${when.format(one[0].from)} until ${time.format(one[0].to)}`);
+  assert.equal(spanWords(at(22, 23), at(23, 1)), `${when.format(at(22, 23))} until ${when.format(at(23, 1))}`, 'the day of the end, when it is another');
+  assert.equal(offWords([]), '');
+  assert.equal(offWords(one), `Off once, from ${when.format(one[0].from)} until ${time.format(one[0].to)}: 24 pages visited meanwhile.`);
+  const two = [...one, { from: at(22, 23), to: at(23, 1), pages: 1 }];
+  assert.equal(offWords(two), `Off twice, the latest from ${when.format(at(22, 23))} until ${when.format(at(23, 1))}: 1 page visited meanwhile.`);
+  const three = [{ from: at(25, 0), to: at(25, 2), pages: 0 }, ...two]; // in no order, the latest without pages
+  assert.equal(offWords(three), `Off 3 times, the latest from ${when.format(at(25, 0))} until ${time.format(at(25, 2))}.`);
+  const none = { off: 0, latestOff: null };
+  assert.equal(offVisitsWords([], none, false), '', 'before the add-on kept track of when it was running');
+  assert.equal(offVisitsWords([], none, true), "No time found when this browser was in use while the extension wasn't running.");
+  assert.equal(offVisitsWords(one, none, true), 'No visit to a listed site found from then.');
+  assert.equal(offVisitsWords(two, none, true), 'No visit to a listed site found from those times.');
+  assert.equal(offVisitsWords(one, { off: 2, latestOff: at(20, 22) }, true), `2 visits to listed sites while the extension was off, the latest on ${when.format(at(20, 22))}.`);
+  assert.equal(offVisitsWords([], { off: 1, latestOff: at(20, 22) }, false), `1 visit to a listed site while the extension was off, the latest on ${when.format(at(20, 22))}.`);
 });
 
 test('watching: the first start is noted once, exactly on an install and as "at least" for a profile that had an earlier version', () => {

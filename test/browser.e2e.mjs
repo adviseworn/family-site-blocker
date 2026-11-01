@@ -800,8 +800,8 @@ describe('real browser', () => {
         tries.errors = [];
         tries.on('pageerror', (error) => tries.errors.push(error.message));
         await tries.goto(`chrome-extension://${browser.extensionId}/tries.html`);
-        const rows = () => tries.evaluate(() => [...document.querySelectorAll('.day tbody tr')].map((row) => [...row.cells].map((cell) => cell.textContent)));
-        await tries.waitForFunction(() => document.querySelectorAll('.day tbody tr').length === 60);
+        const rows = () => tries.evaluate(() => [...document.querySelectorAll('.day tbody tr:not(.band)')].map((row) => [...row.cells].map((cell) => cell.textContent)));
+        await tries.waitForFunction(() => document.querySelectorAll('.day tbody tr:not(.band)').length === 60);
         assert.match(await tries.locator('#summary').innerText(), /^60 tries at 7 sites, the latest at .+\. 1 page opened instead of being blocked\. 1 from this browser's history\.$/);
         const dayHeadings = await tries.evaluate(() => [...document.querySelectorAll('.day h3')].map((h) => h.textContent));
         assert.ok(dayHeadings.length >= 1 && dayHeadings.length <= 2, `an hour of tries spans one day, or two at midnight: ${dayHeadings}`);
@@ -815,13 +815,13 @@ describe('real browser', () => {
         // A site in the by-site table leads to that site's tries alone; "Show every site" to all of them.
         assert.equal(await record.locator('#sites-table tr[data-site="site4.test"] a').getAttribute('href'), 'tries.html#site=site4.test');
         await tries.goto(`chrome-extension://${browser.extensionId}/tries.html#site=site4.test`);
-        await tries.waitForFunction(() => document.querySelectorAll('.day tbody tr').length === 8);
+        await tries.waitForFunction(() => document.querySelectorAll('.day tbody tr:not(.band)').length === 8);
         assert.equal(await tries.locator('#filter').innerText(), 'Only site4.test. Show every site');
         assert.match(await tries.locator('#summary').innerText(), /^8 tries, the latest at /);
         assert.ok((await rows()).every((row) => row[1] === 'site4.test'));
         assert.equal(await tries.title(), 'Family Site Blocker record: site4.test');
         await tries.click('#filter-clear');
-        await tries.waitForFunction(() => document.querySelectorAll('.day tbody tr').length === 60);
+        await tries.waitForFunction(() => document.querySelectorAll('.day tbody tr:not(.band)').length === 60);
         assert.equal(await tries.locator('#filter').isVisible(), false);
         assert.deepEqual(tries.errors, []);
         await tries.close();
@@ -933,8 +933,8 @@ describe('real browser', () => {
         assert.equal(await record.locator('#sites').isVisible(), false);
         assert.equal(await record.locator('#pictures-line span').innerText(), 'No picture hidden so far.');
         await record.waitForFunction(() => /^Watching since /.test(document.getElementById('since').textContent));
-        assert.equal(await record.locator('#off-summary').innerText(), 'No visit to a listed site found from a time the extension was off.');
-        assert.equal(await record.locator('#off-table').isVisible(), false);
+        assert.equal(await record.locator('#off-summary').innerText(), "No time found when this browser was in use while the extension wasn't running.");
+        assert.equal(await record.locator('#off-summary a').count(), 0, 'no time off to see among every try');
         for (const [name, text] of [['pictures.html', 'No picture hidden so far.'], ['tries.html', 'No attempts so far.']]) {
           await record.goto(`chrome-extension://${browser.extensionId}/${name}`);
           await record.waitForFunction((want) => document.getElementById('summary').textContent === want, text);
@@ -975,7 +975,6 @@ describe('real browser', () => {
       const record = await browser.context.newPage();
       record.errors = [];
       record.on('pageerror', (error) => record.errors.push(error.message));
-      const offRows = () => record.evaluate(() => [...document.querySelectorAll('#off-table tbody tr')].map((row) => [...row.cells].map((cell) => cell.textContent)));
       try {
         // A page visited now, then a stretch of running made to end just before it: the visit falls in a
         // silence, as it would had the extension been off. A visit to a listed site from that silence is in
@@ -999,19 +998,17 @@ describe('real browser', () => {
           [before, after, hour],
         );
         await record.goto(`chrome-extension://${browser.extensionId}/attempts.html`);
-        await record.waitForFunction(() => !document.getElementById('off-table').hidden, null, { timeout: 15_000 });
+        await record.waitForFunction(() => /^Off once/.test(document.getElementById('off-summary').textContent), null, { timeout: 15_000 });
         assert.equal(
           await record.locator('#since').innerText(),
           `Watching since at least ${new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(before - 3 * hour)}, the first try an earlier version noted as it happened; keeping track of when it is running since ${new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(before - hour)}, when version 1.11.0 or later arrived.`,
         );
         assert.match(
           await record.locator('#off-summary').innerText(),
-          /^1 visit to a listed site while the extension was off, the latest on .+\. 1 visit to a listed site from after the extension was installed but before it kept track of when it was running, the latest on .+: it was off then, or the site wasn't on a list yet\.$/,
+          /^Off once, from .+ until .+: \d+ pages? visited meanwhile\. 1 visit to a listed site while the extension was off, the latest on .+\. See it among every try\. 1 visit to a listed site from after the extension was installed but before it kept track of when it was running, the latest on .+: it was off then, or the site wasn't on a list yet\.$/,
+          'the time off with the page visited in the silence, the visit to the listed site from it, and the link to the timeline',
         );
-        const rows = await offRows();
-        assert.equal(rows.length, 1, JSON.stringify(rows));
-        assert.ok(Number(rows[0][2]) >= 1, `the page visited in the silence counts: ${JSON.stringify(rows)}`);
-        assert.equal(rows[0][3], '1', 'the visit to the listed site from the silence');
+        assert.equal(await record.locator('#off-summary a').getAttribute('href'), 'tries.html#off');
         assert.match(await record.locator('#summary').innerText(), /^4 attempts at 2 sites, .+\. 3 from this browser's history, 1 of them from times the extension was off\.$/);
         const site = await record.evaluate(() => [...document.querySelectorAll('#sites-table tbody tr')].map((row) => [...row.cells].map((cell) => cell.innerText)));
         assert.equal(site[0][1], '3\n1 while off');
@@ -1022,15 +1019,30 @@ describe('real browser', () => {
 
         // Every try, and the file: each visit from the history is told from the others.
         await record.goto(`chrome-extension://${browser.extensionId}/tries.html`);
-        await record.waitForFunction(() => document.querySelectorAll('.day tbody tr').length === 4);
-        const labels = await record.evaluate(() => [...document.querySelectorAll('.day tbody tr')].map((row) => [row.className, row.cells[2].textContent]));
+        await record.waitForFunction(() => document.querySelectorAll('.day tbody tr:not(.band)').length === 4);
+        const labels = await record.evaluate(() => [...document.querySelectorAll('.day tbody tr:not(.band)')].map((row) => [row.className, row.cells[2].textContent]));
         assert.deepEqual(labels, [
           ['blocked', 'Blocked'],
-          ['off', 'Visited while the add-on was off'],
+          ['off within', 'Visited while the add-on was off'],
           ['unseen', 'Visited after the add-on was installed'],
           ['history', 'Visited (browser history)'],
         ]);
-        assert.match(await record.locator('#summary').innerText(), /3 from this browser's history, 1 of them from times the extension was off\.$/);
+        // The time the extension was off is laid in as a band, before the visit from inside it.
+        const laid = await record.evaluate(() => [...document.querySelectorAll('.day tbody tr')].map((row) => (row.classList.contains('band') ? row.textContent : row.className)));
+        assert.deepEqual([laid[0], ...laid.slice(2)], ['blocked', 'off within', 'unseen', 'history'], JSON.stringify(laid));
+        assert.match(laid[1], /^Add-on off from .+ until .+: \d+ pages? visited meanwhile\.$/, 'the band');
+        assert.equal(await record.locator('#off-intro').isVisible(), true, 'the line that says what a band is');
+        assert.match(await record.locator('#summary').innerText(), /3 from this browser's history, 1 of them from times the extension was off\. Off once, from .+ until .+: \d+ pages? visited meanwhile\.$/);
+
+        // The times it was off alone, with the visits from then: where the record page's link leads.
+        await record.goto(`chrome-extension://${browser.extensionId}/tries.html#off`);
+        await record.waitForFunction(() => !document.getElementById('filter').hidden && document.querySelectorAll('.day tbody tr').length === 2);
+        assert.equal(await record.locator('#filter').innerText(), 'Only the times the add-on was off. Show every try');
+        assert.match(await record.locator('#summary').innerText(), /^Off once, from .+ until .+: \d+ pages? visited meanwhile\. 1 visit to a listed site while the extension was off, the latest on .+\.$/);
+        assert.deepEqual(await record.evaluate(() => [...document.querySelectorAll('.day tbody tr')].map((row) => row.className)), ['band', 'off within']);
+        assert.equal(await record.title(), 'Family Site Blocker record: while the add-on was off');
+        await record.click('#filter-clear');
+        await record.waitForFunction(() => document.getElementById('filter').hidden && document.querySelectorAll('.day tbody tr:not(.band)').length === 4);
         const [download] = await Promise.all([record.waitForEvent('download'), record.click('#save-file')]);
         const lines = readFileSync(await download.path(), 'utf8').split('\n');
         assert.deepEqual(lines.slice(1, 5).map((line) => line.split(',').slice(2).join(',')), ['Visited (browser history)', 'Visited after the add-on was installed', 'Visited while the add-on was off', 'Blocked']);
@@ -1041,8 +1053,8 @@ describe('real browser', () => {
         await page.evaluate(() => chrome.history.addUrl({ url: 'http://exampleadultsite.com/listed-later' }));
         await page.evaluate(() => chrome.runtime.sendMessage({ type: 'scan-history' })); // as the record page's button does
         await page.waitForFunction((at) => chrome.storage.local.get('historyScan').then((got) => got.historyScan?.at > at && got.historyScan.found >= 1), scannedBefore, { timeout: 15_000 });
-        await record.waitForFunction(() => document.querySelectorAll('.day tbody tr').length === 5);
-        assert.deepEqual(await record.evaluate(() => [...document.querySelectorAll('.day tbody tr')].slice(0, 1).map((row) => [row.className, row.cells[2].textContent])), [['unlisted', 'Visited before the site was listed']]);
+        await record.waitForFunction(() => document.querySelectorAll('.day tbody tr:not(.band)').length === 5);
+        assert.deepEqual(await record.evaluate(() => [...document.querySelectorAll('.day tbody tr:not(.band)')].slice(0, 1).map((row) => [row.className, row.cells[2].textContent])), [['unlisted', 'Visited before the site was listed']]);
         await record.goto(`chrome-extension://${browser.extensionId}/attempts.html`);
         await record.waitForFunction(() => /1 visit to a listed site from before the site was listed, while the extension was running\.$/.test(document.getElementById('off-summary').textContent));
         assert.deepEqual(record.errors, []);

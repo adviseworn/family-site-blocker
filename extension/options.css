@@ -499,6 +499,20 @@ code {
   font: 600 0.9rem / 1.3 var(--sans);
 }
 
+/* A time the add-on was off, laid into the day among the tries: a band, with the visits from then under
+   it, the two held together by a bar at the left. */
+.day tr.band td {
+  color: var(--bad);
+  font-weight: 600;
+  white-space: normal;
+}
+
+.day tr.band td,
+.day tr.within td:first-child {
+  padding-left: 0.6rem;
+  border-left: 3px solid var(--bad);
+}
+
 /* Locked-away password */
 
 #lockbox label:not(.button) {
