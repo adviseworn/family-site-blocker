@@ -152,8 +152,8 @@ export const COPY_SIZE = 512;
 /** The storage key of the copy of the hidden picture a key names ({ at, url }, as the record has them). */
 export const copyKey = ({ at, url }) => `pictureCopy:${at}:${hashOf(String(url ?? '').slice(0, URL_LENGTH))}`;
 
-/** A short hash of a string (FNV-1a), as hex: tells two addresses noted at the same moment apart. */
-function hashOf(text) {
+/** A short hash of a string (FNV-1a), as hex: tells two addresses noted at the same moment apart, and two copies alike. */
+export function hashOf(text) {
   let hash = 2166136261;
   for (const char of text) {
     hash ^= char.codePointAt(0);
@@ -164,13 +164,15 @@ function hashOf(text) {
 
 /**
  * Keeps a copy of a hidden picture: the index gains { at, url: the address cut as the record cuts it,
- * length: the copy's }, and loses its oldest while there are more than COPIES_KEPT or the copies come to
+ * length: the copy's, hash: the copy's (from 1.18.0; by which two copies of one picture are told alike,
+ * samePicture below) }, and loses its oldest while there are more than COPIES_KEPT or the copies come to
  * more than COPIES_LENGTH characters (the newest stays whatever its size). Returns { index: the new
  * index, key: the storage key the copy goes under, remove: the keys of the copies let go }.
  */
 export function keepCopy(index, { at, url, copy }) {
   const list = Array.isArray(index) ? index : [];
-  const entry = { at, url: String(url ?? '').slice(0, URL_LENGTH), length: String(copy ?? '').length };
+  const made = String(copy ?? '');
+  const entry = { at, url: String(url ?? '').slice(0, URL_LENGTH), length: made.length, hash: hashOf(made) };
   const kept = [...list, entry];
   const remove = [];
   let total = kept.reduce((sum, item) => sum + (Number(item?.length) || 0), 0);
@@ -180,6 +182,57 @@ export function keepCopy(index, { at, url, copy }) {
     remove.push(copyKey(gone));
   }
   return { index: kept, key: copyKey(entry), remove };
+}
+
+// --- The same picture on more than one row ---------------------------------------------------------------
+// A picture hidden again, on the next visit to the page or on another page, is a row of its own in the
+// record. Two rows show the same picture when their addresses are the same (not data: ones, of which the
+// record keeps only the start, which two different pictures can share), or when the copies kept of them
+// are the same picture, which the index tells by a copy's length and hash. A mark given to one row goes
+// to the rest (1.18.0, markAlike), and the page that checks the hidden pictures in bulk (check.js) shows
+// each picture once. Videos are left out: a video is noted under its own address, its poster's or the
+// page's, and two different videos on one page share the page's.
+
+/** The index of the copies as a Map from each copy's storage key to its index entry, for samePicture. */
+export const copiesByKey = (index) => new Map((Array.isArray(index) ? index : []).map((entry) => [copyKey(entry), entry]));
+
+/** Whether two record entries show the same picture (see above); `copies` is the index by key (copiesByKey). */
+export function samePicture(a, b, copies) {
+  if (a === b) return true;
+  if (!a || !b || isVideo(a) || isVideo(b)) return false;
+  if (a.url === b.url && !isData(a.url)) return true;
+  const copyA = copies?.get(copyKey(a));
+  const copyB = copies?.get(copyKey(b));
+  return Boolean(copyA?.hash && copyB?.hash && copyA.hash === copyB.hash && copyA.length === copyB.length);
+}
+
+/**
+ * The record's entries grouped by the picture they show: each group the rows of one picture, newest
+ * first, the groups newest first too. Two rows that share neither an address nor a copy are one picture
+ * when a third shares one with each.
+ */
+export function sameGroups(record, copies) {
+  let groups = [];
+  for (const entry of Array.isArray(record) ? record : []) {
+    const alike = groups.filter((members) => members.some((member) => samePicture(member, entry, copies)));
+    groups = [...groups.filter((members) => !alike.includes(members)), [...alike.flat(), entry]];
+  }
+  return groups.map((members) => members.sort((a, b) => b.at - a.at)).sort((a, b) => b[0].at - a[0].at);
+}
+
+/**
+ * Marks hidden pictures, and with each every other row that shows the same picture (sameGroups): the
+ * entries `keys` name ({ at, url } each, as noted) and their likes get mark { at, mistake }, the latest
+ * mark in place of an earlier one. Returns { record: the new list, found: how many of the keys name an
+ * entry (one gone from the record is passed over), alike: how many other rows were marked with them }.
+ */
+export function markAlike(record, keys, { at, mistake }, copies) {
+  const list = Array.isArray(record) ? record : [];
+  const named = new Set((Array.isArray(keys) ? keys : []).map((key) => list.find((entry) => sameHidden(entry, key))).filter(Boolean));
+  const marked = new Set(named);
+  if (named.size) for (const members of sameGroups(list, copies)) if (members.some((member) => named.has(member))) for (const member of members) marked.add(member);
+  const mark = { at, mistake: mistake === true };
+  return { record: marked.size ? list.map((entry) => (marked.has(entry) ? { ...entry, mark } : entry)) : list, found: named.size, alike: marked.size - named.size };
 }
 
 /** "3 pictures", "1 picture and 2 videos": the record's entries counted by kind, for the summaries. */

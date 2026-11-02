@@ -7,7 +7,7 @@
 // it as a service worker; Firefox runs it as an event page. Both load it as a module (manifest.json:
 // background.type).
 import { ATTEMPTS, HISTORY_SCAN, bookmarksTo, hostOf, listedDomain, mergeVisits, record } from './lib/attempts.js';
-import { COPIES, COPY_SIZE, PICTURES, STRICTNESS, URL_LENGTH, keepCopy, markHidden, noteLook, recordHidden, sameHidden, strictnessOf, verdict } from './lib/pictures.js';
+import { COPIES, COPY_SIZE, PICTURES, STRICTNESS, URL_LENGTH, copiesByKey, copyKey, hashOf, keepCopy, markAlike, noteLook, recordHidden, sameHidden, strictnessOf, verdict } from './lib/pictures.js';
 import { BLOCK_PAGE, domainsOf } from './lib/rules.js';
 import { UNLISTED, tallyUnlisted } from './lib/suspects.js';
 import { BEAT_EVERY_MINUTES, WATCHING, beat, earliestLiveTry, gapsOf, normalize, noteGaps, started } from './lib/watching.js';
@@ -81,8 +81,13 @@ api.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
   if (message?.type === 'note-look' || message?.type === 'mark-hidden') {
-    // The Every try page notes a look at a hidden picture, and the mark given after it (lib/pictures.js).
+    // The Every try page and the check page note looks at hidden pictures, and the marks given after them (lib/pictures.js).
     changeHidden(message).then(sendResponse, (error) => sendResponse({ error: String(error?.message ?? error) }));
+    return true;
+  }
+  if (message?.type === 'copies-index') {
+    // The check page asks for the index of the copies, each with its hash (lib/pictures.js samePicture).
+    copiesIndex().then(sendResponse, (error) => sendResponse({ error: String(error?.message ?? error) }));
     return true;
   }
   if (message?.type === 'copy-picture') {
@@ -521,24 +526,49 @@ async function smallCopyOf(blob) {
 }
 
 /**
- * Changes a hidden picture's entry for the Every try page (tries.js): a look at it from there
- * ({ type: 'note-look', at, url, why }) or the mark given after one ({ type: 'mark-hidden', at, url,
- * mistake }), written here, in turn with the notes of pictures just hidden, so that neither is lost.
- * Answers { found }: false when the entry has gone from the record (the oldest go once it is full).
+ * Changes hidden pictures' entries for the add-on's pages (tries.js, check.js): looks at them from there
+ * ({ type: 'note-look', keys: [{ at, url }, …], why }, or one key as at and url) or the mark given after
+ * one ({ type: 'mark-hidden', keys, mistake }), which goes to every other row showing the same picture
+ * too (lib/pictures.js markAlike), written here, in turn with the notes of pictures just hidden, so that
+ * neither is lost. Answers { found: whether any key names an entry still in the record (the oldest go
+ * once it is full), count: how many do, alike: how many other rows were marked with them }.
  */
-function changeHidden({ type, at, url, why, mistake }) {
+function changeHidden({ type, keys, at, url, why, mistake }) {
   const now = Date.now();
-  const key = { at, url };
+  const named = Array.isArray(keys) ? keys.map((key) => ({ at: key?.at, url: key?.url })) : [{ at, url }];
   const result = writing.then(async () => {
-    const stored = (await api.storage.local.get(PICTURES))[PICTURES];
-    const list = Array.isArray(stored) ? stored : [];
-    const found = list.some((entry) => sameHidden(entry, key));
-    if (found) {
-      const changed = type === 'note-look' ? noteLook(list, key, { at: now, why }) : markHidden(list, key, { at: now, mistake });
-      await api.storage.local.set({ [PICTURES]: changed });
-    }
-    return { found };
+    const stored = await api.storage.local.get([PICTURES, COPIES]);
+    const list = Array.isArray(stored[PICTURES]) ? stored[PICTURES] : [];
+    const present = named.filter((key) => list.some((entry) => sameHidden(entry, key)));
+    let changed = list;
+    let alike = 0;
+    if (type === 'note-look') for (const key of present) changed = noteLook(changed, key, { at: now, why });
+    else ({ record: changed, alike } = markAlike(list, present, { at: now, mistake }, copiesByKey(await hashedIndex(stored[COPIES]))));
+    if (present.length) await api.storage.local.set({ [PICTURES]: changed });
+    return { found: present.length > 0, count: present.length, alike };
   });
+  writing = result.catch(() => {});
+  return result;
+}
+
+/**
+ * The index of the copies with a hash for each (lib/pictures.js samePicture): the copies kept by 1.17.4
+ * were indexed without one, so those are read and hashed once, and the index written back (a copy gone
+ * from storage gets an empty hash, which matches nothing).
+ */
+async function hashedIndex(index) {
+  const list = Array.isArray(index) ? index : [];
+  const missing = list.filter((entry) => typeof entry?.hash !== 'string');
+  if (missing.length === 0) return list;
+  const copies = await api.storage.local.get(missing.map(copyKey));
+  const hashed = list.map((entry) => (typeof entry?.hash === 'string' ? entry : { ...entry, hash: typeof copies[copyKey(entry)] === 'string' ? hashOf(copies[copyKey(entry)]) : '' }));
+  await api.storage.local.set({ [COPIES]: hashed });
+  return hashed;
+}
+
+/** The index of the copies, each with its hash, for the check page: read in turn with the writes, so that none is lost. */
+function copiesIndex() {
+  const result = writing.then(async () => hashedIndex((await api.storage.local.get(COPIES))[COPIES]));
   writing = result.catch(() => {});
   return result;
 }
