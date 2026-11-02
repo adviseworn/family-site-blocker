@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Family Site Blocker record: check the hidden pictures</title>
+  <link rel="stylesheet" href="options.css">
+</head>
+<body class="record check">
+  <main>
+    <header>
+      <p class="eyebrow"><a href="options.html">Family Site Blocker</a> › <a href="attempts.html">Blocked attempts</a> › <a href="tries.html#pictures">Every try</a> <span id="version" class="version"></span></p>
+      <h1>Check the hidden pictures</h1>
+      <p id="summary" aria-live="polite">Loading…</p>
+      <p>Every hidden picture with a copy kept (the latest 100 have one), on one page, once each however many rows show it: look through them and mark each <strong>Hidden by mistake</strong> or <strong>Rightly hidden</strong>. The mark goes to every row that shows the same picture; it is a note on the record, counted in the summaries, and changes nothing about what is hidden. Say why first: every picture shown here is a look on the record, as from Every try, and there is no password. A picture with no copy kept can be looked at from its row on <a href="tries.html#pictures">Every try</a>, fetched again from its address.</p>
+      <form id="why-form" hidden>
+        <label for="why">Why are you looking? Your answer goes into the record with every picture shown here.</label>
+        <div class="actions">
+          <input id="why" type="text" autocomplete="off">
+          <button id="show" type="submit">Show them</button>
+          <span id="why-status" role="status"></span>
+        </div>
+      </form>
+      <div id="tools" class="actions" hidden>
+        <label id="show-marked-label"><input id="show-marked" type="checkbox"> Show the marked ones too</label>
+        <button id="rest-rightly" type="button" class="secondary"></button>
+        <span id="mark-status" role="status"></span>
+      </div>
+      <p id="keys" hidden>Keys: <kbd>←</kbd> <kbd>→</kbd> <kbd>↑</kbd> <kbd>↓</kbd> move from picture to picture, <kbd>M</kbd> marks one hidden by mistake, <kbd>R</kbd> rightly hidden; a mark moves on to the next not yet marked.</p>
+    </header>
+
+    <section id="all" aria-labelledby="all-heading" hidden>
+      <h2 id="all-heading" class="visually-hidden">The pictures</h2>
+      <p id="done" tabindex="-1" hidden>Every picture shown here is marked. <strong>Show the marked ones too</strong> brings them back, to go over them again.</p>
+      <div id="grid" role="list"></div>
+    </section>
+  </main>
+  <script type="module" src="check.js"></script>
+</body>
+</html>
