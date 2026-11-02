@@ -597,7 +597,7 @@ describe('Firefox', { skip: findFirefox() ? false : 'no Firefox found (set FIREF
       assert.match(links.everyTry, /^See every try \(\d+\)$/, 'straight to every try from the settings page (1.15.1)');
       assert.ok(links.everyHref.endsWith('/tries.html'), links.everyHref);
       assert.equal(links.everyTarget, '_blank');
-      assert.equal(links.text, 'See the record by site, and whether it was ever off');
+      assert.equal(links.text, 'See the record by site');
       assert.ok(links.href.endsWith('/attempts.html'), links.href);
       assert.equal(links.target, '_blank');
       const count = Number(links.everyTry.match(/\d+/)[0]);

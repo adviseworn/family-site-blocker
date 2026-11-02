@@ -1303,8 +1303,9 @@ test("the settings page's record section links straight to every try and to the 
   const links = [...html.matchAll(/<a id="(every-try|record-page)" ([^>]*)>([^<]+)<\/a>/g)].map((m) => ({ id: m[1], attributes: m[2], text: m[3] }));
   assert.deepEqual(
     links.map(({ id, text }) => [id, text]),
-    [['every-try', 'See every try'], ['record-page', 'See the record by site, and whether it was ever off']],
+    [['every-try', 'See every try'], ['record-page', 'See the record by site']],
   );
+  for (const { id, attributes } of links) assert.ok(attributes.includes('class="button secondary"'), `${id} is a button like the other (1.17.2)`);
   assert.ok(links[0].attributes.includes('href="tries.html"'), 'every try, straight from the settings page');
   assert.ok(links[1].attributes.includes('href="attempts.html"'), 'the record page');
   for (const { id, attributes } of links) assert.ok(attributes.includes('target="_blank"'), `${id} opens in a tab of its own`);
