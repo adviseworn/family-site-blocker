@@ -1278,7 +1278,7 @@ test("the installer package for the launch agent: what pkgbuild and productbuild
 
 test('every file the pages reference exists', () => {
   const pages = readdirSync(EXT).filter((name) => name.endsWith('.html'));
-  assert.deepEqual(pages.sort(), ['attempts.html', 'blocked.html', 'lockbox.html', 'options.html', 'pictures.html', 'tries.html', 'unlisted.html']);
+  assert.deepEqual(pages.sort(), ['attempts.html', 'blocked.html', 'check.html', 'lockbox.html', 'options.html', 'pictures.html', 'tries.html', 'unlisted.html']);
   for (const page of pages) {
     const html = readFileSync(join(EXT, page), 'utf8');
     for (const [, ref] of html.matchAll(/(?:src|href)="([^"#:]+)"/g)) {

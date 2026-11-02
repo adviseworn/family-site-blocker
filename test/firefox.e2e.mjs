@@ -614,15 +614,16 @@ describe('Firefox', { skip: findFirefox() ? false : 'no Firefox found (set FIREF
       }
       assert.ok(opened, 'the record page opened in a new tab');
       await browser.fx.send('WebDriver:SwitchToWindow', { handle: opened.handle });
+      // The tab has its address before the page has its elements: a read that finds none yet is tried again.
       const until = Date.now() + 10_000;
       let state = {};
       do {
         state = await browser.run(`return {
-          version: document.getElementById('version').textContent,
-          summary: document.getElementById('summary').textContent,
+          version: document.getElementById('version')?.textContent ?? '',
+          summary: document.getElementById('summary')?.textContent ?? '',
           sites: [...document.querySelectorAll('#sites-table tbody tr')].map((row) => [...row.cells].map((cell) => cell.textContent)),
           siteLink: document.querySelector('#sites-table a')?.getAttribute('href'),
-          everyTry: document.getElementById('every-try').textContent,
+          everyTry: document.getElementById('every-try')?.textContent ?? '',
           days: document.querySelectorAll('.day').length,
         }`);
         if (state.sites.length > 0) break;
