@@ -528,15 +528,22 @@ code {
   font-weight: 400;
 }
 
-/* A picture or video the picture filter kept hidden, among the tries: what the record says, the mark of a
-   close call beside it, and under them the address to copy, cut short when long, with its button. */
+/* A picture or video the picture filter kept hidden, among the tries: what the record says, the judge's
+   scores and the mark of a close call beside it, and under them the address to copy, cut short when long,
+   with its buttons. */
 .day tr.picture td:last-child {
   white-space: normal;
 }
 
+.day tr.picture .picture-scores,
 .day tr.picture .borderline-mark {
   display: inline;
   margin-left: 0.4em;
+}
+
+.day tr.picture .picture-scores {
+  color: var(--muted);
+  font-weight: 400;
 }
 
 .day .picture-where {

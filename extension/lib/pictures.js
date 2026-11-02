@@ -206,12 +206,16 @@ export function hiddenBySite(record) {
 }
 
 /**
- * What a hidden picture's row says among every try (tries.html): "Picture hidden for nudity: nudity 0.92,
- * suggestive 0.02." or "Video hidden as suggestive: nudity 0.10, suggestive 0.35.", the scores being the
- * two the pages show (porn and hentai together, and sexy). A close call is marked by the page, not said here.
+ * What a hidden picture's row says among every try (tries.html): "Picture hidden for nudity" or "Video
+ * hidden as suggestive", with the scores beside it (scoresOf). A close call is marked by the page, not said here.
  */
 export function describeHidden(entry) {
-  const score = (name) => Math.max(0, Number(entry?.scores?.[name]) || 0);
   const why = entry?.reason === 'nudity' ? ' for nudity' : entry?.reason === 'suggestive' ? ' as suggestive' : '';
-  return `${isVideo(entry) ? 'Video' : 'Picture'} hidden${why}: nudity ${(score('porn') + score('hentai')).toFixed(2)}, suggestive ${score('sexy').toFixed(2)}.`;
+  return `${isVideo(entry) ? 'Video' : 'Picture'} hidden${why}`;
+}
+
+/** The judge's scores, beside a hidden picture's words on its row: "nudity 0.92, suggestive 0.02", the two the pages show (porn and hentai together, and sexy). */
+export function scoresOf(entry) {
+  const score = (name) => Math.max(0, Number(entry?.scores?.[name]) || 0);
+  return `nudity ${(score('porn') + score('hentai')).toFixed(2)}, suggestive ${score('sexy').toFixed(2)}`;
 }
