@@ -7,7 +7,7 @@
 // it as a service worker; Firefox runs it as an event page. Both load it as a module (manifest.json:
 // background.type).
 import { ATTEMPTS, HISTORY_SCAN, bookmarksTo, hostOf, listedDomain, mergeVisits, record } from './lib/attempts.js';
-import { PICTURES, STRICTNESS, markHidden, noteLook, recordHidden, sameHidden, strictnessOf, verdict } from './lib/pictures.js';
+import { COPIES, COPY_SIZE, PICTURES, STRICTNESS, URL_LENGTH, keepCopy, markHidden, noteLook, recordHidden, sameHidden, strictnessOf, verdict } from './lib/pictures.js';
 import { BLOCK_PAGE, domainsOf } from './lib/rules.js';
 import { UNLISTED, tallyUnlisted } from './lib/suspects.js';
 import { BEAT_EVERY_MINUTES, WATCHING, beat, earliestLiveTry, gapsOf, normalize, noteGaps, started } from './lib/watching.js';
@@ -83,6 +83,11 @@ api.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message?.type === 'note-look' || message?.type === 'mark-hidden') {
     // The Every try page notes a look at a hidden picture, and the mark given after it (lib/pictures.js).
     changeHidden(message).then(sendResponse, (error) => sendResponse({ error: String(error?.message ?? error) }));
+    return true;
+  }
+  if (message?.type === 'copy-picture') {
+    // The Every try page asks for a copy, made now, of a hidden picture that has none kept (lib/pictures.js).
+    copyNow(message.url).then(sendResponse, (error) => sendResponse({ error: String(error?.message ?? error) }));
     return true;
   }
   return undefined;
@@ -400,7 +405,7 @@ api.storage.onChanged.addListener((changes, area) => {
 
 function scoresFor(url) {
   if (!judgments.has(url)) {
-    const scores = fetch(url, { credentials: 'include', cache: 'force-cache', redirect: 'follow' })
+    const scores = fetchPicture(url)
       .then((response) => {
         if (!response.ok) throw new Error(`the picture couldn't be fetched (${response.status})`);
         return response.blob();
@@ -422,19 +427,97 @@ function scoresFor(url) {
 
 const NOTE_SAME_WITHIN_MS = 60_000; // the same hidden picture on the same site is one note a minute
 
-/** Notes a hidden picture or video in the record, unless the same one was noted a moment ago. */
-function noteHidden({ site, url, kind, reason, scores }) {
+/**
+ * Notes a hidden picture or video in the record, unless the same one was noted a moment ago. For a
+ * picture, `copy` makes a smaller copy of it to keep apart from the record (lib/pictures.js keepCopy), so
+ * that the Every try page can show it whatever becomes of its address (1.17.4); it is made only when the
+ * picture is noted, and a copy that can't be made (the picture gone from its address already, say) is no
+ * loss to the note.
+ */
+function noteHidden({ site, url, kind, reason, scores, copy = null }) {
   const at = Date.now();
+  const kept = String(url ?? '').slice(0, URL_LENGTH); // the address as the record keeps it
   writing = writing
     .then(async () => {
       const stored = (await api.storage.local.get(PICTURES))[PICTURES];
       const list = Array.isArray(stored) ? stored : [];
       const last = list[list.length - 1];
-      if (last && last.site === site && last.url === url && at - last.at < NOTE_SAME_WITHIN_MS) return;
+      if (last && last.site === site && last.url === kept && at - last.at < NOTE_SAME_WITHIN_MS) return;
       await api.storage.local.set({ [PICTURES]: recordHidden(list, { at, site, url, reason, scores, kind }) });
+      const made = copy ? await copy().catch(() => null) : null;
+      if (!made) return;
+      const { index, key, remove } = keepCopy((await api.storage.local.get(COPIES))[COPIES], { at, url: kept, copy: made });
+      await api.storage.local.set({ [COPIES]: index, [key]: made });
+      if (remove.length) await api.storage.local.remove(remove);
     })
     .catch(() => {});
   return writing;
+}
+
+/** The fetch a picture is judged from, and copied from: with the browser's cookies, from its cache when it has it. */
+const fetchPicture = (url, options = {}) => fetch(url, { credentials: 'include', cache: 'force-cache', redirect: 'follow', ...options });
+
+/** A smaller copy of the picture at an address, fetched again (from the cache, after the judge's fetch). */
+async function smallCopy(url) {
+  const response = await fetchPicture(url);
+  if (!response.ok) throw new Error(`the picture couldn't be fetched (${response.status})`);
+  return smallCopyOf(await response.blob());
+}
+
+const COPY_WAIT_MS = 20_000; // how long a picture's address is given to answer a copy made now
+
+/**
+ * For the Every try page: a copy made now of the picture at an address, for a hidden picture that has no
+ * copy kept (hidden before 1.17.4, or among the oldest, let go): { copy } as smallCopyOf makes it,
+ * { page: true } when the address answers with a page (which a video the page made itself is noted under),
+ * or { error } in the page's words when it can't be had. Fetched here, as the picture was fetched to be
+ * judged, rather than from the page.
+ */
+async function copyNow(url) {
+  if (typeof url !== 'string' || !/^(?:https?|data):/i.test(url)) return { error: 'its address isn’t one that can be fetched' };
+  const giveUp = new AbortController();
+  const timer = setTimeout(() => giveUp.abort(), COPY_WAIT_MS);
+  let response;
+  try {
+    response = await fetchPicture(url, { signal: giveUp.signal });
+  } catch (error) {
+    return { error: giveUp.signal.aborted ? `its address didn’t answer in ${COPY_WAIT_MS / 1000} seconds` : `its address couldn’t be reached (${error.message})` };
+  } finally {
+    clearTimeout(timer);
+  }
+  if (!response.ok) return { error: `it couldn’t be fetched (${response.status})` };
+  const blob = await response.blob();
+  if (/^text\/html\b/i.test(blob.type)) return { page: true };
+  try {
+    return { copy: await smallCopyOf(blob) };
+  } catch {
+    return { error: 'not a picture this browser can show' };
+  }
+}
+
+/**
+ * A smaller copy of a picture, for the record (lib/pictures.js keepCopy) or for a look: a JPEG at most
+ * COPY_SIZE on its longer side (a smaller picture is copied at its own size), as a data: address.
+ */
+async function smallCopyOf(blob) {
+  const bitmap = await createImageBitmap(blob);
+  try {
+    const scale = Math.min(1, COPY_SIZE / Math.max(bitmap.width, bitmap.height));
+    const width = Math.max(1, Math.round(bitmap.width * scale));
+    const height = Math.max(1, Math.round(bitmap.height * scale));
+    const canvas = new OffscreenCanvas(width, height);
+    const context = canvas.getContext('2d');
+    context.fillStyle = '#fff'; // a JPEG has no see-through parts: they come out white, as on a page
+    context.fillRect(0, 0, width, height);
+    context.drawImage(bitmap, 0, 0, width, height);
+    const jpeg = await canvas.convertToBlob({ type: 'image/jpeg', quality: 0.85 });
+    const bytes = new Uint8Array(await jpeg.arrayBuffer());
+    let binary = '';
+    for (let i = 0; i < bytes.length; i += 0x8000) binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+    return `data:${jpeg.type};base64,${btoa(binary)}`;
+  } finally {
+    bitmap.close();
+  }
 }
 
 /**
@@ -468,7 +551,7 @@ async function judgePicture(url, sender) {
   const result = verdict(scores, setting);
   if (result.hide) {
     hiddenCount += 1;
-    await noteHidden({ site: siteOf(sender), url, reason: result.reason, scores });
+    await noteHidden({ site: siteOf(sender), url, reason: result.reason, scores, copy: () => smallCopy(url) });
   }
   return { ...result, scores };
 }
