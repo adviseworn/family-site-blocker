@@ -51,9 +51,9 @@
 // storage (browser.storage.managed), which nothing but a policy can write: the lock puts a stamp there, the
 // version it was built with, how many entries Firefox's own copy of the list has and, from 1.15.0, a digest
 // of that copy and the lock's other settings (lockSettings), and writes the same stamp into
-// extension/rules/lock.json, plus sameSince, the earliest version whose profile carried the same digest,
-// which each build keeps from the last one's while the digest holds (seeded by hand with 1.10.5, the first
-// release whose profile had today's list and settings, when the digest came in). The settings page reads
+// extension/rules/lock.json, plus sameSince while the digest is still the one the profiles from before
+// the digest carried (FIRST_DIGEST): 1.10.5, the first release whose profile had that list and settings,
+// so the add-on can tell a profile without a digest by its version. The settings page reads
 // both (extension/lib/lock.js) and says whether the profile installed carries this version's list and
 // settings, which a copy from an older version does while nothing in it has changed (#78), or is an older
 // copy to replace, or a newer one. The profile's description, which Device Management shows, names the
@@ -157,26 +157,25 @@ export const digestOf = (settings) => createHash('sha256').update(canonical(sett
  */
 export const lockStamp = (entries = filterEntries(), version = VERSION) => ({ version, entries: entries.length, digest: digestOf(lockSettings(entries)) });
 
-/** extension/rules/lock.json as it stands, whatever it holds, or null when there is none. */
-export function readAddonStamp(path = STAMP_PATH) {
-  try {
-    return JSON.parse(readFileSync(path, 'utf8'));
-  } catch {
-    return null;
-  }
-}
+/**
+ * The digest of the list and settings the profiles from before the digest carried, those of releases 1.10.5
+ * to 1.14.0 (a diff of the profile from 1.10.5 on touches only the stamp and the description), and the
+ * first of those releases. A profile from before 1.15.0 has no digest, so the add-on tells by its version
+ * whether it carries this version's list and settings: it does while they are still these and its version
+ * is FIRST_DIGEST_SINCE or later. Any other digest came in with the digest itself or later, so no profile
+ * without one carries it.
+ */
+export const FIRST_DIGEST = 'cb99ede1d311';
+export const FIRST_DIGEST_SINCE = '1.10.5';
 
 /**
  * The add-on's own copy of the stamp, for extension/rules/lock.json: the profile's, plus sameSince, the
- * earliest version whose profile carried the same digest. A build keeps it from the file as it stands
- * (`previous`) while the digest is unchanged, and starts it afresh at this version when the digest is new,
- * so the add-on can tell that a profile from before the digest, stamped with a version from sameSince on,
- * carries its own list and settings.
+ * version the list and settings date from, while they are still the ones the profiles from before the
+ * digest carried (FIRST_DIGEST_SINCE for FIRST_DIGEST). Worked out from the digest alone, so a build on any
+ * branch writes the same: 1.16.0's build read it from the file as it stood, found none there (a branch from
+ * before the digest), and started it afresh at 1.16.0, which called every profile from before that old.
  */
-export function addonStamp(stamp = lockStamp(), previous = readAddonStamp()) {
-  const kept = previous?.digest === stamp.digest && typeof previous.sameSince === 'string' && /^\d+(\.\d+)*$/.test(previous.sameSince);
-  return { ...stamp, sameSince: kept ? previous.sameSince : stamp.version };
-}
+export const addonStamp = (stamp = lockStamp()) => (stamp.digest === FIRST_DIGEST ? { ...stamp, sameSince: FIRST_DIGEST_SINCE } : { ...stamp });
 
 /**
  * The policies, in the form Firefox reads them (policies.json, or the org.mozilla.firefox settings on a Mac):
@@ -279,7 +278,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   console.log(
     `Wrote ${relative(process.cwd(), PROFILE_PATH)}, with ${WHOLE_DOMAINS.length} whole domains (${WHOLE_DOMAINS.map((tld) => `.${tld}`).join(', ')}, ` +
       `covering ${covered} built-in sites) and ${sites.length} built-in sites in Firefox's own filter, stamped as version ${VERSION} ` +
-      `(digest ${own.digest}: the same list and settings since ${own.sameSince}); ` +
+      `(digest ${own.digest}${own.sameSince ? `, the list and settings of every profile since ${own.sameSince}` : ', a list or settings no profile from before the digest carries'}); ` +
       `${relative(process.cwd(), AGENT_PATH)}; and ${relative(process.cwd(), STAMP_PATH)}`,
   );
   if (leftOut.length > 0) {

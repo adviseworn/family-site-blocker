@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
 import { DIGEST_FROM, STAMP, STAMP_FILE, STAMP_FROM, compareVersions, describeLock, hasDigest, isStamp, lockInForce, locked, managedStamp, ownStamp, sameSettings, textOf } from '../extension/lib/lock.js';
-import { ADDON_ID, STAMP_PATH, VERSION, addonStamp, digestOf, firefoxPolicies, lockSettings, lockStamp, readAddonStamp } from '../scripts/firefox-lock.mjs';
+import { ADDON_ID, FIRST_DIGEST, FIRST_DIGEST_SINCE, STAMP_PATH, VERSION, addonStamp, digestOf, firefoxPolicies, lockSettings, lockStamp } from '../scripts/firefox-lock.mjs';
 
 const stamp = { version: '1.8.0', entries: 1000 };
 const describe = (state) => ({ state: describeLock(state).state, text: textOf(describeLock(state).parts) });
@@ -183,20 +183,19 @@ test('the Firefox lock in force means its other settings are too: private window
 test("the add-on's own copy of the stamp matches the profile's, for this version (run npm run build)", () => {
   const own = JSON.parse(readFileSync(STAMP_PATH, 'utf8'));
   assert.deepEqual(own, addonStamp());
-  assert.deepEqual(own, { version: VERSION, entries: 1000, digest: lockStamp().digest, sameSince: own.sameSince });
   assert.ok(isStamp(own) && hasDigest(own));
   assert.match(own.digest, /^[0-9a-f]{12}$/);
-  // 1.10.5 is the first release whose profile carried today's list and settings (a diff of the profile from
-  // that release on touches only the stamp and the description), which seeded sameSince when the digest came in.
-  assert.ok(compareVersions(own.sameSince, '1.10.5') >= 0 && compareVersions(own.sameSince, VERSION) <= 0, `sameSince ${own.sameSince}`);
-  assert.deepEqual(readAddonStamp(), own);
+  // sameSince is there while the list and settings are still the ones the profiles from before the digest
+  // carried, and says they date from 1.10.5, the first release whose profile had them (a diff of the profile
+  // from that release on touches only the stamp and the description); a later list or setting needs none.
+  assert.deepEqual(own, own.digest === FIRST_DIGEST ? { version: VERSION, entries: 1000, digest: FIRST_DIGEST, sameSince: FIRST_DIGEST_SINCE } : { version: VERSION, entries: 1000, digest: own.digest });
   assert.equal(readFileSync(STAMP_PATH, 'utf8'), `${JSON.stringify(addonStamp(), null, 2)}\n`, 'written the way the build writes it');
   assert.equal(compareVersions(VERSION, STAMP_FROM) >= 0, true, 'this version carries the stamp');
   assert.equal(compareVersions(VERSION, DIGEST_FROM) >= 0, true, 'and the digest');
   assert.deepEqual(firefoxPolicies()['3rdparty'].Extensions[ADDON_ID][STAMP], lockStamp(), "the profile's stamp is the same, without sameSince, which only the add-on needs");
 });
 
-test("the digest covers Firefox's own list and the lock's other settings, not the address the add-on installs from, and sameSince holds while it does", () => {
+test("the digest covers Firefox's own list and the lock's other settings, not the address the add-on installs from; sameSince comes with the first digest alone", () => {
   const entries = ['*://*.a.test/*', '*://*.b.test/*'];
   const stamp = lockStamp(entries, '9.8.7');
   assert.deepEqual(stamp, { version: '9.8.7', entries: 2, digest: digestOf(lockSettings(entries)) });
@@ -211,10 +210,10 @@ test("the digest covers Firefox's own list and the lock's other settings, not th
   assert.deepEqual(lockSettings(entries).Extensions, { Locked: [ADDON_ID] }, 'the lock on the add-on, without the address');
   assert.equal(digestOf({ b: 1, a: { d: [2, 1], c: 3 } }), digestOf({ a: { c: 3, d: [2, 1] }, b: 1 }), 'keys in any order');
   assert.notEqual(digestOf({ a: [1, 2] }), digestOf({ a: [2, 1] }), 'the order of a list counts');
-  assert.deepEqual(addonStamp(stamp, null), { ...stamp, sameSince: '9.8.7' }, 'a first build starts sameSince at its version');
-  assert.deepEqual(addonStamp(stamp, { ...stamp, version: '9.0.0', sameSince: '8.0.0' }), { ...stamp, sameSince: '8.0.0' }, 'kept while the digest holds');
-  assert.deepEqual(addonStamp(stamp, { version: '9.0.0', entries: 2, digest: 'ab0000000000', sameSince: '8.0.0' }), { ...stamp, sameSince: '9.8.7' }, 'a new digest starts it afresh');
-  assert.deepEqual(addonStamp(stamp, { version: '9.0.0', entries: 2 }), { ...stamp, sameSince: '9.8.7' }, 'after a copy from before the digest');
-  assert.deepEqual(addonStamp(stamp, { ...stamp, sameSince: 'yesterday' }), { ...stamp, sameSince: '9.8.7' }, 'a sameSince that is not a version');
-  assert.equal(readAddonStamp('/nowhere/lock.json'), null);
+  assert.deepEqual(addonStamp(stamp), stamp, 'a digest no profile from before the digest carries: no sameSince');
+  assert.deepEqual(addonStamp({ ...stamp, digest: FIRST_DIGEST }), { ...stamp, digest: FIRST_DIGEST, sameSince: FIRST_DIGEST_SINCE }, 'the first digest: the version its list and settings date from');
+  assert.deepEqual(addonStamp({ ...stamp, digest: FIRST_DIGEST, version: '1.99.0' }), { ...stamp, digest: FIRST_DIGEST, version: '1.99.0', sameSince: FIRST_DIGEST_SINCE }, 'whatever the version, so no build can lose it (1.16.0 did)');
+  assert.equal(FIRST_DIGEST_SINCE, '1.10.5', 'the first release whose profile carried that list and settings');
+  assert.match(FIRST_DIGEST, /^[0-9a-f]{12}$/);
+  assert.equal(digestOf(lockSettings()) === FIRST_DIGEST, addonStamp().sameSince === FIRST_DIGEST_SINCE);
 });
