@@ -1,6 +1,6 @@
 {
   "name": "family-site-blocker",
-  "version": "1.17.4",
+  "version": "1.17.5",
   "private": true,
   "type": "module",
   "description": "Chrome, Edge, Brave and Firefox extension that blocks adult websites",

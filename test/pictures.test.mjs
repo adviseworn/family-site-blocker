@@ -8,8 +8,8 @@ import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import jpeg from 'jpeg-js';
-import { BORDERLINE, CLASSES, COPIES_KEPT, COPIES_LENGTH, DEFAULT_STRICTNESS, LOOKS_KEPT, MAX_PICTURES, MIN_SIZE, STRICTNESS_CHOICES, THRESHOLD, URL_LENGTH, WHY_LENGTH, borderline, copyKey, countHidden, describeHidden, hiddenBySite, isData, isVideo, keepCopy, lookedAt, markHidden, markedMistake, noteLook, recordHidden, sameHidden, strictnessOf, verdict } from '../extension/lib/pictures.js';
-import { hiddenWords, lookWords } from '../extension/lib/page.js';
+import { BORDERLINE, CLASSES, COPIES_KEPT, COPIES_LENGTH, DEFAULT_STRICTNESS, LOOKS_KEPT, MAX_PICTURES, MIN_SIZE, STRICTNESS_CHOICES, THRESHOLD, URL_LENGTH, WHY_LENGTH, borderline, copyKey, countHidden, describeHidden, hiddenBySite, isData, isVideo, keepCopy, lookedAt, markHidden, markedMistake, noteLook, recordHidden, sameHidden, scoresOf, strictnessOf, verdict } from '../extension/lib/pictures.js';
+import { hiddenWords, lookWords, timeOn } from '../extension/lib/page.js';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const EXT = join(ROOT, 'extension');
@@ -69,11 +69,14 @@ test('pictures: the record of hidden pictures keeps rounded scores, caps its len
   assert.deepEqual(hiddenBySite(undefined), []);
 });
 
-test('pictures: a row among every try says what was hidden and why, with the two scores the pages show (1.16.0)', () => {
-  assert.equal(describeHidden({ reason: 'nudity', scores: { porn: 0.9, hentai: 0.02, sexy: 0.02 } }), 'Picture hidden for nudity: nudity 0.92, suggestive 0.02.');
-  assert.equal(describeHidden({ reason: 'suggestive', scores: { porn: 0.1, hentai: 0, sexy: 0.35 }, kind: 'video' }), 'Video hidden as suggestive: nudity 0.10, suggestive 0.35.');
-  assert.equal(describeHidden({ reason: 'other', scores: {} }), 'Picture hidden: nudity 0.00, suggestive 0.00.', 'a reason the pages do not know, and no scores');
-  assert.equal(describeHidden({ scores: { porn: -1, sexy: 'x' } }), 'Picture hidden: nudity 0.00, suggestive 0.00.', 'junk scores count for nothing');
+test('pictures: a row among every try says what was hidden and why, with the two scores the pages show beside it (1.16.0)', () => {
+  assert.equal(describeHidden({ reason: 'nudity', scores: { porn: 0.9, hentai: 0.02, sexy: 0.02 } }), 'Picture hidden for nudity');
+  assert.equal(scoresOf({ reason: 'nudity', scores: { porn: 0.9, hentai: 0.02, sexy: 0.02 } }), 'nudity 0.92, suggestive 0.02');
+  assert.equal(describeHidden({ reason: 'suggestive', scores: { porn: 0.1, hentai: 0, sexy: 0.35 }, kind: 'video' }), 'Video hidden as suggestive');
+  assert.equal(scoresOf({ reason: 'suggestive', scores: { porn: 0.1, hentai: 0, sexy: 0.35 }, kind: 'video' }), 'nudity 0.10, suggestive 0.35');
+  assert.equal(describeHidden({ reason: 'other', scores: {} }), 'Picture hidden', 'a reason the pages do not know');
+  assert.equal(scoresOf({ reason: 'other', scores: {} }), 'nudity 0.00, suggestive 0.00', 'and no scores');
+  assert.equal(scoresOf({ scores: { porn: -1, sexy: 'x' } }), 'nudity 0.00, suggestive 0.00', 'junk scores count for nothing');
 });
 
 test('pictures: the pages sum the record up in the same words, for every site or for one (1.16.0)', () => {
@@ -153,6 +156,32 @@ test('pictures: the row says of the looks and the mark, and the summary counts t
   assert.equal(lookWords(record[0]), `Looked at once, at ${when(9500)}.`, 'a look with no reason');
   assert.equal(hiddenWords(record), `3 pictures hidden on 2 sites, the latest at ${when(3000)}. 1 of them is borderline. 2 looked at.`);
   assert.equal(lookWords({ looks: 'junk', mark: { mistake: 'yes' } }), '', 'junk says nothing');
+});
+
+test('pictures: on its day, the row gives the times of the looks and the mark alone, as the bands do; a reason that ends in a stop gets no second one', () => {
+  const when = (at) => new Date(at).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+  const time = (at) => new Date(at).toLocaleTimeString(undefined, { timeStyle: 'short' });
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime(); // this day's midnight, as the timeline gives it
+  const yesterday = today - 86_400_000;
+  let record = recordHidden(undefined, { at: yesterday + 3_600_000, site: 'a.test', url: 'https://a.test/x.jpg', reason: 'nudity', scores: { porn: 0.9 } });
+  record = noteLook(record, { at: yesterday + 3_600_000, url: 'https://a.test/x.jpg' }, { at: yesterday + 7_200_000, why: 'Checking for false positives.' });
+  assert.equal(lookWords(record[0], yesterday), `Looked at once, at ${time(yesterday + 7_200_000)}: “Checking for false positives.”`, 'the look on the row’s day: the time alone, and the reason’s own full stop');
+  assert.equal(lookWords(record[0]), `Looked at once, at ${when(yesterday + 7_200_000)}: “Checking for false positives.”`, 'with no day given, the day named');
+  record = markHidden(record, { at: yesterday + 3_600_000, url: 'https://a.test/x.jpg' }, { at: today + 600_000, mistake: true });
+  assert.equal(
+    lookWords(record[0], yesterday),
+    `Looked at once, at ${time(yesterday + 7_200_000)}: “Checking for false positives.” Marked hidden by mistake at ${when(today + 600_000)}.`,
+    'the mark on another day: its day named',
+  );
+  record = noteLook(record, { at: yesterday + 3_600_000, url: 'https://a.test/x.jpg' }, { at: today + 900_000, why: 'what was it?' });
+  assert.equal(
+    lookWords(record[0], today),
+    `Looked at twice, the latest at ${time(today + 900_000)}: “what was it?” Marked hidden by mistake at ${time(today + 600_000)}.`,
+    'a question mark ends the sentence too',
+  );
+  assert.equal(timeOn(today)(today + 600_000), time(today + 600_000));
+  assert.equal(timeOn(today)(yesterday + 600_000), when(yesterday + 600_000));
 });
 
 test('pictures: a smaller copy of a hidden picture is kept under a key from the moment and the address as the record has them, the latest few, with an index (1.17.4)', () => {

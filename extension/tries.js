@@ -12,8 +12,8 @@
 // from noting the looks at hidden pictures; nothing here can clear them (see lib/attempts.js).
 import { ATTEMPTS, LABELS, offDuring, outcome, summarize, timeline, toCsv } from './lib/attempts.js';
 import { EVENTS, EVENTS_SINCE, beginningOf, describeEvent, describeRecord, loadBox } from './lib/lockbox.js';
-import { dayFormat, element, hiddenWords, lookWords, offVisitsWords, offWords, plural, showVersion, timeFormat, tries as triesWord, whenFormat } from './lib/page.js';
-import { COPIES_KEPT, COPY_SIZE, PICTURES, URL_LENGTH, WHY_LENGTH, borderline, copyKey, countHidden, describeHidden, isData, isVideo, lookedAt } from './lib/pictures.js';
+import { dayFormat, element, hiddenWords, lookWords, offVisitsWords, offWords, plural, showVersion, timeFormat, timeOn, tries as triesWord, whenFormat } from './lib/page.js';
+import { COPIES_KEPT, PICTURES, URL_LENGTH, WHY_LENGTH, borderline, copyKey, countHidden, describeHidden, isData, isVideo, lookedAt, scoresOf } from './lib/pictures.js';
 import { WATCHING, normalize } from './lib/watching.js';
 
 const api = globalThis.browser ?? globalThis.chrome;
@@ -62,23 +62,24 @@ function dayHeading(day, { tries, hidden, password }) {
 
 /** The band for a time the add-on was off, in a day's table: times alone for that day, the day named at an end that falls in another. */
 function bandWords(day, { off }) {
-  const date = new Date(day).toDateString();
-  const when = (ms) => (new Date(ms).toDateString() === date ? timeFormat : whenFormat).format(ms);
+  const when = timeOn(day);
   const pages = off.pages ? `: ${plural(off.pages, 'page')} visited meanwhile` : '';
   return `Add-on off from ${when(off.from)} until ${when(off.to)}${pages}.`;
 }
 
 /**
- * A hidden picture's or video's row: when, the site, and what the record says, with the address under it,
- * to copy or to look at; then what the record says of the looks at it and its mark, the picture itself
- * once looked at here, and the marks to give it.
+ * A hidden picture's or video's row in its day's table: when, the site, and what the record says, with the
+ * judge's scores beside it, the mark of a close call, and the address under them, to copy or to look at;
+ * then what the record says of the looks at it and its mark (times alone for that day, as on the bands),
+ * the picture itself once looked at here, and the marks to give it.
  */
-function pictureRow({ at, picture }) {
+function pictureRow({ at, picture }, day) {
   const close = borderline(picture);
   const key = keyOf(picture);
   const row = element('tr', null, { class: ['picture', isVideo(picture) ? 'video' : '', close ? 'borderline' : ''].filter(Boolean).join(' ') });
   row.dataset.key = key;
   const what = element('td', describeHidden(picture));
+  what.append(element('small', scoresOf(picture), { class: 'picture-scores' }));
   if (close) what.append(element('small', 'borderline', { class: 'borderline-mark' }));
   const where = element('div', null, { class: 'picture-where' });
   const copy = element('button', 'Copy address', { type: 'button', class: 'secondary small' });
@@ -91,7 +92,7 @@ function pictureRow({ at, picture }) {
   const address = isData(picture.url) ? `${picture.url.slice(0, 40)}… (${picture.url.length.toLocaleString()} characters)` : picture.url;
   where.append(element('small', address, { class: 'picture-url', title: picture.url }), actions);
   what.append(where);
-  const notes = lookWords(picture);
+  const notes = lookWords(picture, day);
   if (notes) what.append(element('p', notes, { class: 'picture-notes' }));
   if (shown.has(key)) what.append(lookBox(picture, shown.get(key)));
   if (lookedAt(picture)) what.append(marksFor(picture));
@@ -115,7 +116,7 @@ function pictureRow({ at, picture }) {
 const shown = new Map(); // key -> { asking: true, draft } while the reason is asked for, { fetching } while the picture is on its way, then { kind: 'picture' | 'video', url: a data: or object URL, copied: 'kept' | 'now' | undefined } or { kind: 'page', url } or { error }
 const keyOf = (picture) => `${picture.at} ${picture.url}`;
 const FETCH_WAIT_MS = 20_000; // how long a video's address is given to answer
-const NO_COPY = `no copy of it was kept when it was hidden (from 1.17.4, the latest ${COPIES_KEPT} are kept)`;
+const NO_COPY = `no copy of it is kept (only the latest ${COPIES_KEPT} hidden have one)`; // hidden before 1.17.4, or let go since
 const rowOf = (key) => [...document.querySelectorAll('.day tr.picture')].find((row) => row.dataset.key === key) ?? null;
 let reason = ''; // why the pictures are being looked at: asked for at the first look, and kept for the rest while the page is open
 
@@ -171,11 +172,11 @@ async function fetchPicture(picture) {
   const kept = (await api.storage.local.get(key))[key];
   if (typeof kept === 'string' && kept) return { kind: 'picture', url: kept, copied: 'kept' };
   // A data: address is the picture itself, written out, of which the record keeps only the start.
-  if (isData(url) && url.length >= URL_LENGTH) throw new Error(`its address is the picture itself, written out, of which the record keeps only the start, and ${NO_COPY}`);
+  if (isData(url) && url.length >= URL_LENGTH) throw new Error(`the record holds only the start of its data: address, and ${NO_COPY}`);
   const answer = await api.runtime.sendMessage({ type: 'copy-picture', url });
   if (answer?.page) return { kind: 'page', url };
   if (answer?.copy) return { kind: 'picture', url: answer.copy, copied: 'now' };
-  throw new Error(`${answer?.error ?? 'the background script gave no answer'}; ${NO_COPY}, so it had to be fetched again from its address`);
+  throw new Error(`${answer?.error ?? 'the background script gave no answer'}, and ${NO_COPY}`);
 }
 
 /**
@@ -194,7 +195,7 @@ async function fetchVideo(url) {
   } finally {
     clearTimeout(timer);
   }
-  if (!response.ok) throw new Error(`it couldn’t be fetched (${response.status}), and the record keeps a video's address, not a copy, so one gone from its address can’t be shown`);
+  if (!response.ok) throw new Error(`it couldn’t be fetched (${response.status}), and no copy of a video is kept`);
   const blob = await response.blob();
   if (/^text\/html\b/i.test(blob.type)) return { kind: 'page', url };
   return { kind: /^video\//i.test(blob.type) ? 'video' : 'picture', url: URL.createObjectURL(blob) };
@@ -211,12 +212,7 @@ function lookBox(picture, seen) {
   } else if (seen.error) {
     box.append(element('p', `Couldn’t show it: ${seen.error}.`));
   } else if (seen.kind === 'page') {
-    const note = element(
-      'p',
-      isVideo(picture)
-        ? 'This address is the page’s, not the video’s: a video the page made itself is noted under the page’s address, and can’t be shown here. '
-        : 'This address answers with a page, not a picture, so there is nothing to show; the picture may have gone from it. ',
-    );
+    const note = element('p', isVideo(picture) ? 'The page made the video itself, so only the page’s address is known. ' : 'Its address answers with a page, not a picture. ');
     note.append(element('a', 'Open the page', { href: seen.url, target: '_blank', rel: 'noopener' }), '.');
     box.append(note);
   } else if (seen.kind === 'video') {
@@ -225,8 +221,8 @@ function lookBox(picture, seen) {
     const img = element('img', null, { src: seen.url, alt: 'The picture, as it was hidden' });
     img.addEventListener('error', () => img.replaceWith(element('p', 'Couldn’t show it: not a picture this browser can show.')));
     box.append(img);
-    if (seen.copied === 'kept') box.append(element('p', `A copy kept with the record when it was hidden, at most ${COPY_SIZE} pixels on its longer side.`));
-    if (seen.copied === 'now') box.append(element('p', `A copy made now from its address, at most ${COPY_SIZE} pixels on its longer side: ${NO_COPY}.`));
+    // The copy kept when it was hidden is the usual way, and goes without saying; one fetched again says so.
+    if (seen.copied === 'now') box.append(element('p', `Fetched again from its address: ${NO_COPY}.`));
   }
   return box;
 }
@@ -239,7 +235,7 @@ function whyAsked(picture, seen) {
   const key = keyOf(picture);
   const asked = element('div', null, { class: 'look-why-row' });
   const label = element('label', null, { class: 'look-why-label' });
-  label.append(element('span', 'Why are you looking? Your answer goes into the record with each look from this page.'));
+  label.append(element('span', 'Why are you looking? Your answer goes into the record.'));
   const field = element('input', null, { type: 'text', class: 'look-why', maxlength: String(WHY_LENGTH), autocomplete: 'off' });
   field.value = seen.draft;
   field.addEventListener('input', () => {
@@ -371,7 +367,7 @@ function renderDays(days) {
         continue;
       }
       if (entry.picture) {
-        body.append(pictureRow(entry));
+        body.append(pictureRow(entry, day));
         continue;
       }
       if (entry.password || entry.began) {
@@ -467,9 +463,9 @@ async function copyAddress(url, button) {
   try {
     await navigator.clipboard.writeText(url);
     button.textContent = 'Copied';
-    $('copy-status').textContent = 'Address copied. Paste it into a browser without the extension to see the picture.';
+    $('copy-status').textContent = 'Address copied. Paste it into a browser without the extension.';
   } catch (error) {
-    $('copy-status').textContent = `Couldn't copy: ${error.message}. The address is in the row; select it to copy it.`;
+    $('copy-status').textContent = `Couldn’t copy: ${error.message}. Select the address in the row instead.`;
   }
   setTimeout(() => {
     button.textContent = 'Copy address';
