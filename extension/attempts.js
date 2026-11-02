@@ -20,6 +20,7 @@ const $ = (id) => document.getElementById(id);
 
 let attempts = []; // the record as stored: oldest first
 let watching = null; // when the extension was running, as stored (lib/watching.js)
+let pictures = []; // the pictures and videos hidden, as stored: oldest first (lib/pictures.js), for the file
 let events = []; // the locked-away password's record (lib/lockbox.js), which Every try shows among the tries
 
 function renderSummary() {
@@ -138,7 +139,8 @@ async function render() {
   $('every-try').textContent = everyTryWords(attempts.length);
   $('sites').hidden = attempts.length === 0;
   renderSites();
-  renderElsewhere(stored[PICTURES], stored[UNLISTED]);
+  pictures = Array.isArray(stored[PICTURES]) ? stored[PICTURES] : [];
+  renderElsewhere(pictures, stored[UNLISTED]);
 }
 
 function saveFile() {
@@ -146,7 +148,7 @@ function saveFile() {
   const pad = (n) => String(n).padStart(2, '0');
   const name = `family-site-blocker-record-${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}.csv`;
   const link = document.createElement('a');
-  link.href = URL.createObjectURL(new Blob([toCsv(attempts, watching)], { type: 'text/csv' }));
+  link.href = URL.createObjectURL(new Blob([toCsv(attempts, watching, pictures)], { type: 'text/csv' }));
   link.download = name;
   document.body.append(link);
   link.click();
