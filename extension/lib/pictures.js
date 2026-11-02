@@ -79,6 +79,9 @@ export function recordHidden(record, { at, site, url, reason, scores, kind }) {
 /** Whether a record entry is a hidden video rather than a picture. */
 export const isVideo = (entry) => entry?.kind === 'video';
 
+/** Whether an address is the picture itself, written out (data:), of which the record keeps only the start. */
+export const isData = (url) => /^data:/i.test(String(url ?? ''));
+
 // --- Looking at a hidden picture ------------------------------------------------------------------------
 // A hidden picture can be looked at from its row on the Every try page (tries.js), where the filter doesn't
 // run. There is no password (#58): anyone who can open the page can look, and every look goes into the
@@ -126,6 +129,57 @@ export function noteLook(record, key, { at, why }) {
  */
 export function markHidden(record, key, { at, mistake }) {
   return changeHidden(record, key, (entry) => ({ ...entry, mark: { at, mistake: mistake === true } }));
+}
+
+// --- Copies of the hidden pictures ------------------------------------------------------------------------
+// The Every try page shows a hidden picture again. Its address, which the record keeps, may not give it
+// back: a data: address is the picture itself, written out, of which the record keeps only the start; a
+// picture goes from its address, or its address can't be reached from here. So when a picture is hidden a
+// smaller copy of it is kept apart from the record (1.17.4): a JPEG at most COPY_SIZE on its longer side,
+// as a data: address, under its own key (copyKey) from the picture's moment and address as the record has
+// them, with an index of the copies under COPIES. The copies are capped by count and by size together,
+// the oldest going first, so that the add-on's storage stays small whatever a site shows. Videos get no
+// copy: a video's row is shown from its address.
+
+/** Storage key of the index of the copies, oldest first: { at, url (as the record keeps it), length }. */
+export const COPIES = 'pictureCopies';
+/** How many copies are kept, and how many characters they may come to in all (about 4 MB of pictures). */
+export const COPIES_KEPT = 100;
+export const COPIES_LENGTH = 5_000_000;
+/** The longer side of a copy, in pixels: enough to tell what a picture was, at the size the page shows it. */
+export const COPY_SIZE = 512;
+
+/** The storage key of the copy of the hidden picture a key names ({ at, url }, as the record has them). */
+export const copyKey = ({ at, url }) => `pictureCopy:${at}:${hashOf(String(url ?? '').slice(0, URL_LENGTH))}`;
+
+/** A short hash of a string (FNV-1a), as hex: tells two addresses noted at the same moment apart. */
+function hashOf(text) {
+  let hash = 2166136261;
+  for (const char of text) {
+    hash ^= char.codePointAt(0);
+    hash = Math.imul(hash, 16777619) >>> 0;
+  }
+  return hash.toString(16).padStart(8, '0');
+}
+
+/**
+ * Keeps a copy of a hidden picture: the index gains { at, url: the address cut as the record cuts it,
+ * length: the copy's }, and loses its oldest while there are more than COPIES_KEPT or the copies come to
+ * more than COPIES_LENGTH characters (the newest stays whatever its size). Returns { index: the new
+ * index, key: the storage key the copy goes under, remove: the keys of the copies let go }.
+ */
+export function keepCopy(index, { at, url, copy }) {
+  const list = Array.isArray(index) ? index : [];
+  const entry = { at, url: String(url ?? '').slice(0, URL_LENGTH), length: String(copy ?? '').length };
+  const kept = [...list, entry];
+  const remove = [];
+  let total = kept.reduce((sum, item) => sum + (Number(item?.length) || 0), 0);
+  while (kept.length > 1 && (kept.length > COPIES_KEPT || total > COPIES_LENGTH)) {
+    const gone = kept.shift();
+    total -= Number(gone?.length) || 0;
+    remove.push(copyKey(gone));
+  }
+  return { index: kept, key: copyKey(entry), remove };
 }
 
 /** "3 pictures", "1 picture and 2 videos": the record's entries counted by kind, for the summaries. */

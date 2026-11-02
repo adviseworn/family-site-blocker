@@ -82,6 +82,12 @@ export function galleryPage(names, extra = '') {
     ${extra}`;
 }
 
+/** A page showing a picture written out as a data: address (the cat, named in the address so that the stand-in hides it). */
+export function inlinePage() {
+  const cat = readFileSync(join(FIXTURES, 'cat.jpg')).toString('base64');
+  return `<!doctype html><meta charset="utf-8"><title>Inline</title><h1>Inline</h1><img id="inline" src="data:image/jpeg;name=nude;base64,${cat}" width="300">`;
+}
+
 /**
  * A page of elements whose own style sets a picture as their background, the way X shows a tweet's picture
  * (a div with the picture as its background, under a see-through <img> with the same address): one to

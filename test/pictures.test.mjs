@@ -8,7 +8,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import jpeg from 'jpeg-js';
-import { BORDERLINE, CLASSES, DEFAULT_STRICTNESS, LOOKS_KEPT, MAX_PICTURES, MIN_SIZE, STRICTNESS_CHOICES, THRESHOLD, WHY_LENGTH, borderline, countHidden, describeHidden, hiddenBySite, isVideo, lookedAt, markHidden, markedMistake, noteLook, recordHidden, sameHidden, strictnessOf, verdict } from '../extension/lib/pictures.js';
+import { BORDERLINE, CLASSES, COPIES_KEPT, COPIES_LENGTH, DEFAULT_STRICTNESS, LOOKS_KEPT, MAX_PICTURES, MIN_SIZE, STRICTNESS_CHOICES, THRESHOLD, URL_LENGTH, WHY_LENGTH, borderline, copyKey, countHidden, describeHidden, hiddenBySite, isData, isVideo, keepCopy, lookedAt, markHidden, markedMistake, noteLook, recordHidden, sameHidden, strictnessOf, verdict } from '../extension/lib/pictures.js';
 import { hiddenWords, lookWords } from '../extension/lib/page.js';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -153,6 +153,38 @@ test('pictures: the row says of the looks and the mark, and the summary counts t
   assert.equal(lookWords(record[0]), `Looked at once, at ${when(9500)}.`, 'a look with no reason');
   assert.equal(hiddenWords(record), `3 pictures hidden on 2 sites, the latest at ${when(3000)}. 1 of them is borderline. 2 looked at.`);
   assert.equal(lookWords({ looks: 'junk', mark: { mistake: 'yes' } }), '', 'junk says nothing');
+});
+
+test('pictures: a smaller copy of a hidden picture is kept under a key from the moment and the address as the record has them, the latest few, with an index (1.17.4)', () => {
+  const long = `data:image/png;base64,${'A'.repeat(600)}`;
+  assert.equal(isData(long), true);
+  assert.equal(isData('http://x.test/a.png'), false);
+  assert.equal(isData(undefined), false);
+  const record = recordHidden([], { at: 1, site: 'x.test', url: long, reason: 'nudity', scores: { porn: 0.9 } });
+  assert.match(copyKey(record[0]), /^pictureCopy:1:[0-9a-f]{8}$/);
+  assert.equal(copyKey({ at: 1, url: long }), copyKey(record[0]), 'the whole address and the cut one name the same copy');
+  assert.notEqual(copyKey({ at: 1, url: 'http://x.test/a.png' }), copyKey({ at: 1, url: 'http://x.test/b.png' }), 'two at the same moment are told apart');
+  assert.notEqual(copyKey({ at: 2, url: long }), copyKey(record[0]));
+  let { index, key, remove } = keepCopy(undefined, { at: 1, url: long, copy: 'data:image/jpeg;base64,one' });
+  assert.deepEqual(index, [{ at: 1, url: long.slice(0, URL_LENGTH), length: 26 }], 'the index holds the address as the record keeps it, and the copy’s length');
+  assert.equal(key, copyKey(record[0]), 'the copy goes under the record entry’s key');
+  assert.deepEqual(remove, []);
+  for (let i = 2; i <= COPIES_KEPT + 5; i += 1) ({ index, remove } = keepCopy(index, { at: i, url: long, copy: `copy ${i}` }));
+  assert.equal(index.length, COPIES_KEPT);
+  assert.equal(index[0].at, 6, 'the oldest go first');
+  assert.deepEqual(remove, [copyKey({ at: 5, url: long })], 'each one let go is named, to be removed');
+  // The size cap: big copies push out the rest, and the newest is kept whatever its size.
+  const big = 'x'.repeat(COPIES_LENGTH / 2 + 1);
+  ({ index, remove } = keepCopy(index, { at: 100, url: long, copy: big }));
+  assert.equal(index.length, COPIES_KEPT, 'one big copy fits with the small ones');
+  assert.equal(remove.length, 1);
+  ({ index, remove } = keepCopy(index, { at: 101, url: long, copy: big }));
+  assert.deepEqual(index.map((entry) => entry.at), [101], 'two together are over the cap: only the newest stays');
+  assert.equal(remove.length, COPIES_KEPT, 'all the rest go');
+  assert.ok(remove.includes(copyKey({ at: 100, url: long })));
+  ({ index, remove } = keepCopy(index, { at: 102, url: long, copy: 'small' }));
+  assert.deepEqual(index.map((entry) => entry.at), [101, 102]);
+  assert.deepEqual(remove, []);
 });
 
 test('pictures: a hidden video is noted as one, counted apart in the summaries, and counted with the pictures by site', () => {

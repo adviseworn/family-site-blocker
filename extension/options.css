@@ -574,34 +574,51 @@ code {
   }
 }
 
-/* Looking at a hidden picture from its row (1.17.0): the reason asked for first, in the header; what the
-   record says of the looks and the mark; the picture or the video itself, in the row; and the marks. */
-#look-why-area label {
-  display: block;
-  margin: 0.5rem 0 0.35rem;
-  font-weight: 600;
-}
-
-#look-why-area .look-why-row {
+/* Looking at a hidden picture from its row (1.17.0): the reason asked for first, in the row under the
+   button (1.17.4), so the page stays where it was; what the record says of the looks and the mark; the
+   picture or the video itself, in the row; and the marks. */
+.day .look-why-row {
   display: flex;
   flex-wrap: wrap;
-  align-items: center;
+  align-items: flex-end;
   gap: 0.5rem;
 }
 
-#look-why {
+.day .look-why-label {
+  display: block;
   flex: 1 1 16rem;
   max-width: 28rem;
+}
+
+.day .look-why-label span {
+  display: block;
+  margin-bottom: 0.35rem;
+}
+
+.day .look-why {
+  box-sizing: border-box;
+  width: 100%;
   padding: 0.55rem 0.7rem;
   border: 1px solid var(--edge);
   border-radius: 6px;
   background: var(--surface);
   color: var(--ink);
   font: inherit;
+  font-weight: 400;
 }
 
-#look-status {
+.day .picture-look .look-why-status,
+.day .picture-marks .mark-status {
+  flex-basis: 100%;
+  margin: 0.35rem 0 0;
+  font-size: 0.9rem;
+  font-weight: 400;
   color: var(--muted);
+}
+
+.day .look-why-status:empty,
+.day .mark-status:empty {
+  display: none;
 }
 
 .day .picture-notes {
@@ -628,6 +645,10 @@ code {
   margin: 0;
   font-size: 0.9rem;
   color: var(--muted);
+}
+
+.day .picture-look img + p {
+  margin-top: 0.35rem;
 }
 
 .day .picture-marks {
