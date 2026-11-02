@@ -11,7 +11,7 @@ import { join } from 'node:path';
 import { webcrypto } from 'node:crypto';
 import { EXTENSION_DIR, findPage, launchBrowser, startStubInternet, visit } from './helpers/browser.mjs';
 import { BACKGROUND_MARKS, FAKE_CAMERA_ARGS, MARKS, STAND_IN_SCORES, backgroundsPage, cameraPage, extensionWithStandInClassifier, galleryPage, inlinePage, servePictures, serveVideos, videoPage } from './helpers/pictures.mjs';
-import { copyKey } from '../extension/lib/pictures.js';
+import { copiesByKey, copyKey, hashOf, sameGroups } from '../extension/lib/pictures.js';
 
 globalThis.crypto ??= webcrypto; // Node 18 has Web Crypto, but not on globalThis
 // What the waits know a box by (1.13.0), to check what the page stores.
@@ -1428,13 +1428,24 @@ describe('real browser', () => {
         assert.equal((await record.evaluate(() => chrome.storage.local.get('pictures').then((got) => got.pictures))).filter((e) => e.looks).length, 1, 'the other entries are untouched');
         assert.match(await record.locator('#summary').innerText(), / 1 looked at\.$/);
         assert.equal(await record.locator('.look-why').count(), 0, 'the question is gone, its answer kept for the page');
-        // The marks follow the look: the one given goes on the row and into the summary, and can be changed.
+        // The marks follow the look: the one given goes on the row and into the summary, and can be changed. It goes to
+        // every row that shows the same picture too (1.18.0): the same address, or the same copy kept, and every
+        // picture the stand-in hid here is the same cat, so their copies are alike.
+        const sameAs = async (url) => {
+          const got = await record.evaluate(() => chrome.storage.local.get(['pictures', 'pictureCopies']));
+          return sameGroups(got.pictures, copiesByKey(got.pictureCopies)).find((rows) => rows.some((row) => row.url === url)).length;
+        };
+        const alike = await sameAs('http://pics.test/pics/nude.jpg');
+        assert.ok(alike >= 2, `nude.jpg hidden twice, and the other pictures the same cat: ${alike}`);
         assert.deepEqual(await nudeRow.locator('.picture-marks button').allInnerTexts(), ['Hidden by mistake', 'Rightly hidden']);
         assert.equal(await nudeRow.locator('.picture-marks button[aria-pressed="true"]').count(), 0);
         await nudeRow.locator('button', { hasText: 'Hidden by mistake' }).click();
         await nudeRow.locator('.picture-notes', { hasText: 'Marked hidden by mistake at' }).waitFor();
         assert.match(await nudeRow.locator('.picture-notes').innerText(), /^Looked at once, at .+: “checking a close call”\. Marked hidden by mistake at .+\.$/);
-        assert.match(await record.locator('#summary').innerText(), / 1 looked at, 1 marked hidden by mistake\.$/);
+        assert.match(await record.locator('#summary').innerText(), new RegExp(` 1 looked at, ${alike} marked hidden by mistake\\.$`));
+        const marked = (await record.evaluate(() => chrome.storage.local.get('pictures').then((got) => got.pictures))).filter((e) => e.mark?.mistake === true);
+        assert.equal(marked.length, alike, 'the mark on every row showing the same picture, and on no other');
+        assert.ok(marked.every((e) => !e.looks || e.url === 'http://pics.test/pics/nude.jpg'), 'the look stays on the row looked at');
         assert.equal(await nudeRow.locator('.picture-marks button[aria-pressed="true"]').innerText(), 'Hidden by mistake');
         assert.equal(await nudeRow.locator('.picture-look img').count(), 1, 'the picture stays shown through the redraw');
         await nudeRow.locator('button', { hasText: 'Rightly hidden' }).click();
@@ -1445,7 +1456,7 @@ describe('real browser', () => {
         const drawnRow = rowFor('http://pics.test/pics/drawn.jpg');
         await drawnRow.locator('button.look').click();
         await drawnRow.locator('.picture-look img').waitFor();
-        assert.match(await drawnRow.locator('.picture-notes').innerText(), /^Looked at once, at .+: “checking a close call”\.$/);
+        assert.match(await drawnRow.locator('.picture-notes').innerText(), /^Looked at once, at .+: “checking a close call”\.( Marked rightly hidden at .+\.)?$/, 'the mark given to the nude one went to this one, the same cat, if its copy is alike');
         assert.match(await record.locator('#summary').innerText(), / 2 looked at\.$/);
         await drawnRow.locator('button.look').click();
         assert.equal((await entryFor('http://pics.test/pics/drawn.jpg')).looks.length, 1, 'pressing again while it is shown is not another look');
@@ -1459,7 +1470,7 @@ describe('real browser', () => {
         assert.equal(await record.locator('.picture-look').count(), 0);
         assert.equal(await record.locator('.look-why').count(), 0);
         await rowFor('http://pics.test/pics/nude.jpg').locator('button', { hasText: 'Hidden by mistake' }).click();
-        await record.waitForFunction(() => / 2 looked at, 1 marked hidden by mistake\.$/.test(document.getElementById('summary').textContent));
+        await record.waitForFunction((n) => new RegExp(` 2 looked at, ${n} marked hidden by mistake\\.$`).test(document.getElementById('summary').textContent), alike);
         await rowFor('http://pics.test/pics/nude.jpg').locator('button', { hasText: 'Rightly hidden' }).click();
         await record.waitForFunction(() => / 2 looked at\.$/.test(document.getElementById('summary').textContent));
         // A picture that can't be fetched says so, with the look still noted; one whose address answers with a page says that.
@@ -1529,7 +1540,7 @@ describe('real browser', () => {
         const copy = stored[copyKey(entry)];
         assert.match(copy, /^data:image\/jpeg;base64,/, 'the copy, under the entry’s key');
         assert.ok(copy.length < 100_000, `a small copy: ${copy.length} characters`);
-        assert.deepEqual(stored.pictureCopies.at(-1), { at: entry.at, url: entry.url, length: copy.length }, 'the index ends with it');
+        assert.deepEqual(stored.pictureCopies.at(-1), { at: entry.at, url: entry.url, length: copy.length, hash: hashOf(copy) }, 'the index ends with it, the copy hashed (1.18.0)');
         assert.ok(stored.pictureCopies.length > 1, 'every picture hidden gets a copy, so the pictures hidden before are in the index too');
         // Look at it shows the copy, the cat at 512 by 340 from 940 by 624, and says that it is one.
         await row.locator('button.look').click();
@@ -1544,6 +1555,133 @@ describe('real browser', () => {
       } finally {
         await page.close();
         await record.close();
+      }
+    });
+
+    test('the hidden pictures can be checked in bulk on a page of their own: each picture with a copy kept shown once, why asked once, and marks by key that go to every row of the picture (1.18.0)', async () => {
+      const page = await judge.context.newPage();
+      const stored = () => page.evaluate(() => chrome.storage.local.get(['pictures', 'pictureCopies']));
+      const marksOf = async () => (await stored()).pictures.map((entry) => (entry.mark ? entry.mark.mistake : null));
+      const focused = () => page.evaluate(() => [document.activeElement.id || document.activeElement.className, document.activeElement.closest('.tile')?.querySelector('strong')?.textContent ?? null]);
+      // Three pictures, each a colour, as the copies: the same picture is told by the same address or the same copy.
+      const picture = (fill) => `data:image/svg+xml;base64,${Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="64" height="48"><rect width="64" height="48" fill="${fill}"/></svg>`).toString('base64')}`;
+      const [red, blue, green] = ['red', 'blue', 'green'].map(picture);
+      const now = Date.now();
+      const entry = (n, site, url, extra = {}) => ({ at: now - 60_000 * (10 - n), site, url, reason: 'nudity', scores: { porn: 0.9, hentai: 0, sexy: 0 }, ...extra });
+      const seeded = [
+        entry(1, 'check-a.test', 'http://check-a.test/a.jpg'), // red
+        entry(2, 'check-a.test', 'http://check-a.test/a.jpg'), // hidden again at the same address: red again
+        entry(3, 'check-b.test', 'http://check-b.test/b.jpg'), // blue
+        entry(4, 'check-c.test', 'http://check-c.test/b-elsewhere.jpg'), // the same picture at another address: blue again
+        entry(5, 'check-d.test', 'http://check-d.test/no-copy.jpg'), // no copy kept: not shown here
+        entry(6, 'check-e.test', `data:image/png;base64,${'E'.repeat(478)}`, { reason: 'suggestive', scores: { porn: 0.1, hentai: 0, sexy: 0.35 } }), // the picture itself, cut; green, borderline
+        entry(7, 'check-v.test', 'http://check-v.test/v.mp4', { kind: 'video' }), // a video: no copy
+      ];
+      const copies = new Map([
+        [0, red],
+        [1, red],
+        [2, blue],
+        [3, blue],
+        [5, green],
+      ]);
+      const index = [...copies].map(([i, copy]) => ({ at: seeded[i].at, url: seeded[i].url, length: copy.length, hash: hashOf(copy) }));
+      const keyed = Object.fromEntries([...copies].map(([i, copy]) => [copyKey(seeded[i]), copy]));
+      let saved;
+      try {
+        await page.goto(`chrome-extension://${judge.extensionId}/check.html`);
+        saved = await stored();
+        await page.evaluate((seed) => chrome.storage.local.set(seed), { pictures: seeded, pictureCopies: index, ...keyed });
+        await page.reload();
+        await page.locator('#summary', { hasText: 'shown here' }).waitFor();
+        assert.match(
+          await page.locator('#summary').innerText(),
+          /^6 pictures and 1 video hidden on 6 sites, the latest at .+\. 1 of them is borderline\. 3 pictures are shown here from the copies kept, none yet marked\. 1 picture without a copy kept \(hidden before 1\.17\.4, or past the latest 100\) can be looked at on Every try alone\. Videos get no copy\.$/,
+        );
+        // Nothing shows before the reason is given, once; given, every picture shown is a look on each of its rows.
+        assert.equal(await page.locator('#why-form').isVisible(), true);
+        assert.equal(await page.locator('#all').isVisible(), false);
+        assert.equal(await page.locator('#tools').isVisible(), false);
+        assert.equal(await page.locator('#why-form label').innerText(), 'Why are you looking? Your answer goes into the record with every picture shown here.');
+        await page.locator('#show').click();
+        assert.equal(await page.locator('#why-status').innerText(), 'Say why you’re looking first.');
+        assert.equal(await page.locator('.tile').count(), 0);
+        await page.locator('#why').fill('bulk check');
+        await page.keyboard.press('Enter');
+        await page.locator('.tile').nth(2).waitFor();
+        assert.equal(await page.locator('#why-form').isVisible(), false);
+        assert.equal(await page.locator('#tools').isVisible(), true);
+        assert.equal(await page.locator('#keys').isVisible(), true);
+        assert.equal(await page.locator('.tile').count(), 3, 'one tile for each picture with a copy kept, however many rows it has');
+        assert.deepEqual(await page.locator('.tile strong').allInnerTexts(), ['check-e.test', 'check-c.test', 'check-a.test'], 'newest first, each under its newest row');
+        assert.deepEqual(await page.locator('.tile img').evaluateAll((imgs) => imgs.map((img) => img.getAttribute('src'))), [green, blue, red]);
+        assert.deepEqual(await page.locator('.tile .tile-rows').allInnerTexts(), ['On 2 rows among every try: check-c.test, check-b.test.', 'On 2 rows among every try.']);
+        assert.equal(await page.locator('.tile').first().locator('small').first().innerText(), 'Hidden as suggestive: nudity 0.10, suggestive 0.35.');
+        assert.equal(await page.locator('.tile .borderline-mark').count(), 1);
+        assert.deepEqual(await page.locator('.tile').first().locator('button').allInnerTexts(), ['Hidden by mistake', 'Rightly hidden']);
+        assert.equal(await page.locator('.tile button[aria-pressed="true"]').count(), 0);
+        assert.deepEqual(await focused(), ['tile', 'check-e.test'], 'the keyboard is on the first tile');
+        await page.waitForFunction(() => chrome.storage.local.get('pictures').then((got) => got.pictures.filter((entry) => entry.looks).length === 5));
+        const looked = (await stored()).pictures;
+        assert.deepEqual(looked.map((e) => e.looks?.map((look) => look.why) ?? null), [['bulk check'], ['bulk check'], ['bulk check'], ['bulk check'], null, ['bulk check'], null], 'a look on every row shown, none on the picture without a copy or the video');
+        await page.waitForFunction(() => / 5 looked at\. 3 pictures are shown here/.test(document.getElementById('summary').textContent));
+        assert.equal(await page.locator('#rest-rightly').innerText(), 'Mark all 3 as rightly hidden');
+        // The arrows move from tile to tile; M marks the tile the keyboard is on hidden by mistake, on every row of the picture, and the keyboard moves on.
+        await page.keyboard.press('ArrowRight');
+        assert.deepEqual(await focused(), ['tile', 'check-c.test']);
+        await page.keyboard.press('ArrowLeft');
+        assert.deepEqual(await focused(), ['tile', 'check-e.test']);
+        await page.keyboard.press('ArrowRight');
+        await page.keyboard.press('m');
+        await page.locator('#mark-status', { hasText: 'Marked' }).waitFor();
+        assert.equal(await page.locator('#mark-status').innerText(), 'Marked hidden by mistake, on 2 rows among every try.');
+        await page.waitForFunction(() => document.querySelectorAll('.tile').length === 2);
+        assert.deepEqual(await marksOf(), [null, null, true, true, null, null, null], 'the mark on both rows of the picture, the other address included');
+        assert.deepEqual(await page.locator('.tile strong').allInnerTexts(), ['check-e.test', 'check-a.test'], 'a marked picture leaves the page');
+        assert.deepEqual(await focused(), ['tile', 'check-a.test'], 'on to the next not yet marked');
+        assert.equal(await page.locator('#rest-rightly').innerText(), 'Mark the other 2 as rightly hidden');
+        await page.waitForFunction(() => / 5 looked at, 2 marked hidden by mistake\. 3 pictures are shown here from the copies kept, 2 of them not yet marked\./.test(document.getElementById('summary').textContent));
+        await page.keyboard.press('R');
+        await page.locator('#mark-status', { hasText: 'Marked rightly hidden' }).waitFor();
+        assert.equal(await page.locator('#mark-status').innerText(), 'Marked rightly hidden, on 2 rows among every try.');
+        await page.waitForFunction(() => document.querySelectorAll('.tile').length === 1);
+        assert.deepEqual(await marksOf(), [false, false, true, true, null, null, null]);
+        assert.deepEqual(await focused(), ['tile', 'check-e.test'], 'none left after it: back to the one before');
+        // The marked ones can be shown too, dimmed, with their marks pressed in, and marked again; then left out again.
+        await page.locator('#show-marked').check();
+        await page.waitForFunction(() => document.querySelectorAll('.tile').length === 3);
+        assert.deepEqual(await page.locator('.tile').evaluateAll((tiles) => tiles.map((tile) => tile.classList.contains('marked'))), [false, true, true]);
+        assert.deepEqual(await page.locator('.tile button[aria-pressed="true"]').allInnerTexts(), ['Hidden by mistake', 'Rightly hidden']);
+        assert.match(await page.locator('.tile.marked .tile-mark').first().innerText(), /^Marked hidden by mistake at .+\.$/);
+        await page.locator('.tile', { hasText: 'check-c.test' }).locator('button', { hasText: 'Rightly hidden' }).click();
+        await page.waitForFunction(() => document.querySelectorAll('.tile button[aria-pressed="true"]').length === 2 && [...document.querySelectorAll('.tile button[aria-pressed="true"]')].every((button) => button.textContent === 'Rightly hidden'));
+        assert.deepEqual(await marksOf(), [false, false, false, false, null, null, null], 'the latest mark stands, on both rows');
+        await page.locator('#show-marked').uncheck();
+        await page.waitForFunction(() => document.querySelectorAll('.tile').length === 1);
+        // One button marks the rest as rightly hidden; nothing left, the page says so.
+        assert.equal(await page.locator('#rest-rightly').innerText(), 'Mark the other one as rightly hidden');
+        await page.locator('#rest-rightly').click();
+        await page.locator('#mark-status', { hasText: 'Marked rightly hidden.' }).waitFor();
+        await page.locator('#done').waitFor();
+        assert.equal(await page.locator('.tile').count(), 0);
+        assert.deepEqual(await marksOf(), [false, false, false, false, null, false, null], 'the picture without a copy, and the video, are not touched');
+        assert.equal(await page.locator('#rest-rightly').isVisible(), false);
+        assert.equal(await page.evaluate(() => document.activeElement.id), 'done');
+        await page.waitForFunction(() => /every one marked already\./.test(document.getElementById('summary').textContent));
+        // From Every try too, a mark goes to every row that shows the same picture.
+        await page.goto(`chrome-extension://${judge.extensionId}/tries.html#pictures`);
+        const rowFor = (url) => page.locator('.day tbody tr.picture').filter({ has: page.locator('.picture-url', { hasText: new RegExp(`^${url.replace(/[.?]/g, '\\$&')}$`) }) }).first();
+        await rowFor('http://check-b.test/b.jpg').locator('.picture-marks').waitFor();
+        assert.equal(await rowFor('http://check-b.test/b.jpg').locator('.picture-marks button[aria-pressed="true"]').innerText(), 'Rightly hidden');
+        await rowFor('http://check-b.test/b.jpg').locator('button', { hasText: 'Hidden by mistake' }).click();
+        await page.waitForFunction(() => chrome.storage.local.get('pictures').then((got) => got.pictures.filter((entry) => entry.mark?.mistake === true).length === 2));
+        assert.deepEqual(await marksOf(), [false, false, true, true, null, false, null], 'the row at the other address with it');
+        assert.equal(await rowFor('http://check-c.test/b-elsewhere.jpg').locator('.picture-marks button[aria-pressed="true"]').innerText(), 'Hidden by mistake');
+        assert.equal(await page.locator('#check-line').isVisible(), true);
+        assert.equal(await page.locator('#check-line a').getAttribute('href'), 'check.html');
+      } finally {
+        // The record and the copies go back as they were, so the later tests read the record the filter wrote.
+        if (saved) await page.evaluate(({ saved: back, keys }) => chrome.storage.local.remove(keys).then(() => chrome.storage.local.set(back)), { saved, keys: Object.keys(keyed) }).catch(() => {});
+        await page.close();
       }
     });
 

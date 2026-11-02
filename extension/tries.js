@@ -107,10 +107,11 @@ function pictureRow({ at, picture }) {
 // is fetched here from its address. There is no password (#58): anyone who can open this page can look, and every look goes into
 // the record on the picture's row, with the time and the reason asked for first (once, for as long as the
 // page is open, as the locked-away password's page asks why before unlocking), and the mark given after it,
-// hidden by mistake or rightly hidden. The reason is asked for in the row, under the button pressed, so
-// the page stays where it was (1.17.4; asked for at the top of the page, as at first, it scrolled there).
-// The background script writes both (lib/pictures.js noteLook and markHidden), in turn with its notes of
-// pictures just hidden. What a look fetched, and a question still open, are kept here across the redraws
+// hidden by mistake or rightly hidden, which goes to every row that shows the same picture (1.18.0,
+// lib/pictures.js markAlike), as a mark from the page that checks the hidden pictures in bulk does
+// (check.js). The reason is asked for in the row, under the button pressed, so the page stays where it
+// was (1.17.4; asked for at the top of the page, as at first, it scrolled there). The background script
+// writes both (lib/pictures.js noteLook and markAlike), in turn with its notes of pictures just hidden. What a look fetched, and a question still open, are kept here across the redraws
 // the record's changes bring, so a picture stays shown once it is, and the question stays asked.
 const shown = new Map(); // key -> { asking: true, draft } while the reason is asked for, { fetching } while the picture is on its way, then { kind: 'picture' | 'video', url: a data: or object URL, copied: 'kept' | 'now' | undefined } or { kind: 'page', url } or { error }
 const keyOf = (picture) => `${picture.at} ${picture.url}`;
@@ -450,6 +451,7 @@ async function render() {
   renderSummary(shown, { site, onlyOff, onlyPictures, onlyPassword }, off, periods.length > 0, hidden);
   $('off-intro').hidden = off.length === 0 || onlyPictures || onlyPassword;
   $('pictures-intro').hidden = hidden.length === 0;
+  $('check-line').hidden = hidden.length === 0;
   $('pictures-alone').hidden = onlyPictures;
   $('password-intro').hidden = password.length === 0 || onlyPassword;
   $('save-file').hidden = attempts.length === 0;

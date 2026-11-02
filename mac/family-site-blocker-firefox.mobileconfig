@@ -1069,7 +1069,7 @@
 											<key>lock</key>
 											<dict>
 												<key>version</key>
-												<string>1.17.4</string>
+												<string>1.18.0</string>
 												<key>entries</key>
 												<integer>1000</integer>
 												<key>digest</key>
@@ -1096,7 +1096,7 @@
 		</dict>
 	</array>
 	<key>PayloadDescription</key>
-	<string>Keeps the Family Site Blocker add-on installed and switched on in Firefox, for every account on this Mac. Firefox installs the newest signed version from https://adviseworn.github.io/family-site-blocker-updates/family-site-blocker.xpi, keeps it up to date, and nobody can turn it off or remove it there. Firefox also gets its own copy of the add-on’s built-in list of sites (whole adult domains such as .porn and .xxx, and the sites people visit most), which keeps blocking them when add-ons don’t run, as in Troubleshoot Mode. Private windows, Troubleshoot Mode from Firefox’s menus, about:config, Refresh Firefox and the developer tools, which could get round it, are turned off. Settings that other programs, such as another blocker, give Firefox for their own add-ons stay in force. This is the copy from version 1.17.4 of Family Site Blocker, with 1,000 entries in Firefox’s own list; the add-on’s settings page says whether that list or the lock’s other settings have changed since. Only an administrator can remove this profile.</string>
+	<string>Keeps the Family Site Blocker add-on installed and switched on in Firefox, for every account on this Mac. Firefox installs the newest signed version from https://adviseworn.github.io/family-site-blocker-updates/family-site-blocker.xpi, keeps it up to date, and nobody can turn it off or remove it there. Firefox also gets its own copy of the add-on’s built-in list of sites (whole adult domains such as .porn and .xxx, and the sites people visit most), which keeps blocking them when add-ons don’t run, as in Troubleshoot Mode. Private windows, Troubleshoot Mode from Firefox’s menus, about:config, Refresh Firefox and the developer tools, which could get round it, are turned off. Settings that other programs, such as another blocker, give Firefox for their own add-ons stay in force. This is the copy from version 1.18.0 of Family Site Blocker, with 1,000 entries in Firefox’s own list; the add-on’s settings page says whether that list or the lock’s other settings have changed since. Only an administrator can remove this profile.</string>
 	<key>PayloadDisplayName</key>
 	<string>Family Site Blocker for Firefox</string>
 	<key>PayloadIdentifier</key>

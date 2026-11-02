@@ -774,3 +774,133 @@ button.small {
 #lockbox .actions {
   margin-bottom: 1rem;
 }
+
+/* Checking the hidden pictures in bulk (1.18.0): the pictures with a copy kept, a tile each in a grid,
+   with the marks on each; wider than the other pages, so that a row of the grid holds a few. */
+.check main {
+  max-width: 72rem;
+}
+
+.check #why-form label {
+  display: block;
+  margin-top: 0.5rem;
+  font-weight: 600;
+}
+
+.check #why {
+  flex: 1 1 16rem;
+  max-width: 28rem;
+  padding: 0.55rem 0.7rem;
+  border: 1px solid var(--edge);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+}
+
+.check #tools {
+  margin-top: 0.5rem;
+}
+
+.check #show-marked-label {
+  font-weight: 600;
+}
+
+.check #show-marked {
+  margin: 0 0.35em 0 0;
+  accent-color: var(--gate);
+  vertical-align: -0.1em;
+}
+
+.check #why-status,
+.check #mark-status,
+.check #keys,
+.check #done {
+  color: var(--muted);
+}
+
+.check #keys {
+  margin-top: 0.75rem;
+  font-size: 0.95rem;
+}
+
+.check kbd {
+  padding: 0.05em 0.45em;
+  border: 1px solid var(--line);
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  background: var(--surface);
+  font: 0.9em var(--sans);
+}
+
+#grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr));
+  gap: 1rem;
+}
+
+.tile {
+  padding: 0.5rem;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.tile img {
+  display: block;
+  width: 100%;
+  aspect-ratio: 1;
+  object-fit: contain;
+  border-radius: 4px;
+  background: var(--bg);
+}
+
+.tile.marked img {
+  opacity: 0.55;
+}
+
+.tile p {
+  max-width: none;
+  margin: 0.45rem 0 0;
+  font-size: 0.9rem;
+  line-height: 1.35;
+}
+
+.tile .tile-what strong {
+  overflow-wrap: anywhere;
+}
+
+.tile small {
+  color: var(--muted);
+}
+
+.tile .borderline-mark {
+  display: inline;
+  margin-left: 0.4em;
+}
+
+.tile .tile-rows,
+.tile .tile-mark {
+  color: var(--muted);
+}
+
+.tile-marks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin-top: 0.5rem;
+}
+
+.tile-marks button[aria-pressed="true"] {
+  background: var(--gate);
+  color: var(--on-gate);
+}
+
+/* The way to the check page from Every try: a button under the pictures' note, with what it is for. */
+#check-line {
+  color: var(--muted);
+}
+
+#check-line .button {
+  margin-right: 0.35em;
+}
