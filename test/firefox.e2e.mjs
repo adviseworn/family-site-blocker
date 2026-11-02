@@ -681,9 +681,9 @@ describe('Firefox', { skip: findFirefox() ? false : 'no Firefox found (set FIREF
         args: [],
       });
       const lines = String(csv).split('\n');
-      assert.equal(lines[0], 'when,site,result');
+      assert.equal(lines[0], 'when,site,result,address,nudity,suggestive,mark');
       assert.equal(lines.length, count + 2, `${count} rows, a heading and a final newline`);
-      assert.match(lines[1], new RegExp(`^\\d{4}-\\d\\d-\\d\\dT\\d\\d:\\d\\d:\\d\\d[+-]\\d\\d:\\d\\d,${SITE.replace(/\./g, '\\.')},Visited \\(browser history\\)$`));
+      assert.match(lines[1], new RegExp(`^\\d{4}-\\d\\d-\\d\\dT\\d\\d:\\d\\d:\\d\\d[+-]\\d\\d:\\d\\d,${SITE.replace(/\./g, '\\.')},Visited \\(browser history\\),,,,$`));
       await browser.fx.send('WebDriver:SwitchToWindow', { handle: settings.handle });
     });
 

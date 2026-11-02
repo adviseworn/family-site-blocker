@@ -714,10 +714,10 @@ test('watching: a visit from the history is placed by when the add-on was runnin
   assert.deepEqual(attempts.map((attempt) => whatHappened(attempt, exact)), ['history', 'unlisted', 'off', 'blocked', 'opened']);
   assert.deepEqual(attempts.map((attempt) => whatHappened(attempt, atLeast)), ['unseen', 'unlisted', 'off', 'blocked', 'opened']);
   const csv = toCsv(attempts, exact).split('\n');
-  assert.match(csv[1], /,a\.test,Visited \(browser history\)$/);
-  assert.match(csv[2], /,a\.test,Visited before the site was listed$/);
-  assert.match(csv[3], /,a\.test,Visited while the add-on was off$/);
-  assert.match(toCsv(attempts, atLeast).split('\n')[1], /,a\.test,Visited after the add-on was installed$/);
+  assert.match(csv[1], /,a\.test,Visited \(browser history\),,,,$/);
+  assert.match(csv[2], /,a\.test,Visited before the site was listed,,,,$/);
+  assert.match(csv[3], /,a\.test,Visited while the add-on was off,,,,$/);
+  assert.match(toCsv(attempts, atLeast).split('\n')[1], /,a\.test,Visited after the add-on was installed,,,,$/);
   // mergeVisits with a wider window, as the sweep after a live try uses: the page of a site that got through
   // is written to the history when it finishes loading, and that is the same try.
   const live = [{ at: t, site: 'a.test', opened: true }];
@@ -756,12 +756,34 @@ test('blocked attempts: the saved file is CSV, oldest first, with local times th
     { at: at + 2000, site: 'odd"name,.test', from: 'history' },
   ]);
   const lines = csv.split('\n');
-  assert.equal(lines[0], 'when,site,result');
-  assert.match(lines[1], /^2026-10-18T15:12:03[+-]\d\d:\d\d,a\.test,Blocked$/);
-  assert.match(lines[2], /^2026-10-18T15:12:04[+-]\d\d:\d\d,b\.test,"Opened, not blocked"$/);
-  assert.match(lines[3], /^2026-10-18T15:12:05[+-]\d\d:\d\d,"odd""name,\.test",Visited \(browser history\)$/);
+  assert.equal(lines[0], 'when,site,result,address,nudity,suggestive,mark');
+  assert.match(lines[1], /^2026-10-18T15:12:03[+-]\d\d:\d\d,a\.test,Blocked,,,,$/);
+  assert.match(lines[2], /^2026-10-18T15:12:04[+-]\d\d:\d\d,b\.test,"Opened, not blocked",,,,$/);
+  assert.match(lines[3], /^2026-10-18T15:12:05[+-]\d\d:\d\d,"odd""name,\.test",Visited \(browser history\),,,,$/);
   assert.deepEqual(lines.slice(4), [''], 'ends with a newline');
-  assert.equal(toCsv([]), 'when,site,result\n');
+  assert.equal(toCsv([]), 'when,site,result,address,nudity,suggestive,mark\n');
+  // The pictures and videos hidden are rows among the tries, by time (1.18.1), with the address, the scores and the mark in their own columns.
+  const withPictures = toCsv(
+    [{ at, site: 'a.test' }, { at: at + 3000, site: 'a.test' }],
+    undefined,
+    [
+      { at: at + 1000, site: 'pics.test', url: 'http://pics.test/one.jpg?a=1,b=2', reason: 'nudity', scores: { porn: 0.87, hentai: 0.05, sexy: 0.11 }, looks: [{ at: at + 5000, why: 'why' }], mark: { at: at + 5000, mistake: true } },
+      { at: at + 2000, site: 'pics.test', url: 'http://pics.test/two.jpg', reason: 'suggestive', scores: { porn: 0.08, hentai: 0, sexy: 0.61 }, mark: { at: at + 6000, mistake: false } },
+      { at: at + 3000, site: 'video.test', url: 'http://video.test/clip.mp4', reason: 'nudity', scores: { porn: 0.9, hentai: 0, sexy: 0.05 }, kind: 'video' },
+      { at: at + 4000, site: 'inline.test', url: 'data:image/png;base64,AAAA', scores: {} },
+    ],
+  ).split('\n');
+  assert.deepEqual(withPictures.map((line) => line.replace(/^2026-10-18T15:12:\d\d[+-]\d\d:\d\d,/, 'T,')), [
+    'when,site,result,address,nudity,suggestive,mark',
+    'T,a.test,Blocked,,,,',
+    'T,pics.test,Picture hidden for nudity,"http://pics.test/one.jpg?a=1,b=2",0.92,0.11,hidden by mistake',
+    'T,pics.test,Picture hidden as suggestive,http://pics.test/two.jpg,0.08,0.61,rightly hidden',
+    'T,a.test,Blocked,,,,',
+    'T,video.test,Video hidden for nudity,http://video.test/clip.mp4,0.90,0.05,',
+    'T,inline.test,Picture hidden,"data:image/png;base64,AAAA",0.00,0.00,', // the comma in a data: address keeps it quoted
+    '',
+  ]);
+  assert.equal(toCsv([], undefined, []), 'when,site,result,address,nudity,suggestive,mark\n');
   const offset = lines[1].match(/([+-])(\d\d):(\d\d),/);
   const minutes = (Number(offset[2]) * 60 + Number(offset[3])) * (offset[1] === '-' ? -1 : 1);
   assert.equal(minutes, 0 - new Date(at).getTimezoneOffset() || 0, "the offset is this computer's");

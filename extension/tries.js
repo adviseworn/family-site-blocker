@@ -483,13 +483,13 @@ function saveFile() {
   const pad = (n) => String(n).padStart(2, '0');
   const name = `family-site-blocker-record-${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}.csv`;
   const link = document.createElement('a');
-  link.href = URL.createObjectURL(new Blob([toCsv(attempts, watching)], { type: 'text/csv' }));
+  link.href = URL.createObjectURL(new Blob([toCsv(attempts, watching, pictures)], { type: 'text/csv' }));
   link.download = name;
   document.body.append(link);
   link.click();
   link.remove();
   setTimeout(() => URL.revokeObjectURL(link.href), 60_000);
-  $('save-status').textContent = `Saved ${name} to your downloads: the whole record, oldest first.`;
+  $('save-status').textContent = `Saved ${name} to your downloads: the whole record, oldest first${pictures.length ? ', the pictures hidden among the tries' : ''}.`;
 }
 
 $('save-file').addEventListener('click', saveFile);
