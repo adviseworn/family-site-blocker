@@ -886,10 +886,10 @@ describe('real browser', () => {
         const [download] = await Promise.all([record.waitForEvent('download'), record.click('#save-file')]);
         assert.match(download.suggestedFilename(), /^family-site-blocker-record-\d{4}-\d\d-\d\d\.csv$/);
         const lines = readFileSync(await download.path(), 'utf8').split('\n');
-        assert.equal(lines[0], 'when,site,result');
+        assert.equal(lines[0], 'when,site,result,address,nudity,suggestive,mark');
         assert.equal(lines.length, 62, '60 rows, a heading and a final newline');
-        assert.match(lines[1], /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d[+-]\d\d:\d\d,site0\.test,Visited \(browser history\)$/);
-        assert.match(lines[60], /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d[+-]\d\d:\d\d,site3\.test,"Opened, not blocked"$/);
+        assert.match(lines[1], /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d[+-]\d\d:\d\d,site0\.test,Visited \(browser history\),,,,$/);
+        assert.match(lines[60], /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d[+-]\d\d:\d\d,site3\.test,"Opened, not blocked",,,,$/);
         assert.match(await record.locator('#save-status').innerText(), /^Saved family-site-blocker-record-.+\.csv to your downloads/);
 
         // Both pages keep up with the record while they are open.
@@ -1139,7 +1139,7 @@ describe('real browser', () => {
         await record.waitForFunction(() => document.getElementById('filter').hidden && document.querySelectorAll('.day tbody tr:not(.band)').length === 4);
         const [download] = await Promise.all([record.waitForEvent('download'), record.click('#save-file')]);
         const lines = readFileSync(await download.path(), 'utf8').split('\n');
-        assert.deepEqual(lines.slice(1, 5).map((line) => line.split(',').slice(2).join(',')), ['Visited (browser history)', 'Visited after the add-on was installed', 'Visited while the add-on was off', 'Blocked']);
+        assert.deepEqual(lines.slice(1, 5).map((line) => line.split(',').slice(2).join(',').replace(/,+$/, '')), ['Visited (browser history)', 'Visited after the add-on was installed', 'Visited while the add-on was off', 'Blocked']);
 
         // A visit the history holds from a time the extension was running (now), found by a look through
         // it: the extension noted no try, so the site can't have been listed then.

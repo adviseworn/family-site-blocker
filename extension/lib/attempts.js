@@ -10,6 +10,7 @@
 // when the extension was running, and outcome() says. Nothing on the settings page removes entries; only
 // the oldest go, once there are more than MAX_ATTEMPTS. HISTORY_SCAN holds when the history was last
 // looked through, and what that found.
+import { isVideo } from './pictures.js';
 import { kindOfVisit, normalize } from './watching.js';
 
 export const ATTEMPTS = 'attempts';
@@ -248,13 +249,31 @@ function midnightAfter(day) {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate() + 1).getTime();
 }
 
-/** The record as a CSV file, oldest first: when (ISO 8601, local time zone offset included), site, what happened. */
-export function toCsv(attempts, watching) {
+/**
+ * The record as a CSV file, oldest first: a row for each try, with when (ISO 8601, local time zone
+ * offset included), the site and what happened, and from 1.18.1 a row for each picture or video the
+ * picture filter hid (lib/pictures.js), among them by time, with why in the result column and its
+ * address, the two scores the pages show (nudity: porn and hentai together; suggestive) and its mark,
+ * hidden by mistake or rightly hidden, in columns of their own, empty on a try's row.
+ */
+export function toCsv(attempts, watching, pictures = []) {
   const cell = (text) => (/[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text);
-  const lines = ['when,site,result'];
-  for (const attempt of Array.isArray(attempts) ? attempts : []) {
-    lines.push([localIso(attempt.at), attempt.site, LABELS[outcome(attempt, watching)]].map(cell).join(','));
-  }
+  const row = (fields) => fields.map((field) => cell(String(field ?? ''))).join(',');
+  const score = (entry, name) => Math.max(0, Number(entry?.scores?.[name]) || 0);
+  const tries = (Array.isArray(attempts) ? attempts : []).map((attempt) => ({ at: attempt.at, fields: [localIso(attempt.at), attempt.site, LABELS[outcome(attempt, watching)], '', '', '', ''] }));
+  const hidden = (Array.isArray(pictures) ? pictures : []).map((entry) => ({
+    at: entry.at,
+    fields: [
+      localIso(entry.at),
+      entry.site,
+      `${isVideo(entry) ? 'Video' : 'Picture'} hidden${entry.reason === 'nudity' ? ' for nudity' : entry.reason === 'suggestive' ? ' as suggestive' : ''}`,
+      entry.url,
+      (score(entry, 'porn') + score(entry, 'hentai')).toFixed(2),
+      score(entry, 'sexy').toFixed(2),
+      typeof entry.mark?.mistake === 'boolean' ? (entry.mark.mistake ? 'hidden by mistake' : 'rightly hidden') : '',
+    ],
+  }));
+  const lines = ['when,site,result,address,nudity,suggestive,mark', ...[...tries, ...hidden].sort((a, b) => a.at - b.at).map((item) => row(item.fields))];
   return `${lines.join('\n')}\n`;
 }
 
