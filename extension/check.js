@@ -7,7 +7,7 @@
 // is no password (#58): anyone who can open this page can look, and every look is on the record. This
 // page only reads the records, apart from the looks and the marks; nothing here can clear them.
 import { element, hiddenWords, plural, showVersion, whenFormat } from './lib/page.js';
-import { COPIES, COPIES_KEPT, PICTURES, WHY_LENGTH, borderline, copiesByKey, copyKey, describeHidden, isVideo, sameGroups } from './lib/pictures.js';
+import { COPIES, COPIES_KEPT, PICTURES, WHY_LENGTH, borderline, copiesByKey, copyKey, describeHidden, isVideo, sameGroups, scoresOf } from './lib/pictures.js';
 
 const api = globalThis.browser ?? globalThis.chrome;
 const $ = (id) => document.getElementById(id);
@@ -104,7 +104,7 @@ function tileOf(tile) {
   const newest = rows[0];
   const article = element('article', null, { class: `tile${mark ? ' marked' : ''}`, tabindex: '0', role: 'listitem' });
   article.dataset.key = tile.key;
-  const what = describeHidden(newest).replace(/^Picture hidden/, 'Hidden');
+  const what = `${describeHidden(newest).replace(/^Picture hidden/, 'Hidden')}: ${scoresOf(newest)}.`;
   const where = `${newest.site}, ${whenFormat.format(newest.at)}`;
   const onRows = rows.length > 1 ? `On ${plural(rows.length, 'row')} among every try${new Set(rows.map((row) => row.site)).size > 1 ? `: ${[...new Set(rows.map((row) => row.site))].join(', ')}` : ''}.` : '';
   article.setAttribute('aria-label', [where, what, onRows, markOf(tile)].filter(Boolean).join(' '));

@@ -26,6 +26,15 @@ export const whenFormat = new Intl.DateTimeFormat(undefined, { dateStyle: 'mediu
 export const dayFormat = new Intl.DateTimeFormat(undefined, { dateStyle: 'full' });
 export const timeFormat = new Intl.DateTimeFormat(undefined, { timeStyle: 'short' });
 
+/**
+ * How a day's rows on Every try give a time: the time alone for a moment on that day (`day`, its midnight),
+ * "9:12 PM", and the day named for any other, "Oct 31, 2026, 9:12 PM" (the bands, and the looks at a hidden picture).
+ */
+export function timeOn(day) {
+  const date = new Date(day).toDateString();
+  return (ms) => (new Date(ms).toDateString() === date ? timeFormat : whenFormat).format(ms);
+}
+
 /** Shows the installed version next to the page's title. */
 export function showVersion(api) {
   document.getElementById('version').textContent = `Version ${api.runtime.getManifest().version}`;
@@ -90,18 +99,22 @@ const times = (count) => (count === 1 ? 'once' : count === 2 ? 'twice' : `${coun
 
 /**
  * What a hidden picture's row says of the looks at it from Every try and of its mark (lib/pictures.js
- * noteLook, markHidden): "Looked at once, at Nov 1, 2026, 6:03 PM: “checking a close call”. Marked hidden
- * by mistake at Nov 1, 2026, 6:04 PM." With more looks, "Looked at 3 times, the latest at …", with the
- * latest reason. '' with neither.
+ * noteLook, markHidden): "Looked at once, at 6:03 PM: “checking a close call”. Marked hidden by mistake at
+ * 6:04 PM." With more looks, "Looked at 3 times, the latest at …", with the latest reason. A time on the
+ * row's day (`day`, its midnight) is the time alone; any other names its day too, "Nov 1, 2026, 6:03 PM"
+ * (every time, with no day given). A reason that ends in a full stop, or a question mark, gets no second one.
+ * '' with neither a look nor a mark.
  */
-export function lookWords(entry) {
+export function lookWords(entry, day = null) {
   const looks = Array.isArray(entry?.looks) ? entry.looks : [];
+  const when = day === null ? (ms) => whenFormat.format(ms) : timeOn(day);
   const parts = [];
   if (looks.length) {
     const latest = looks[looks.length - 1];
-    const why = typeof latest.why === 'string' && latest.why ? `: “${latest.why}”` : '';
-    parts.push(`Looked at ${times(looks.length)}, ${looks.length === 1 ? 'at' : 'the latest at'} ${whenFormat.format(latest.at)}${why}.`);
+    const reason = typeof latest.why === 'string' ? latest.why : '';
+    const why = reason ? `: “${reason}”` : '';
+    parts.push(`Looked at ${times(looks.length)}, ${looks.length === 1 ? 'at' : 'the latest at'} ${when(latest.at)}${why}${/[.!?]$/.test(reason) ? '' : '.'}`);
   }
-  if (typeof entry?.mark?.mistake === 'boolean') parts.push(`Marked ${entry.mark.mistake ? 'hidden by mistake' : 'rightly hidden'} at ${whenFormat.format(entry.mark.at)}.`);
+  if (typeof entry?.mark?.mistake === 'boolean') parts.push(`Marked ${entry.mark.mistake ? 'hidden by mistake' : 'rightly hidden'} at ${when(entry.mark.at)}.`);
   return parts.join(' ');
 }
