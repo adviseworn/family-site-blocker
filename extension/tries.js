@@ -13,7 +13,7 @@
 import { ATTEMPTS, LABELS, offDuring, outcome, summarize, timeline, toCsv } from './lib/attempts.js';
 import { EVENTS, EVENTS_SINCE, beginningOf, describeEvent, describeRecord, loadBox } from './lib/lockbox.js';
 import { dayFormat, element, hiddenWords, lookWords, offVisitsWords, offWords, plural, showVersion, timeFormat, tries as triesWord, whenFormat } from './lib/page.js';
-import { PICTURES, URL_LENGTH, borderline, countHidden, describeHidden, isVideo, lookedAt } from './lib/pictures.js';
+import { COPIES_KEPT, COPY_SIZE, PICTURES, URL_LENGTH, WHY_LENGTH, borderline, copyKey, countHidden, describeHidden, isData, isVideo, lookedAt } from './lib/pictures.js';
 import { WATCHING, normalize } from './lib/watching.js';
 
 const api = globalThis.browser ?? globalThis.chrome;
@@ -101,67 +101,89 @@ function pictureRow({ at, picture }) {
 
 // --- Looking at a hidden picture ----------------------------------------------------------------------
 // A hidden picture can be looked at here, where the filter doesn't run (content scripts run in web pages,
-// not in the add-on's own), fetched again from its address the way the background script fetched it to
-// judge it. There is no password (#58): anyone who can open this page can look, and every look goes into
+// not in the add-on's own): from the smaller copy kept apart from the record when it was hidden (1.17.4,
+// lib/pictures.js), or, for one hidden before that or among the oldest, from a copy the background script
+// makes now, fetching the address the way it fetched the picture to judge it; a video, which gets no copy,
+// is fetched here from its address. There is no password (#58): anyone who can open this page can look, and every look goes into
 // the record on the picture's row, with the time and the reason asked for first (once, for as long as the
 // page is open, as the locked-away password's page asks why before unlocking), and the mark given after it,
-// hidden by mistake or rightly hidden. The background script writes both (lib/pictures.js noteLook and
-// markHidden), in turn with its notes of pictures just hidden. What a look fetched is kept here across the
-// redraws the record's changes bring, so a picture stays shown once it is.
-const shown = new Map(); // key -> { fetching } while on its way, then { kind: 'picture' | 'video', url: an object URL } or { kind: 'page', url } or { error }
+// hidden by mistake or rightly hidden. The reason is asked for in the row, under the button pressed, so
+// the page stays where it was (1.17.4; asked for at the top of the page, as at first, it scrolled there).
+// The background script writes both (lib/pictures.js noteLook and markHidden), in turn with its notes of
+// pictures just hidden. What a look fetched, and a question still open, are kept here across the redraws
+// the record's changes bring, so a picture stays shown once it is, and the question stays asked.
+const shown = new Map(); // key -> { asking: true, draft } while the reason is asked for, { fetching } while the picture is on its way, then { kind: 'picture' | 'video', url: a data: or object URL, copied: 'kept' | 'now' | undefined } or { kind: 'page', url } or { error }
 const keyOf = (picture) => `${picture.at} ${picture.url}`;
-const isData = (url) => /^data:/i.test(url);
-const FETCH_WAIT_MS = 20_000; // how long a picture's address is given to answer
+const FETCH_WAIT_MS = 20_000; // how long a video's address is given to answer
+const NO_COPY = `no copy of it was kept when it was hidden (from 1.17.4, the latest ${COPIES_KEPT} are kept)`;
 const rowOf = (key) => [...document.querySelectorAll('.day tr.picture')].find((row) => row.dataset.key === key) ?? null;
-let pending = null; // the picture Look at it was pressed for before a reason had been given
+let reason = ''; // why the pictures are being looked at: asked for at the first look, and kept for the rest while the page is open
 
-async function lookAt(picture, fromWhy = false) {
-  const why = $('look-why').value.trim();
-  if (!why) {
-    pending = picture;
-    $('look-why-area').hidden = false;
-    $('look-status').textContent = 'Say why you’re looking first. Your answer goes into the record with the look.';
-    $('look-why').focus();
-    return;
-  }
-  pending = null;
+async function lookAt(picture, why = reason) {
   const key = keyOf(picture);
-  const before = shown.get(key);
-  if (before && !before.error) {
-    rowOf(key)?.scrollIntoView({ block: 'center' }); // shown already, or on its way: one look is one note
+  if (!why) {
+    if (!shown.get(key)?.asking) {
+      shown.set(key, { asking: true, draft: '' });
+      showBox(key);
+    }
+    const field = rowOf(key)?.querySelector('.look-why');
+    if (!field) return;
+    field.focus({ preventScroll: true });
+    field.closest('.picture-look').scrollIntoView({ block: 'nearest' }); // not at all unless the row sits at the window's bottom edge, and then only as far as the question needs
     return;
   }
+  reason = why;
+  const before = shown.get(key);
+  if (before && !before.error && !before.asking) return; // shown already, or on its way: one look is one note
   shown.set(key, { fetching: true });
-  $('look-status').textContent = '';
+  showBox(key);
+  rowOf(key)?.querySelector('button.look')?.focus({ preventScroll: true }); // from the question, gone with its box, back to the row's button
   try {
     const answer = await api.runtime.sendMessage({ type: 'note-look', at: picture.at, url: picture.url, why });
     if (answer?.error) throw new Error(answer.error);
     if (!answer?.found) throw new Error('it has gone from the record, which keeps the latest 500');
   } catch (error) {
-    shown.delete(key);
-    $('look-status').textContent = `Couldn’t note the look, so the picture isn’t shown: ${error.message}.`;
+    shown.set(key, { error: `the look couldn’t go into the record (${error.message})` });
+    showBox(key);
     return;
   }
   // The note redraws the page (storage.onChanged), with the look on the row and the picture's box there meanwhile.
-  showBox(key);
   try {
-    shown.set(key, await fetchPicture(picture.url));
+    shown.set(key, await fetchPicture(picture));
   } catch (error) {
     shown.set(key, { error: error.message });
   }
   showBox(key);
-  if (fromWhy) rowOf(key)?.scrollIntoView({ block: 'center' }); // back from the reason to the row
 }
 
 /**
- * The picture at an address, fetched as the background script fetched it to judge it (with the browser's
- * cookies, from its cache when it has it): { kind: 'picture' | 'video', url: an object URL }, or
- * { kind: 'page', url } when the address answers with a page, which a video the page made itself is noted
- * under. Throws when it can't be fetched (gone from its address, say).
+ * What a hidden picture's row shows: { kind: 'picture', url: a data: address, copied: 'kept' } from the
+ * copy kept when it was hidden; failing that, the background script's copy made now from its address,
+ * { kind: 'picture', url, copied: 'now' }, or { kind: 'page', url } when the address answers with a page
+ * (which a video the page made itself is noted under). A video is fetched here from its address:
+ * { kind: 'video' | 'picture', url: an object URL }, or { kind: 'page', url }. Throws, in words for the
+ * row, when there is nothing to show.
  */
-async function fetchPicture(url) {
-  // A data: address cut to the record's length isn't the whole picture any more.
-  if (isData(url) && url.length >= URL_LENGTH) throw new Error(`the record keeps only the first ${URL_LENGTH} characters of a data: address, which is the picture itself written out`);
+async function fetchPicture(picture) {
+  const { at, url } = picture;
+  if (isVideo(picture)) return fetchVideo(url);
+  const key = copyKey({ at, url });
+  const kept = (await api.storage.local.get(key))[key];
+  if (typeof kept === 'string' && kept) return { kind: 'picture', url: kept, copied: 'kept' };
+  // A data: address is the picture itself, written out, of which the record keeps only the start.
+  if (isData(url) && url.length >= URL_LENGTH) throw new Error(`its address is the picture itself, written out, of which the record keeps only the start, and ${NO_COPY}`);
+  const answer = await api.runtime.sendMessage({ type: 'copy-picture', url });
+  if (answer?.page) return { kind: 'page', url };
+  if (answer?.copy) return { kind: 'picture', url: answer.copy, copied: 'now' };
+  throw new Error(`${answer?.error ?? 'the background script gave no answer'}; ${NO_COPY}, so it had to be fetched again from its address`);
+}
+
+/**
+ * A video at an address, fetched as the background script fetched a frame's video to judge it (with the
+ * browser's cookies, from its cache when it has it): { kind: 'video' | 'picture', url: an object URL },
+ * or { kind: 'page', url } when the address answers with a page. Throws when it can't be fetched.
+ */
+async function fetchVideo(url) {
   const giveUp = new AbortController();
   const timer = setTimeout(() => giveUp.abort(), FETCH_WAIT_MS);
   let response;
@@ -172,16 +194,19 @@ async function fetchPicture(url) {
   } finally {
     clearTimeout(timer);
   }
-  if (!response.ok) throw new Error(`it couldn’t be fetched (${response.status}), and the record keeps addresses, not copies, so a picture gone from its address can’t be shown`);
+  if (!response.ok) throw new Error(`it couldn’t be fetched (${response.status}), and the record keeps a video's address, not a copy, so one gone from its address can’t be shown`);
   const blob = await response.blob();
   if (/^text\/html\b/i.test(blob.type)) return { kind: 'page', url };
   return { kind: /^video\//i.test(blob.type) ? 'video' : 'picture', url: URL.createObjectURL(blob) };
 }
 
-/** The box in a hidden picture's row that shows the picture, or what stands in its way. */
+/** The box in a hidden picture's row that asks why first, then shows the picture, or what stands in its way. */
 function lookBox(picture, seen) {
   const box = element('div', null, { class: 'picture-look' });
-  if (seen.fetching) {
+  if (seen.asking) {
+    box.classList.add('asking');
+    box.append(whyAsked(picture, seen));
+  } else if (seen.fetching) {
     box.append(element('p', 'Fetching it…'));
   } else if (seen.error) {
     box.append(element('p', `Couldn’t show it: ${seen.error}.`));
@@ -200,19 +225,71 @@ function lookBox(picture, seen) {
     const img = element('img', null, { src: seen.url, alt: 'The picture, as it was hidden' });
     img.addEventListener('error', () => img.replaceWith(element('p', 'Couldn’t show it: not a picture this browser can show.')));
     box.append(img);
+    if (seen.copied === 'kept') box.append(element('p', `A copy kept with the record when it was hidden, at most ${COPY_SIZE} pixels on its longer side.`));
+    if (seen.copied === 'now') box.append(element('p', `A copy made now from its address, at most ${COPY_SIZE} pixels on its longer side: ${NO_COPY}.`));
   }
   return box;
 }
 
-/** Draws a picture's box in its row as the page stands, in place of the one there. */
+/**
+ * The question asked in a picture's row before the first look: the field, with what has been typed so far
+ * kept through a redraw, Look (or Enter) to answer it, and Not now (or Escape) to take it away.
+ */
+function whyAsked(picture, seen) {
+  const key = keyOf(picture);
+  const asked = element('div', null, { class: 'look-why-row' });
+  const label = element('label', null, { class: 'look-why-label' });
+  label.append(element('span', 'Why are you looking? Your answer goes into the record with each look from this page.'));
+  const field = element('input', null, { type: 'text', class: 'look-why', maxlength: String(WHY_LENGTH), autocomplete: 'off' });
+  field.value = seen.draft;
+  field.addEventListener('input', () => {
+    seen.draft = field.value;
+  });
+  label.append(field);
+  const status = element('p', null, { class: 'look-why-status', role: 'status' });
+  const answer = () => {
+    const why = field.value.trim();
+    if (why) {
+      lookAt(picture, why);
+      return;
+    }
+    status.textContent = 'Say why you’re looking first.';
+    field.focus({ preventScroll: true });
+  };
+  const notNow = () => {
+    shown.delete(key);
+    showBox(key);
+    rowOf(key)?.querySelector('button.look')?.focus({ preventScroll: true });
+  };
+  field.addEventListener('keydown', (event) => {
+    if (event.key !== 'Enter' && event.key !== 'Escape') return;
+    event.preventDefault();
+    if (event.key === 'Enter') answer();
+    else notNow();
+  });
+  const go = element('button', 'Look', { type: 'button', class: 'small look-go' });
+  go.addEventListener('click', answer);
+  const cancel = element('button', 'Not now', { type: 'button', class: 'secondary small look-cancel' });
+  cancel.addEventListener('click', notNow);
+  asked.append(label, go, cancel);
+  const parts = document.createDocumentFragment();
+  parts.append(asked, status);
+  return parts;
+}
+
+/** Draws a picture's box in its row as the page stands, in place of the one there, or takes it away. */
 function showBox(key) {
   const row = rowOf(key);
+  if (!row) return;
+  const old = row.querySelector('.picture-look');
   const seen = shown.get(key);
-  if (!row || !seen) return;
+  if (!seen) {
+    old?.remove();
+    return;
+  }
   const picture = pictures.find((entry) => keyOf(entry) === key);
   if (!picture) return;
   const box = lookBox(picture, seen);
-  const old = row.querySelector('.picture-look');
   const marks = row.querySelector('.picture-marks');
   if (old) old.replaceWith(box);
   else if (marks) marks.before(box);
@@ -222,6 +299,7 @@ function showBox(key) {
 /** The two marks a looked-at picture can be given, the one it has pressed in. */
 function marksFor(picture) {
   const marks = element('div', null, { class: 'picture-marks' });
+  const status = element('p', null, { class: 'mark-status', role: 'status' });
   for (const [mistake, label] of [
     [true, 'Hidden by mistake'],
     [false, 'Rightly hidden'],
@@ -229,14 +307,15 @@ function marksFor(picture) {
     const chosen = picture.mark?.mistake === mistake;
     const button = element('button', label, { type: 'button', class: 'secondary small', 'aria-pressed': String(chosen) });
     button.addEventListener('click', () => {
-      if (!chosen) mark(picture, mistake, button);
+      if (!chosen) mark(picture, mistake, button, status);
     });
     marks.append(button);
   }
+  marks.append(status);
   return marks;
 }
 
-async function mark(picture, mistake, button) {
+async function mark(picture, mistake, button, status) {
   button.disabled = true;
   try {
     const answer = await api.runtime.sendMessage({ type: 'mark-hidden', at: picture.at, url: picture.url, mistake });
@@ -244,20 +323,28 @@ async function mark(picture, mistake, button) {
     if (!answer?.found) throw new Error('it has gone from the record, which keeps the latest 500');
     // The record's change redraws the page, with the mark on the row.
   } catch (error) {
-    $('look-status').textContent = `Couldn’t mark it: ${error.message}.`;
+    status.textContent = `Couldn’t mark it: ${error.message}.`;
     button.disabled = false;
   }
 }
 
-$('look-go').addEventListener('click', () => {
-  if (pending) lookAt(pending, true);
-  else $('look-status').textContent = $('look-why').value.trim() ? 'Now press Look at it on a row.' : 'Say why you’re looking first.';
-});
-$('look-why').addEventListener('keydown', (event) => {
-  if (event.key !== 'Enter') return;
-  event.preventDefault();
-  $('look-go').click();
-});
+/**
+ * Where the keyboard is in a hidden picture's row, so that a redraw, which swaps every row for a new one,
+ * puts it back there: in the question's field, with what was typed selected as it was, or on a button.
+ */
+function placeInRow() {
+  const active = document.activeElement;
+  const row = active?.closest('tr.picture');
+  if (!row) return null;
+  const index = [...row.querySelectorAll('input, button')].indexOf(active);
+  const selection = active instanceof HTMLInputElement ? [active.selectionStart, active.selectionEnd] : null;
+  return () => {
+    const again = rowOf(row.dataset.key)?.querySelectorAll('input, button')[index];
+    if (!again) return;
+    again.focus({ preventScroll: true });
+    if (selection && again instanceof HTMLInputElement) again.setSelectionRange(...selection);
+  };
+}
 
 function renderDays(days) {
   const fragment = document.createDocumentFragment();
@@ -371,7 +458,9 @@ async function render() {
   const nothing = site && shown.length === 0 && hidden.length === 0;
   const days = nothing ? [] : timeline(shown, onlyPictures || onlyPassword ? null : watching, [...pictureEntries(hidden), ...password]);
   $('all').hidden = days.length === 0;
+  const back = placeInRow();
   renderDays(days);
+  back?.();
 }
 
 async function copyAddress(url, button) {
