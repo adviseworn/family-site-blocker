@@ -821,7 +821,7 @@ describe('real browser', () => {
         await page.locator('#record-links').waitFor({ state: 'visible' });
         assert.equal(await page.locator('#every-try').innerText(), 'See every try (60)');
         assert.equal(await page.locator('#every-try').getAttribute('href'), 'tries.html', 'straight to every try from the settings page (1.15.1)');
-        assert.equal(await page.locator('#record-page').innerText(), 'See the record by site, and whether it was ever off');
+        assert.equal(await page.locator('#record-page').innerText(), 'See the record by site');
 
         // The link opens the record page in a tab of its own. The new tab can be reported before its
         // address is set, and its blank starting page has already loaded, so wait for the address (#109).
