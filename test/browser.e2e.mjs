@@ -1206,7 +1206,7 @@ describe('real browser', () => {
       stub.page('allowed.test/blob', `<!doctype html><img id="made" width="300"><script>fetch('/pics/nude.jpg?blob').then((r) => r.blob()).then((b) => { document.getElementById('made').src = URL.createObjectURL(b); });</script>`);
       stub.page('allowed.test/real', galleryPage(['cat', 'coffee']));
       stub.page('allowed.test/inline', inlinePage());
-      stub.page('allowed.test/backgrounds', backgroundsPage());
+      stub.page('allowed.test/backgrounds', backgroundsPage({ onDemand: true })); // the later changes come when the test asks, so the page is seen as first judged first
       // Videos from the page's own site, whose frames it may read: red is "nude" to the stand-in, blue a photo.
       serveVideos(stub);
       stub.page(
@@ -1755,6 +1755,7 @@ describe('real browser', () => {
         assert.equal(await page.evaluate(() => getComputedStyle(document.getElementById('words')).visibility), 'visible');
 
         // Given a background later, or another one: judged again; a style change that keeps the address is not.
+        await page.evaluate(() => window.__later());
         await page.waitForFunction(() => document.getElementById('bg-late').getAttribute('data-family-site-blocker') === 'hidden', null, { timeout: 20_000 });
         await page.waitForFunction(() => document.getElementById('bg-photo').getAttribute('data-family-site-blocker') === 'hidden', null, { timeout: 20_000 });
         await page.waitForFunction(() => getComputedStyle(document.getElementById('bg-nude')).transform !== 'none');

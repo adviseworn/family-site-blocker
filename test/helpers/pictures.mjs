@@ -94,8 +94,11 @@ export function inlinePage() {
  * hide, one fine (with words on it), one with three layers, an icon, a small thumbnail of a big picture, a
  * span whose style names a url( only in its mask, the X-like pair, and one given its background by script
  * later; the fine one is swapped for one to hide after that, and the hidden one's transform changes.
+ * Those later changes come by themselves, a moment after the page loads, or with { onDemand: true } when
+ * the test calls window.__later(), so that a test can look at the page as first judged before they come,
+ * however slow the judging is.
  */
-export function backgroundsPage() {
+export function backgroundsPage({ onDemand = false } = {}) {
   const box = 'width: 300px; height: 200px; margin: 4px;';
   return `<!doctype html><meta charset="utf-8"><title>Backgrounds</title><h1>Backgrounds</h1>
     <div id="bg-nude" style="${box} background-image: url(http://pics.test/pics/nude.jpg?bg)"></div>
@@ -110,9 +113,13 @@ export function backgroundsPage() {
     </div>
     <div id="bg-late" style="${box}"></div>
     <script>
-      setTimeout(() => { document.getElementById('bg-late').style.backgroundImage = 'url(http://pics.test/pics/nude.jpg?late-bg)'; }, 300);
-      setTimeout(() => { document.getElementById('bg-photo').style.backgroundImage = 'url(http://pics.test/pics/nude.jpg?swapped-bg)'; }, 600);
-      setTimeout(() => { document.getElementById('bg-nude').style.transform = 'translateX(1px)'; }, 600);
+      const later = [
+        () => { document.getElementById('bg-late').style.backgroundImage = 'url(http://pics.test/pics/nude.jpg?late-bg)'; },
+        () => { document.getElementById('bg-photo').style.backgroundImage = 'url(http://pics.test/pics/nude.jpg?swapped-bg)'; },
+        () => { document.getElementById('bg-nude').style.transform = 'translateX(1px)'; },
+      ];
+      window.__later = () => later.forEach((change) => change());
+      if (!${onDemand}) later.forEach((change, i) => setTimeout(change, i === 0 ? 300 : 600));
     </script>`;
 }
 
