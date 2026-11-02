@@ -829,8 +829,9 @@ describe('Firefox', { skip: findFirefox() ? false : 'no Firefox found (set FIREF
       assert.deepEqual(rows.filter((row) => row[2] === 'Visited while the add-on was off').map((row) => row[1]), [SITE]);
       assert.ok(rows.some((row) => row[2] === 'Visited (browser history)'), `the visit from before the install keeps its wording: ${JSON.stringify(rows)}`);
       const bands = await browser.run(`return [...document.querySelectorAll('.day tr.band')].map((row) => row.textContent)`);
-      assert.equal(bands.length, 1, `the time it was off, laid in as a band: ${JSON.stringify(bands)}`);
-      assert.match(bands[0], /^Add-on off from .+ until .+: 1 page visited meanwhile\.$/);
+      // A stretch that crosses midnight is laid in each day it touches (#136), so a run in the hour after midnight sees it twice.
+      assert.equal(bands.length, sameDay ? 1 : 2, `the time it was off, laid in as a band: ${JSON.stringify(bands)}`);
+      for (const band of bands) assert.match(band, /^Add-on off from .+ until .+: 1 page visited meanwhile\.$/);
       // The account of running as it was, so the rest of the run is not told the add-on was off.
       await inPage(`browser.storage.local.set({ watching: arguments[0] }).then(() => done('ok'), (e) => done('error: ' + e));`, original);
       await browser.fx.send('WebDriver:SwitchToWindow', { handle: settings.handle });
