@@ -31,7 +31,7 @@ function writePolicies() {
   return () => sudo('rm', '-rf', folder);
 }
 
-const PAGES = ['https://www.youtube.com/watch?v=dQw4w9WgXcQ', 'https://www.tiktok.com/@tiktok', 'https://www.youtube.com/shorts', 'https://www.youtube.com/'];
+const PAGES = ['https://www.youtube.com/watch?v=dQw4w9WgXcQ', 'https://www.tiktok.com/@tiktok', 'https://www.youtube.com/shorts'];
 const VIDEOS = ['https://www.w3schools.com/html/mov_bbb.mp4', 'https://www.w3schools.com/html/movie.mp4', 'https://samplelib.com/lib/preview/mp4/sample-5s.mp4'];
 const IMAGES = ['https://upload.wikimedia.org/wikipedia/commons/thumb/3/3a/Cat03.jpg/1200px-Cat03.jpg', 'https://images.unsplash.com/photo-1518791841217-8f162f1e1131?w=1200'];
 
@@ -86,6 +86,13 @@ const tabsNow = async () => {
 try {
   const settings = (await fx.tabs()).find(({ url }) => url.endsWith('/options.html'));
   const base = `moz-extension://${new URL(settings.url).host}`;
+  // The pages of single TikTok videos, as Brian's record names them (tiktok.com/@…/video/…): found on a profile page first.
+  await fx.newTab();
+  await fx.fx.send('WebDriver:Navigate', { url: 'https://www.tiktok.com/@tiktok' }).catch((e) => console.log('navigate:', e.message));
+  await sleep(6000);
+  const found = await fx.run("return [...new Set([...document.querySelectorAll('a[href*=\"/video/\"]')].map((a) => a.href.split('?')[0]))].slice(0, 2)").catch(() => []);
+  console.log('TikTok video pages found:', found);
+  PAGES.unshift(...found);
   await fx.fx.send('WebDriver:SwitchToWindow', { handle: settings.handle });
   const data = seed();
   console.log('seeding', Object.keys(data).length, 'keys,', JSON.stringify(data).length, 'characters');
