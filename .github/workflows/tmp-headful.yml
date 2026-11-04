@@ -1,0 +1,27 @@
+# Temporary, for one branch: Open the page in a headful Firefox on GitHub's Mac.
+name: Temporary headful check
+
+on:
+  push:
+    branches:
+      - claude/project-thread-p3ux29
+
+jobs:
+  headful:
+    runs-on: macos-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+      - run: test -d /Applications/Firefox.app || brew install --cask firefox
+      - run: /Applications/Firefox.app/Contents/MacOS/firefox --version
+      - run: npm install
+      - name: Headful flow
+        env:
+          HEADFUL: '1'
+        run: node test/tmp-open-page.mjs
+      - name: Headless flow
+        if: always()
+        run: node test/tmp-open-page.mjs
