@@ -13,7 +13,7 @@
 import { ATTEMPTS, LABELS, offDuring, outcome, summarize, timeline, toCsv } from './lib/attempts.js';
 import { EVENTS, EVENTS_SINCE, beginningOf, describeEvent, describeRecord, loadBox } from './lib/lockbox.js';
 import { dayFormat, element, hiddenWords, lookWords, offVisitsWords, offWords, plural, showVersion, timeFormat, timeOn, tries as triesWord, whenFormat } from './lib/page.js';
-import { COPIES_KEPT, PICTURES, URL_LENGTH, WHY_LENGTH, borderline, copyKey, countHidden, describeHidden, isData, isVideo, lookedAt, scoresOf } from './lib/pictures.js';
+import { COPIES_KEPT, PICTURES, URL_LENGTH, VIDEO_LENGTH, WHY_LENGTH, bodyUpTo, borderline, copyKey, countHidden, describeHidden, isData, isPage, isVideo, isVideoType, lookedAt, scoresOf } from './lib/pictures.js';
 import { WATCHING, normalize } from './lib/watching.js';
 
 const api = globalThis.browser ?? globalThis.chrome;
@@ -116,7 +116,7 @@ function pictureRow({ at, picture }, day) {
 // the record's changes bring, so a picture stays shown once it is, and the question stays asked.
 const shown = new Map(); // key -> { asking: true, draft } while the reason is asked for, { fetching } while the picture is on its way, then { kind: 'picture' | 'video', url: a data: or object URL, copied: 'kept' | 'now' | undefined } or { kind: 'page', url } or { error }
 const keyOf = (picture) => `${picture.at} ${picture.url}`;
-const FETCH_WAIT_MS = 20_000; // how long a video's address is given to answer
+const FETCH_WAIT_MS = 20_000; // how long a video's address is given to answer, and to send the video whole
 const NO_COPY = `no copy of it is kept (only the latest ${COPIES_KEPT} hidden have one)`; // hidden before 1.17.4, or let go since
 const rowOf = (key) => [...document.querySelectorAll('.day tr.picture')].find((row) => row.dataset.key === key) ?? null;
 let reason = ''; // why the pictures are being looked at: asked for at the first look, and kept for the rest while the page is open
@@ -183,23 +183,38 @@ async function fetchPicture(picture) {
 /**
  * A video at an address, fetched as the background script fetched a frame's video to judge it (with the
  * browser's cookies, from its cache when it has it): { kind: 'video' | 'picture', url: an object URL },
- * or { kind: 'page', url } when the address answers with a page. Throws when it can't be fetched.
+ * or { kind: 'page', url } when the address answers with a page, told from the answer's content type
+ * before a byte of it is read. The video is read only up to VIDEO_LENGTH bytes, and given FETCH_WAIT_MS
+ * to arrive whole (1.18.3: read whole, however long, it could fill the add-on's memory, which in Firefox
+ * this page shares with the background script and the rest of the add-on's pages). Throws, in words for
+ * the row, when it can't be shown.
  */
 async function fetchVideo(url) {
   const giveUp = new AbortController();
   const timer = setTimeout(() => giveUp.abort(), FETCH_WAIT_MS);
-  let response;
   try {
-    response = await fetch(url, { credentials: 'include', cache: 'force-cache', redirect: 'follow', signal: giveUp.signal });
-  } catch (error) {
-    throw new Error(giveUp.signal.aborted ? `its address didn’t answer in ${FETCH_WAIT_MS / 1000} seconds` : `its address couldn’t be reached (${error.message})`);
+    let response;
+    try {
+      response = await fetch(url, { credentials: 'include', cache: 'force-cache', redirect: 'follow', signal: giveUp.signal });
+    } catch (error) {
+      throw new Error(giveUp.signal.aborted ? `its address didn’t answer in ${FETCH_WAIT_MS / 1000} seconds` : `its address couldn’t be reached (${error.message})`);
+    }
+    if (!response.ok) throw new Error(`it couldn’t be fetched (${response.status}), and no copy of a video is kept`);
+    if (isPage(response.headers.get('content-type'))) {
+      giveUp.abort(); // the page itself is not wanted
+      return { kind: 'page', url };
+    }
+    let blob;
+    try {
+      blob = await bodyUpTo(response, VIDEO_LENGTH);
+    } catch (error) {
+      throw new Error(giveUp.signal.aborted ? `it didn’t arrive whole in ${FETCH_WAIT_MS / 1000} seconds` : `it couldn’t be fetched whole (${error.message})`);
+    }
+    if (!blob) throw new Error(`it is bigger than ${VIDEO_LENGTH / 1_000_000} MB, and no copy of a video is kept`);
+    return { kind: isVideoType(blob.type) ? 'video' : 'picture', url: URL.createObjectURL(blob) };
   } finally {
     clearTimeout(timer);
   }
-  if (!response.ok) throw new Error(`it couldn’t be fetched (${response.status}), and no copy of a video is kept`);
-  const blob = await response.blob();
-  if (/^text\/html\b/i.test(blob.type)) return { kind: 'page', url };
-  return { kind: /^video\//i.test(blob.type) ? 'video' : 'picture', url: URL.createObjectURL(blob) };
 }
 
 /** The box in a hidden picture's row that asks why first, then shows the picture, or what stands in its way. */
