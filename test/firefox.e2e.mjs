@@ -1034,6 +1034,8 @@ describe('Firefox', { skip: findFirefox() ? false : 'no Firefox found (set FIREF
       // through blue to red), alone and next to the same picture as streams from elsewhere.
       stub.page('camera.test/camera', cameraPage());
       stub.page('camera.test/streams', cameraPage({ streams: true }));
+      // A video the page makes itself (an object URL): no address of its own, so it is noted under the page's.
+      stub.page('allowed.test/video-blob', videoPage(['id="made" autoplay muted loop'], `<script>fetch('/videos/red.webm').then((r) => r.blob()).then((b) => { document.getElementById('made').src = URL.createObjectURL(b); });</script>`));
     });
 
     test('the real classifier, through WebAssembly, finds two ordinary photos neutral and shows them', async () => {
@@ -1154,6 +1156,81 @@ describe('Firefox', { skip: findFirefox() ? false : 'no Firefox found (set FIREF
         const videos = record.filter((entry) => entry.kind === 'video').map((entry) => [entry.url.replace('http://', ''), entry.reason]).sort();
         assert.deepEqual(videos, [['allowed.test/videos/blue-then-red.webm', 'nudity'], ['allowed.test/videos/red.webm', 'nudity'], ['videos.test/videos/red.webm', 'nudity']], JSON.stringify(record));
         assert.ok(record.some((entry) => entry.url.endsWith('lingerie.jpg?poster') && !entry.kind), 'the poster is noted as a picture');
+      } finally {
+        await judge.close();
+        standIn.remove();
+      }
+    });
+
+    test('with the stand-in classifier: Look at it on Every try shows a hidden picture from the copy kept, and a video the page made itself links to the page, which Open the page opens in a new tab', async () => {
+      const standIn = extensionWithStandInClassifier();
+      const judge = await launchFirefox(stub, { extensionDir: standIn.dir });
+      try {
+        const settings = (await judge.tabs()).find(({ url }) => url.endsWith('/options.html'));
+        await judge.newTab();
+        await judge.visit('http://allowed.test/gallery');
+        await waitForMarks(judge, ['nude']);
+        await judge.newTab();
+        await judge.visit('http://allowed.test/video-blob');
+        await waitForMarks(judge, ['made']);
+        // The record holds the picture and the video, and a copy of the picture, kept when it was hidden.
+        await judge.fx.send('WebDriver:SwitchToWindow', { handle: settings.handle });
+        const until = Date.now() + 15_000;
+        let kept = { entries: [], copies: 0 };
+        while (Date.now() < until && !(kept.entries.includes('http://allowed.test/video-blob') && kept.copies > 0)) {
+          await sleep(250);
+          kept = await judge.fx.send('WebDriver:ExecuteAsyncScript', {
+            script: `const done = arguments[arguments.length - 1]; browser.storage.local.get(null).then((got) => done({ entries: (got.pictures ?? []).map((e) => e.url), copies: Object.keys(got).filter((key) => key.startsWith('pictureCopy:')).length }), (e) => done({ entries: [String(e)], copies: 0 }));`,
+            args: [],
+          });
+        }
+        assert.ok(kept.entries.includes('http://pics.test/pics/nude.jpg') && kept.entries.includes('http://allowed.test/video-blob') && kept.copies > 0, JSON.stringify(kept));
+        const record = await judge.newTab();
+        await judge.visit(`moz-extension://${new URL(settings.url).host}/tries.html#pictures`);
+        const inRow = (url, script) => judge.run(`const row = [...document.querySelectorAll('.day tr.picture')].find((r) => r.querySelector('.picture-url')?.textContent === ${JSON.stringify(url)}); if (!row) return null; ${script}`);
+        const waitInRow = async (url, script, ms = 15_000) => {
+          const end = Date.now() + ms;
+          let got = await inRow(url, script);
+          while (!got && Date.now() < end) {
+            await sleep(200);
+            got = await inRow(url, script);
+          }
+          assert.ok(got, `${url}: ${script}`);
+          return got;
+        };
+        await waitInRow('http://pics.test/pics/nude.jpg', 'return true');
+        // The first look asks why, in the row; the answer goes into the record with the look, and the kept copy is shown.
+        await inRow('http://pics.test/pics/nude.jpg', "row.querySelector('button.look').click(); return true");
+        await waitInRow('http://pics.test/pics/nude.jpg', "return !!row.querySelector('.look-why')");
+        await inRow('http://pics.test/pics/nude.jpg', "const field = row.querySelector('.look-why'); field.value = 'checking a close call'; field.dispatchEvent(new Event('input')); row.querySelector('button.look-go').click(); return true");
+        const src = await waitInRow('http://pics.test/pics/nude.jpg', "return row.querySelector('.picture-look img')?.getAttribute('src') ?? ''");
+        assert.match(src, /^data:image\/jpeg;base64,/, 'shown from the copy kept when it was hidden');
+        assert.match(await inRow('http://pics.test/pics/nude.jpg', "return row.querySelector('.picture-notes')?.textContent ?? ''"), /^Looked at once, at .+: “checking a close call”\.$/);
+        // The video the page made can't be shown: its row says so and links to the page, with the reason given already.
+        await inRow('http://allowed.test/video-blob', "row.querySelector('button.look').click(); return true");
+        const link = await waitInRow('http://allowed.test/video-blob', "const a = row.querySelector('.picture-look a'); return a ? { href: a.href, target: a.getAttribute('target'), words: row.querySelector('.picture-look p').textContent } : null");
+        assert.deepEqual(link, { href: 'http://allowed.test/video-blob', target: '_blank', words: 'The page made the video itself, so only the page’s address is known. Open the page.' });
+        // Open the page opens the page in a new tab, where it loads as it would from the address bar, and Every try stays as it was.
+        const before = (await judge.tabs()).length;
+        await judge.fx.send('WebDriver:SwitchToWindow', { handle: record });
+        await inRow('http://allowed.test/video-blob', "row.querySelector('.picture-look a').click(); return true");
+        const opened = Date.now() + 15_000;
+        let tabs = await judge.tabs();
+        while (Date.now() < opened && !(tabs.length > before && tabs.some(({ url }) => url === 'http://allowed.test/video-blob'))) {
+          await sleep(250);
+          tabs = await judge.tabs();
+        }
+        const page = tabs.find(({ url }) => url === 'http://allowed.test/video-blob');
+        assert.ok(page, `the page opened in a tab of its own: ${JSON.stringify(tabs)}`);
+        assert.ok(tabs.every(({ url }) => !url.startsWith('about:tabcrashed')), `a tab crashed: ${JSON.stringify(tabs)}`);
+        await judge.fx.send('WebDriver:SwitchToWindow', { handle: page.handle });
+        await sleep(3000); // long enough for the page's video to have been judged, and for a crash to show
+        tabs = await judge.tabs();
+        assert.ok(tabs.every(({ url }) => !url.startsWith('about:tabcrashed')), `a tab crashed: ${JSON.stringify(tabs)}`);
+        await judge.fx.send('WebDriver:SwitchToWindow', { handle: page.handle });
+        assert.deepEqual(await judge.run("return [document.readyState, document.title, document.getElementById('made')?.getAttribute('data-family-site-blocker') ?? null]"), ['complete', 'Videos', 'hidden'], 'the page loaded, and its video is hidden as before');
+        await judge.fx.send('WebDriver:SwitchToWindow', { handle: record });
+        assert.equal(await judge.run("return document.readyState === 'complete' && document.querySelectorAll('.day tr.picture .picture-look a').length"), 1, 'Every try stands, with the link still on the row');
       } finally {
         await judge.close();
         standIn.remove();

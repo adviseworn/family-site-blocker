@@ -272,3 +272,49 @@ export function scoresOf(entry) {
   const score = (name) => Math.max(0, Number(entry?.scores?.[name]) || 0);
   return `nudity ${(score('porn') + score('hentai')).toFixed(2)}, suggestive ${score('sexy').toFixed(2)}`;
 }
+
+// --- Fetching a picture or a video whole ---------------------------------------------------------------
+// The background script fetches a picture whole to judge it and to copy it, and the Every try page fetches
+// a video whole to show it again. A body is read only up to a cap (1.18.3), so that a huge file, or an
+// address that answers with one, can't fill the add-on's memory: in Firefox every one of the add-on's
+// pages shares one process with the background script, and a process out of memory takes the pages with
+// it. A page is told from the answer's content type before a byte of it is read.
+
+/** How many bytes a picture may be to be judged or copied, and a video to be shown again from its address. */
+export const PICTURE_LENGTH = 20_000_000;
+export const VIDEO_LENGTH = 50_000_000;
+
+/** Whether an answer's content type is a page's (text/html), which a picture's or a video's address can answer with. */
+export const isPage = (type) => /^text\/html\b/i.test(String(type ?? ''));
+
+/** Whether an answer's content type is a video's. */
+export const isVideoType = (type) => /^video\//i.test(String(type ?? ''));
+
+/**
+ * An answer's body as a Blob of its content type, read only up to `limit` bytes: null when the body is
+ * longer, by its Content-Length header before a byte is read, or by its bytes as they come (the rest is
+ * left unread). An answer without a body gives an empty Blob.
+ */
+export async function bodyUpTo(response, limit) {
+  const type = response.headers?.get?.('content-type') ?? '';
+  const declared = Number(response.headers?.get?.('content-length'));
+  if (Number.isFinite(declared) && declared > limit) {
+    await response.body?.cancel?.().catch(() => {});
+    return null;
+  }
+  if (!response.body) return new Blob([], { type });
+  const reader = response.body.getReader();
+  const chunks = [];
+  let length = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    length += value.byteLength;
+    if (length > limit) {
+      await reader.cancel().catch(() => {});
+      return null;
+    }
+    chunks.push(value);
+  }
+  return new Blob(chunks, { type });
+}
