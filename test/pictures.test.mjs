@@ -8,7 +8,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import jpeg from 'jpeg-js';
-import { BORDERLINE, CLASSES, COPIES_KEPT, COPIES_LENGTH, DEFAULT_STRICTNESS, LOOKS_KEPT, MAX_PICTURES, MIN_SIZE, STRICTNESS_CHOICES, THRESHOLD, URL_LENGTH, WHY_LENGTH, borderline, copiesByKey, copyKey, countHidden, describeHidden, hashOf, hiddenBySite, isData, isVideo, keepCopy, lookedAt, markAlike, markHidden, markedMistake, noteLook, recordHidden, sameGroups, sameHidden, samePicture, scoresOf, strictnessOf, verdict } from '../extension/lib/pictures.js';
+import { BORDERLINE, CLASSES, COPIES_KEPT, COPIES_LENGTH, DEFAULT_STRICTNESS, LOOKS_KEPT, MAX_PICTURES, MIN_SIZE, PICTURE_LENGTH, STRICTNESS_CHOICES, THRESHOLD, URL_LENGTH, VIDEO_LENGTH, WHY_LENGTH, bodyUpTo, borderline, copiesByKey, copyKey, countHidden, describeHidden, hashOf, hiddenBySite, isData, isPage, isVideo, isVideoType, keepCopy, lookedAt, markAlike, markHidden, markedMistake, noteLook, recordHidden, sameGroups, sameHidden, samePicture, scoresOf, strictnessOf, verdict } from '../extension/lib/pictures.js';
 import { hiddenWords, lookWords, timeOn } from '../extension/lib/page.js';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -317,6 +317,52 @@ test('pictures: the content script runs in every page and frame from the start, 
   assert.match(content, /const WATCHED = 'img, video, \[style\*="url\(" i\]'/, 'the content script watches videos and background pictures as well as pictures');
   assert.match(content, /judge-video-frame/, 'and sends their frames to be judged');
   assert.doesNotMatch(readFileSync(join(EXT, 'vendor/tf.fesm.min.js'), 'utf8').slice(0, 20000), /\bimport\s+[\w$]+\s+from\s*"/, 'the runtime is self-contained');
+});
+
+test('pictures: a picture or a video fetched whole is read only up to a cap, and a page is told from the content type (1.18.3)', async () => {
+  assert.equal(PICTURE_LENGTH, 20_000_000, 'a picture, to be judged or copied');
+  assert.equal(VIDEO_LENGTH, 50_000_000, 'a video, to be shown again from its address');
+  assert.ok(isPage('text/html; charset=utf-8') && isPage('TEXT/HTML') && !isPage('image/jpeg') && !isPage(null) && !isPage(undefined));
+  assert.ok(isVideoType('video/webm; codecs="vp8"') && !isVideoType('image/png') && !isVideoType(''));
+  // An answer whose body comes in the chunks given, then ends; and one that goes on sending until it is cancelled.
+  const answer = (chunks, headers = {}) =>
+    new Response(
+      new ReadableStream({
+        start(controller) {
+          for (const chunk of chunks) controller.enqueue(new Uint8Array(chunk));
+          controller.close();
+        },
+      }),
+      { headers },
+    );
+  let sent = 0;
+  let cancelled = 0;
+  const endless = (headers = {}) =>
+    new Response(
+      new ReadableStream({
+        pull(controller) {
+          sent += 3;
+          controller.enqueue(new Uint8Array([7, 8, 9]));
+        },
+        cancel() {
+          cancelled += 1;
+        },
+      }),
+      { headers },
+    );
+  const whole = await bodyUpTo(answer([[1, 2, 3], [4, 5]], { 'content-type': 'video/webm' }), 5);
+  assert.equal(whole.type, 'video/webm', 'the content type is the Blob’s');
+  assert.deepEqual([...new Uint8Array(await whole.arrayBuffer())], [1, 2, 3, 4, 5], 'read whole, at the cap');
+  assert.equal(await bodyUpTo(answer([[1, 2, 3], [4, 5, 6]]), 5), null, 'a byte over the cap, by the bytes as they come');
+  assert.equal(await bodyUpTo(endless(), 5), null, 'over the cap as the bytes come, from an answer that never ends');
+  assert.equal(cancelled, 1, 'the rest is left unread');
+  assert.ok(sent <= 9, `no more than a chunk past the cap was taken: ${sent} bytes`);
+  assert.equal(await bodyUpTo(endless({ 'content-length': '6' }), 5), null, 'over the cap by the header, before a byte is read');
+  assert.equal(cancelled, 2);
+  assert.equal((await bodyUpTo(answer([[1]], { 'content-length': '5' }), 5)).size, 1, 'a header within the cap is no bar');
+  assert.equal((await bodyUpTo(answer([[1, 2]], { 'content-length': 'what' }), 5)).size, 2, 'a header that is no number is passed over');
+  const empty = await bodyUpTo(new Response(null, { headers: { 'content-type': 'image/gif' } }), 5);
+  assert.deepEqual([empty.size, empty.type], [0, 'image/gif'], 'an answer without a body is an empty Blob');
 });
 
 test('pictures: the classifier, run here on two ordinary photos, finds them neutral (the model loads and is read the way the add-on reads it)', { timeout: 120_000 }, async () => {

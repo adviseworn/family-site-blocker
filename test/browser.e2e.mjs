@@ -11,7 +11,7 @@ import { join } from 'node:path';
 import { webcrypto } from 'node:crypto';
 import { EXTENSION_DIR, findPage, launchBrowser, startStubInternet, visit } from './helpers/browser.mjs';
 import { BACKGROUND_MARKS, FAKE_CAMERA_ARGS, MARKS, STAND_IN_SCORES, backgroundsPage, cameraPage, extensionWithStandInClassifier, galleryPage, inlinePage, servePictures, serveVideos, videoPage } from './helpers/pictures.mjs';
-import { copiesByKey, copyKey, hashOf, sameGroups } from '../extension/lib/pictures.js';
+import { VIDEO_LENGTH, copiesByKey, copyKey, hashOf, sameGroups } from '../extension/lib/pictures.js';
 
 globalThis.crypto ??= webcrypto; // Node 18 has Web Crypto, but not on globalThis
 // What the waits know a box by (1.13.0), to check what the page stores.
@@ -1518,9 +1518,34 @@ describe('real browser', () => {
           await olderRow.locator('.picture-look p').innerText(),
           'Fetched again from its address: no copy of it is kept (only the latest 100 hidden have one).',
         );
+        // A picture or a video bigger than its cap isn't read whole into the add-on's memory (1.18.3): the
+        // row says how big is too big, from the answer's Content-Length, before a byte of it is read.
+        const huge = Buffer.alloc(VIDEO_LENGTH + 1);
+        stub.page('huge.test/picture.jpg', huge, { headers: { 'content-type': 'image/jpeg' } });
+        stub.page('huge.test/video.webm', huge, { headers: { 'content-type': 'video/webm' } });
+        await record.evaluate(() =>
+          chrome.storage.local.get('pictures').then((got) =>
+            chrome.storage.local.set({
+              pictures: [
+                ...got.pictures,
+                { at: Date.now() - 1, site: 'huge.test', url: 'http://huge.test/picture.jpg', reason: 'nudity', scores: { porn: 0.9, hentai: 0, sexy: 0 } },
+                { at: Date.now(), site: 'huge.test', url: 'http://huge.test/video.webm', reason: 'nudity', scores: { porn: 0.9, hentai: 0, sexy: 0 }, kind: 'video' },
+              ],
+            }),
+          ),
+        );
+        const hugeRow = rowFor('http://huge.test/picture.jpg');
+        await hugeRow.locator('button.look').click();
+        await hugeRow.locator('.picture-look p', { hasText: 'Couldn’t show it' }).waitFor();
+        assert.equal(await hugeRow.locator('.picture-look p').innerText(), 'Couldn’t show it: it is bigger than 20 MB, and no copy of it is kept (only the latest 100 hidden have one).');
+        const hugeVideoRow = rowFor('http://huge.test/video.webm');
+        await hugeVideoRow.locator('button.look').click();
+        await hugeVideoRow.locator('.picture-look p', { hasText: 'Couldn’t show it' }).waitFor();
+        assert.equal(await hugeVideoRow.locator('.picture-look p').innerText(), 'Couldn’t show it: it is bigger than 50 MB, and no copy of a video is kept.');
+        assert.ok(stub.requests.filter(({ host }) => host === 'huge.test').length >= 2, 'both were asked for');
       } finally {
         // The entries seeded above go, so the later tests read the record the filter wrote.
-        await record.evaluate(() => chrome.storage.local.get('pictures').then((got) => chrome.storage.local.set({ pictures: got.pictures.filter((entry) => !['gone.test', 'inline.test', 'old.test', 'older.test'].includes(entry.site)) }))).catch(() => {});
+        await record.evaluate(() => chrome.storage.local.get('pictures').then((got) => chrome.storage.local.set({ pictures: got.pictures.filter((entry) => !['gone.test', 'huge.test', 'inline.test', 'old.test', 'older.test'].includes(entry.site)) }))).catch(() => {});
         await record.close();
       }
     });

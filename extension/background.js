@@ -7,7 +7,7 @@
 // it as a service worker; Firefox runs it as an event page. Both load it as a module (manifest.json:
 // background.type).
 import { ATTEMPTS, HISTORY_SCAN, bookmarksTo, hostOf, listedDomain, mergeVisits, record } from './lib/attempts.js';
-import { COPIES, COPY_SIZE, PICTURES, STRICTNESS, URL_LENGTH, copiesByKey, copyKey, hashOf, keepCopy, markAlike, noteLook, recordHidden, sameHidden, strictnessOf, verdict } from './lib/pictures.js';
+import { COPIES, COPY_SIZE, PICTURES, PICTURE_LENGTH, STRICTNESS, URL_LENGTH, bodyUpTo, copiesByKey, copyKey, hashOf, isPage, keepCopy, markAlike, noteLook, recordHidden, sameHidden, strictnessOf, verdict } from './lib/pictures.js';
 import { BLOCK_PAGE, domainsOf } from './lib/rules.js';
 import { UNLISTED, tallyUnlisted } from './lib/suspects.js';
 import { BEAT_EVERY_MINUTES, WATCHING, beat, earliestLiveTry, gapsOf, normalize, noteGaps, started } from './lib/watching.js';
@@ -410,11 +410,7 @@ api.storage.onChanged.addListener((changes, area) => {
 
 function scoresFor(url) {
   if (!judgments.has(url)) {
-    const scores = fetchPicture(url)
-      .then((response) => {
-        if (!response.ok) throw new Error(`the picture couldn't be fetched (${response.status})`);
-        return response.blob();
-      })
+    const scores = pictureBytes(url)
       .then((blob) => judgeBytes(blob, url))
       .then((scores) => {
         judgedCount += 1;
@@ -462,41 +458,77 @@ function noteHidden({ site, url, kind, reason, scores, copy = null }) {
 /** The fetch a picture is judged from, and copied from: with the browser's cookies, from its cache when it has it. */
 const fetchPicture = (url, options = {}) => fetch(url, { credentials: 'include', cache: 'force-cache', redirect: 'follow', ...options });
 
-/** A smaller copy of the picture at an address, fetched again (from the cache, after the judge's fetch). */
-async function smallCopy(url) {
-  const response = await fetchPicture(url);
+/**
+ * The picture at an address, fetched whole (fetchPicture) to be judged or copied: a Blob of its bytes,
+ * read only up to PICTURE_LENGTH of them (1.18.3). A bigger one is an error, as one that can't be
+ * fetched is: shown without being judged, and not copied. Read whole, however big, it could fill the
+ * add-on's memory, which in Firefox this script shares with every one of the add-on's pages.
+ */
+async function pictureBytes(url, options = {}) {
+  const response = await fetchPicture(url, options);
   if (!response.ok) throw new Error(`the picture couldn't be fetched (${response.status})`);
-  return smallCopyOf(await response.blob());
+  const blob = await bodyUpTo(response, PICTURE_LENGTH);
+  if (!blob) throw new Error(`the picture is bigger than ${PICTURE_LENGTH / 1_000_000} MB`);
+  return blob;
 }
 
-const COPY_WAIT_MS = 20_000; // how long a picture's address is given to answer a copy made now
+const KEEP_WAIT_MS = 10_000; // how long a hidden picture's address is given to answer again, whole, for the copy kept
+
+/**
+ * A smaller copy of the picture at an address, fetched again (from the cache, after the judge's fetch),
+ * to keep with the record. Given KEEP_WAIT_MS, no more: it is made in turn with the record's other
+ * changes (noteHidden), which wait for it, as a look from the Every try page does.
+ */
+async function smallCopy(url) {
+  const giveUp = new AbortController();
+  const timer = setTimeout(() => giveUp.abort(), KEEP_WAIT_MS);
+  try {
+    return await smallCopyOf(await pictureBytes(url, { signal: giveUp.signal }));
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+const COPY_WAIT_MS = 20_000; // how long a picture's address is given to answer a copy made now, and to send the picture whole
 
 /**
  * For the Every try page: a copy made now of the picture at an address, for a hidden picture that has no
  * copy kept (hidden before 1.17.4, or among the oldest, let go): { copy } as smallCopyOf makes it,
  * { page: true } when the address answers with a page (which a video the page made itself is noted under),
- * or { error } in the page's words when it can't be had. Fetched here, as the picture was fetched to be
- * judged, rather than from the page.
+ * told from the answer's content type before a byte of it is read, or { error } in the page's words when
+ * it can't be had. Fetched here, as the picture was fetched to be judged, rather than from the page, and
+ * read only up to PICTURE_LENGTH bytes, within COPY_WAIT_MS.
  */
 async function copyNow(url) {
   if (typeof url !== 'string' || !/^(?:https?|data):/i.test(url)) return { error: 'its address isn’t one that can be fetched' };
   const giveUp = new AbortController();
   const timer = setTimeout(() => giveUp.abort(), COPY_WAIT_MS);
-  let response;
   try {
-    response = await fetchPicture(url, { signal: giveUp.signal });
-  } catch (error) {
-    return { error: giveUp.signal.aborted ? `its address didn’t answer in ${COPY_WAIT_MS / 1000} seconds` : `its address couldn’t be reached (${error.message})` };
+    let response;
+    try {
+      response = await fetchPicture(url, { signal: giveUp.signal });
+    } catch (error) {
+      return { error: giveUp.signal.aborted ? `its address didn’t answer in ${COPY_WAIT_MS / 1000} seconds` : `its address couldn’t be reached (${error.message})` };
+    }
+    if (!response.ok) return { error: `it couldn’t be fetched (${response.status})` };
+    if (isPage(response.headers.get('content-type'))) {
+      giveUp.abort(); // the page itself is not wanted
+      return { page: true };
+    }
+    let blob;
+    try {
+      blob = await bodyUpTo(response, PICTURE_LENGTH);
+    } catch (error) {
+      return { error: giveUp.signal.aborted ? `it didn’t arrive whole in ${COPY_WAIT_MS / 1000} seconds` : `it couldn’t be fetched whole (${error.message})` };
+    }
+    if (!blob) return { error: `it is bigger than ${PICTURE_LENGTH / 1_000_000} MB` };
+    try {
+      return { copy: await smallCopyOf(blob) };
+    } catch {
+      return { error: 'not a picture this browser can show' };
+    }
   } finally {
     clearTimeout(timer);
-  }
-  if (!response.ok) return { error: `it couldn’t be fetched (${response.status})` };
-  const blob = await response.blob();
-  if (/^text\/html\b/i.test(blob.type)) return { page: true };
-  try {
-    return { copy: await smallCopyOf(blob) };
-  } catch {
-    return { error: 'not a picture this browser can show' };
   }
 }
 
