@@ -9,7 +9,7 @@ on:
 jobs:
   headful:
     runs-on: macos-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
@@ -18,10 +18,13 @@ jobs:
       - run: test -d /Applications/Firefox.app || brew install --cask firefox
       - run: /Applications/Firefox.app/Contents/MacOS/firefox --version
       - run: npm install
-      - name: Headful flow
+      - name: Headful flow under the lock, with a full record
         env:
           HEADFUL: '1'
+          LOCK: '1'
         run: node test/tmp-open-page.mjs
-      - name: Headless flow
+      - name: Headful flow without the lock, with a full record
         if: always()
+        env:
+          HEADFUL: '1'
         run: node test/tmp-open-page.mjs
