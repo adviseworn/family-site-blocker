@@ -335,7 +335,7 @@ async function renderPictureStatus() {
       return;
     }
     line.textContent =
-      `Pictures and videos are judged before they show: since the browser started, ${plural(status.judged, 'picture')} judged, ${status.hidden} hidden` +
+      `Pictures and videos are judged before they show: since the browser started, ${plural(status.judged, 'picture')} judged${status.second ? `, ${status.second} of them twice` : ''}, ${status.hidden} hidden` +
       (status.frames ? `; ${plural(status.frames, 'video frame')} judged, ${plural(status.videos ?? 0, 'video')} hidden` : '') +
       (status.failed ? `; ${status.failed} shown unjudged because they couldn't be fetched or read` : '') +
       ` (${BACKEND_NAMES[status.backend] ?? status.backend}).`;

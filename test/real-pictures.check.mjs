@@ -39,11 +39,13 @@ try {
       if (expect !== 'either') failures += 1;
       continue;
     }
-    const s = result.scores;
+    const s = result.scores; // the deciding scores: the second judge's when the first would have hidden the picture (1.20.0)
     const nudity = s.porn + s.hentai;
     const strict = verdict(s, 'strict');
     const nudityOnly = verdict(s, 'nudity');
-    const line = `nudity ${nudity.toFixed(2)} (porn ${s.porn.toFixed(2)}, hentai ${s.hentai.toFixed(2)}), sexy ${s.sexy.toFixed(2)}, neutral ${s.neutral.toFixed(2)}, drawing ${s.drawing.toFixed(2)} → strict: ${strict.hide ? `hidden (${strict.reason})` : 'shown'}; nudity only: ${nudityOnly.hide ? 'hidden' : 'shown'}; ${took} ms`;
+    const f = result.first;
+    const firstSaid = f ? `first judge said nudity ${(f.porn + f.hentai).toFixed(2)}, sexy ${f.sexy.toFixed(2)}; the second: ` : '';
+    const line = `${firstSaid}nudity ${nudity.toFixed(2)} (porn ${s.porn.toFixed(2)}, hentai ${s.hentai.toFixed(2)}), sexy ${s.sexy.toFixed(2)}, neutral ${s.neutral.toFixed(2)}, drawing ${s.drawing.toFixed(2)} → strict: ${strict.hide ? `hidden (${strict.reason})` : 'shown'}; nudity only: ${nudityOnly.hide ? 'hidden' : 'shown'}; ${took} ms`;
     const wrong = (expect === 'hide' && !strict.hide) || (expect === 'show' && (strict.hide || nudityOnly.hide));
     if (wrong) failures += 1;
     note(wrong ? 'error' : 'notice', `${expect}: ${label}`, line);

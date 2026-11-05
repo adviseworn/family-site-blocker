@@ -4,9 +4,9 @@
 
 https://github.com/tensorflow/tfjs, copyright Google LLC, Apache License 2.0 (text below). Unchanged: the `dist/tf.fesm.min.js` file of the `@tensorflow/tfjs` npm package.
 
-## NSFWJS model 4.4.0 (`../models/nsfw-mobilenet-v2/`)
+## NSFWJS models 4.4.0 (`../models/nsfw-mobilenet-v2/`, `../models/nsfw-inception-v3/`)
 
-https://github.com/infinitered/nsfwjs, copyright (c) 2019 Infinite Red, Inc., MIT License (below). The "MobileNetV2" model from the `nsfwjs` npm package, turned back from its JavaScript wrapping into `model.json` and a binary weights file; the weights are unchanged.
+https://github.com/infinitered/nsfwjs, copyright (c) 2019 Infinite Red, Inc., MIT License (below). The "MobileNetV2" model from the `nsfwjs` npm package, turned back from its JavaScript wrapping into `model.json` and a binary weights file; the weights are unchanged. The "InceptionV3" model (from 1.20.0, the second opinion): the `models/inception_v3/` files of the nsfwjs repository at version 4.4.0 (commit 2286f17), with the weights unchanged but split into six files under 4 MB, named in `model.json`, which is otherwise unchanged.
 
 ---
 

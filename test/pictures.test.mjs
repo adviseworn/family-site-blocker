@@ -353,14 +353,21 @@ test('pictures: the content script runs in every page and frame from the start, 
   const [script] = manifest.content_scripts;
   assert.deepEqual(script, { matches: ['<all_urls>'], js: ['content.js'], css: ['content.css'], run_at: 'document_start', all_frames: true });
   assert.match(manifest.content_security_policy.extension_pages, /^script-src 'self' 'wasm-unsafe-eval'; object-src 'self';$/, 'WebAssembly allowed, nothing else loosened; no upgrade-insecure-requests, so a picture is fetched the way the page fetched it');
-  for (const file of ['content.js', 'content.css', 'classifier.js', 'lib/pictures.js', 'vendor/tf.fesm.min.js', 'vendor/tf-global.js', 'vendor/tf-backend-wasm.min.js', 'vendor/tfjs-backend-wasm.wasm', 'vendor/tfjs-backend-wasm-simd.wasm', 'vendor/LICENSES.md', 'models/nsfw-mobilenet-v2/model.json']) {
+  for (const file of ['content.js', 'content.css', 'classifier.js', 'lib/pictures.js', 'vendor/tf.fesm.min.js', 'vendor/tf-global.js', 'vendor/tf-backend-wasm.min.js', 'vendor/tfjs-backend-wasm.wasm', 'vendor/tfjs-backend-wasm-simd.wasm', 'vendor/LICENSES.md', 'models/nsfw-mobilenet-v2/model.json', 'models/nsfw-inception-v3/model.json']) {
     assert.ok(existsSync(join(EXT, file)), `${file} exists`);
   }
-  const model = JSON.parse(readFileSync(join(EXT, 'models/nsfw-mobilenet-v2/model.json'), 'utf8'));
-  for (const path of model.weightsManifest.flatMap((group) => group.paths)) {
-    const size = readFileSync(join(EXT, 'models/nsfw-mobilenet-v2', path)).length;
-    assert.ok(size > 0 && size < 4_000_000, `${path}: ${size} bytes, under the 4 MB Mozilla's linter allows a file`);
+  for (const [dir, shards] of [['models/nsfw-mobilenet-v2', 1], ['models/nsfw-inception-v3', 6]]) {
+    const model = JSON.parse(readFileSync(join(EXT, dir, 'model.json'), 'utf8'));
+    const paths = model.weightsManifest.flatMap((group) => group.paths);
+    assert.equal(paths.length, shards, `${dir}: ${JSON.stringify(paths)}`);
+    for (const path of paths) {
+      const size = readFileSync(join(EXT, dir, path)).length;
+      assert.ok(size > 0 && size < 4_000_000, `${dir}/${path}: ${size} bytes, under the 4 MB Mozilla's linter allows a file`);
+    }
   }
+  const classifier = readFileSync(join(EXT, 'classifier.js'), 'utf8');
+  assert.match(classifier, /first: \{ url: 'models\/nsfw-mobilenet-v2\/model.json', size: 224 \}/, 'the first judge is the small model');
+  assert.match(classifier, /second: \{ url: 'models\/nsfw-inception-v3\/model.json', size: 299 \}/, 'the second opinion is the big one (1.20.0)');
   const licenses = readFileSync(join(EXT, 'vendor/LICENSES.md'), 'utf8');
   assert.ok(licenses.includes('Apache License') && licenses.includes('MIT License'), 'both licences are shipped');
   const css = readFileSync(join(EXT, 'content.css'), 'utf8');
@@ -419,28 +426,29 @@ test('pictures: a picture or a video fetched whole is read only up to a cap, and
   assert.deepEqual([empty.size, empty.type], [0, 'image/gif'], 'an answer without a body is an empty Blob');
 });
 
-test('pictures: the classifier, run here on two ordinary photos, finds them neutral (the model loads and is read the way the add-on reads it)', { timeout: 120_000 }, async () => {
+test('pictures: both judges, run here on two ordinary photos, find them neutral (each model loads and is read the way the add-on reads it)', { timeout: 300_000 }, async () => {
   const tf = await import('@tensorflow/tfjs');
-  const dir = join(EXT, 'models/nsfw-mobilenet-v2');
-  const json = JSON.parse(readFileSync(join(dir, 'model.json'), 'utf8'));
-  const weightData = Buffer.concat(json.weightsManifest.flatMap((group) => group.paths).map((path) => readFileSync(join(dir, path))));
-  const model = await tf.loadLayersModel({
-    load: async () => ({
-      modelTopology: json.modelTopology,
-      weightSpecs: json.weightsManifest.flatMap((group) => group.weights),
-      weightData: weightData.buffer.slice(weightData.byteOffset, weightData.byteOffset + weightData.byteLength),
-    }),
-  });
-  for (const file of ['cat.jpg', 'coffee.jpg']) {
-    const { data, width, height } = jpeg.decode(readFileSync(join(ROOT, 'test/fixtures', file)), { useTArray: true });
-    const scores = tf.tidy(() => {
-      const rgb = tf.tensor3d(data, [height, width, 4], 'int32').slice([0, 0, 0], [height, width, 3]).toFloat().div(255);
-      const out = model.predict(tf.image.resizeBilinear(rgb, [224, 224], true).expandDims(0));
-      return (Array.isArray(out) ? out[0] : out).dataSync();
+  for (const [dir, size] of [['models/nsfw-mobilenet-v2', 224], ['models/nsfw-inception-v3', 299]]) {
+    const json = JSON.parse(readFileSync(join(EXT, dir, 'model.json'), 'utf8'));
+    const weightData = Buffer.concat(json.weightsManifest.flatMap((group) => group.paths).map((path) => readFileSync(join(EXT, dir, path))));
+    const model = await tf.loadLayersModel({
+      load: async () => ({
+        modelTopology: json.modelTopology,
+        weightSpecs: json.weightsManifest.flatMap((group) => group.weights),
+        weightData: weightData.buffer.slice(weightData.byteOffset, weightData.byteOffset + weightData.byteLength),
+      }),
     });
-    const named = Object.fromEntries(CLASSES.map((name, i) => [name, scores[i]]));
-    assert.ok(named.neutral > 0.9, `${file}: ${JSON.stringify(named)}`);
-    assert.deepEqual(verdict(named, 'strict'), { hide: false, reason: null }, file);
+    for (const file of ['cat.jpg', 'coffee.jpg']) {
+      const { data, width, height } = jpeg.decode(readFileSync(join(ROOT, 'test/fixtures', file)), { useTArray: true });
+      const scores = tf.tidy(() => {
+        const rgb = tf.tensor3d(data, [height, width, 4], 'int32').slice([0, 0, 0], [height, width, 3]).toFloat().div(255);
+        const out = model.predict(tf.image.resizeBilinear(rgb, [size, size], true).expandDims(0));
+        return (Array.isArray(out) ? out[0] : out).dataSync();
+      });
+      const named = Object.fromEntries(CLASSES.map((name, i) => [name, scores[i]]));
+      assert.ok(named.neutral > 0.9, `${dir} ${file}: ${JSON.stringify(named)}`);
+      assert.deepEqual(verdict(named, 'strict'), { hide: false, reason: null }, `${dir} ${file}`);
+    }
+    model.dispose();
   }
-  model.dispose();
 });
