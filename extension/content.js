@@ -5,7 +5,9 @@
 //   "small"               shown without being judged: an icon, a button, a tracking pixel
 //   "ok"                  judged and shown
 //   "hidden"              judged and kept hidden
-// Pictures are judged when they come near the view, so a long page costs only what is looked at. A video
+// Pictures are judged when they come near the view, so a long page costs only what is looked at. A hidden
+// picture is asked about again when the background script says one has been marked hidden by mistake on
+// the add-on's pages (the end of this file), and shows if it is that one. A video
 // is judged by its poster and by its frames: the first frame before it can be seen, then one every so
 // often while it plays, so a video that turns out to show something is hidden, and paused, within a
 // moment. A video of the device's own camera is the exception: it shows what is in front of the computer,
@@ -542,6 +544,22 @@
     },
     true,
   );
+
+  // A picture marked hidden by mistake on the add-on's own pages is shown again (lib/pictures.js SHOWN):
+  // the background script says so, and each picture hidden here is asked about again (judged again from
+  // the scores remembered, and not noted in the record again); the one that is now let through is judged
+  // afresh, which shows it, and the rest stay as they are. A hidden video stays as it is: a video's mark
+  // is a note.
+  api.runtime.onMessage.addListener((message) => {
+    if (message?.type !== 'shown-again') return;
+    for (const element of document.querySelectorAll(`[${ATTR}="hidden"]`)) {
+      if (element instanceof HTMLVideoElement) continue;
+      const urls = element instanceof HTMLImageElement ? [element.currentSrc || element.src || ''] : backgroundUrls(element);
+      Promise.all(urls.map((url) => Promise.resolve(api.runtime.sendMessage({ type: 'judge-picture', url, again: true })).catch(() => null))).then((results) => {
+        if (results.length && results.every((result) => result && !result.hide) && element.getAttribute(ATTR) === 'hidden') rewatch(element);
+      });
+    }
+  });
 
   scan(document.documentElement ?? document);
 })();

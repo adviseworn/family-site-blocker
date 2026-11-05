@@ -7,7 +7,7 @@
 // it as a service worker; Firefox runs it as an event page. Both load it as a module (manifest.json:
 // background.type).
 import { ATTEMPTS, HISTORY_SCAN, bookmarksTo, hostOf, listedDomain, mergeVisits, record } from './lib/attempts.js';
-import { COPIES, COPY_SIZE, PICTURES, PICTURE_LENGTH, STRICTNESS, URL_LENGTH, bodyUpTo, copiesByKey, copyKey, hashOf, isPage, keepCopy, markAlike, noteLook, recordHidden, sameHidden, strictnessOf, verdict } from './lib/pictures.js';
+import { COPIES, COPY_SIZE, PICTURES, PICTURE_LENGTH, SHOWN, STRICTNESS, URL_LENGTH, bodyUpTo, copiesByKey, copyKey, hashOf, hideAgain, isPage, keepCopy, markAlike, noteLook, recordHidden, sameHidden, showAgain, shownAgain, strictnessOf, verdict } from './lib/pictures.js';
 import { BLOCK_PAGE, domainsOf } from './lib/rules.js';
 import { UNLISTED, tallyUnlisted } from './lib/suspects.js';
 import { BEAT_EVERY_MINUTES, WATCHING, beat, earliestLiveTry, gapsOf, normalize, noteGaps, started } from './lib/watching.js';
@@ -69,7 +69,7 @@ api.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
   if (message?.type === 'judge-picture') {
-    judgePicture(message.url, sender).then(sendResponse, (error) => sendResponse({ error: String(error?.message ?? error) }));
+    judgePicture(message.url, sender, message.again === true).then(sendResponse, (error) => sendResponse({ error: String(error?.message ?? error) }));
     return true; // the answer comes later
   }
   if (message?.type === 'judge-video-frame') {
@@ -388,7 +388,8 @@ async function sweepTabs() {
 // A page's content script (content.js) asks about each picture it shows; the picture is fetched here (the
 // browser's cache usually has it), judged by the classifier (classifier.js), and the verdict sent back
 // (lib/pictures.js). Verdicts are remembered by address, so a picture shown twice is judged once, and a
-// hidden picture is noted in the record with its scores, so a wrong verdict can be seen and understood.
+// hidden picture is noted in the record with its scores, so a wrong verdict can be seen and understood,
+// and the picture marked hidden by mistake, after which it is shown again (judgePicture below).
 // For a video, the content script sends frames as it plays (small JPEGs, as data: addresses), which are
 // judged the same way but not remembered: no two frames are alike, and a frame has no address.
 const MAX_REMEMBERED = 2000;
@@ -404,8 +405,15 @@ function currentStrictness() {
   strictness ??= api.storage.local.get(STRICTNESS).then((stored) => strictnessOf(stored[STRICTNESS]));
   return strictness;
 }
+let shownPictures = null; // Promise<list>: the pictures marked hidden by mistake, shown again (lib/pictures.js SHOWN)
+function shownList() {
+  shownPictures ??= api.storage.local.get(SHOWN).then((stored) => (Array.isArray(stored[SHOWN]) ? stored[SHOWN] : []));
+  return shownPictures;
+}
 api.storage.onChanged.addListener((changes, area) => {
-  if (area === 'local' && changes[STRICTNESS]) strictness = null;
+  if (area !== 'local') return;
+  if (changes[STRICTNESS]) strictness = null;
+  if (changes[SHOWN]) shownPictures = null;
 });
 
 function scoresFor(url) {
@@ -433,7 +441,7 @@ const NOTE_SAME_WITHIN_MS = 60_000; // the same hidden picture on the same site 
  * picture, `copy` makes a smaller copy of it to keep apart from the record (lib/pictures.js keepCopy), so
  * that the Every try page can show it whatever becomes of its address (1.17.4); it is made only when the
  * picture is noted, and a copy that can't be made (the picture gone from its address already, say) is no
- * loss to the note.
+ * loss to the note. A copy made already (judgePicture makes one to tell a picture shown again) is given as it is.
  */
 function noteHidden({ site, url, kind, reason, scores, copy = null }) {
   const at = Date.now();
@@ -445,7 +453,7 @@ function noteHidden({ site, url, kind, reason, scores, copy = null }) {
       const last = list[list.length - 1];
       if (last && last.site === site && last.url === kept && at - last.at < NOTE_SAME_WITHIN_MS) return;
       await api.storage.local.set({ [PICTURES]: recordHidden(list, { at, site, url, reason, scores, kind }) });
-      const made = copy ? await copy().catch(() => null) : null;
+      const made = typeof copy === 'function' ? await copy().catch(() => null) : copy;
       if (!made) return;
       const { index, key, remove } = keepCopy((await api.storage.local.get(COPIES))[COPIES], { at, url: kept, copy: made });
       await api.storage.local.set({ [COPIES]: index, [key]: made });
@@ -562,25 +570,44 @@ async function smallCopyOf(blob) {
  * ({ type: 'note-look', keys: [{ at, url }, …], why }, or one key as at and url) or the mark given after
  * one ({ type: 'mark-hidden', keys, mistake }), which goes to every other row showing the same picture
  * too (lib/pictures.js markAlike), written here, in turn with the notes of pictures just hidden, so that
- * neither is lost. Answers { found: whether any key names an entry still in the record (the oldest go
- * once it is full), count: how many do, alike: how many other rows were marked with them }.
+ * neither is lost. A mark changes the list of pictures shown again with it (lib/pictures.js showAgain,
+ * hideAgain; 1.19.0): the pictures marked hidden by mistake go on it, and the pages open are told, so that
+ * one hidden on a page shows at once (content.js); those marked rightly hidden come off it. Answers
+ * { found: whether any key names an entry still in the record (the oldest go once it is full), count: how
+ * many do, alike: how many other rows were marked with them }.
  */
 function changeHidden({ type, keys, at, url, why, mistake }) {
   const now = Date.now();
   const named = Array.isArray(keys) ? keys.map((key) => ({ at: key?.at, url: key?.url })) : [{ at, url }];
   const result = writing.then(async () => {
-    const stored = await api.storage.local.get([PICTURES, COPIES]);
+    const stored = await api.storage.local.get([PICTURES, COPIES, SHOWN]);
     const list = Array.isArray(stored[PICTURES]) ? stored[PICTURES] : [];
     const present = named.filter((key) => list.some((entry) => sameHidden(entry, key)));
     let changed = list;
     let alike = 0;
+    let shown = null;
     if (type === 'note-look') for (const key of present) changed = noteLook(changed, key, { at: now, why });
-    else ({ record: changed, alike } = markAlike(list, present, { at: now, mistake }, copiesByKey(await hashedIndex(stored[COPIES]))));
-    if (present.length) await api.storage.local.set({ [PICTURES]: changed });
+    else {
+      const copies = copiesByKey(await hashedIndex(stored[COPIES]));
+      let marked;
+      ({ record: changed, alike, marked } = markAlike(list, present, { at: now, mistake }, copies));
+      if (marked.length) shown = mistake ? showAgain(stored[SHOWN], marked, copies, now) : hideAgain(stored[SHOWN], marked, copies);
+    }
+    if (present.length) await api.storage.local.set({ [PICTURES]: changed, ...(shown ? { [SHOWN]: shown } : {}) });
+    if (shown) {
+      shownPictures = Promise.resolve(shown); // for the next judgment, before the storage says it changed
+      if (mistake) tellPagesShownAgain();
+    }
     return { found: present.length > 0, count: present.length, alike };
   });
   writing = result.catch(() => {});
   return result;
+}
+
+/** Tells every page open that a picture is shown again, so that its content script judges again what it hid there (content.js); a page without one, or gone, is passed over. */
+async function tellPagesShownAgain() {
+  const tabs = await api.tabs.query({}).catch(() => []);
+  await Promise.all(tabs.map((tab) => Promise.resolve(api.tabs.sendMessage(tab.id, { type: 'shown-again' })).catch(() => {})));
 }
 
 /**
@@ -607,14 +634,29 @@ function copiesIndex() {
 
 const siteOf = (sender) => hostOf(sender?.tab?.url ?? sender?.url ?? '') ?? 'unknown';
 
-async function judgePicture(url, sender) {
+/**
+ * The verdict on the picture at an address, for the page's content script: { hide, reason, scores }. A
+ * picture the judge would hide is shown all the same, with shown: true, when it is one marked hidden by
+ * mistake on the add-on's pages (lib/pictures.js shownAgain; 1.19.0): known by its address, or, when the
+ * list holds a copy to know a picture by, by a copy made now of this one, which is kept with the record
+ * when the picture is hidden after all. Asked `again`, about a picture hidden on the page already
+ * (content.js, when one has been marked), a picture hidden still is not noted a second time.
+ */
+async function judgePicture(url, sender, again = false) {
   if (typeof url !== 'string' || !/^(?:https?|data):/i.test(url)) return { hide: false, reason: null };
   const [scores, setting] = await Promise.all([scoresFor(url), currentStrictness()]);
   const result = verdict(scores, setting);
-  if (result.hide) {
-    hiddenCount += 1;
-    await noteHidden({ site: siteOf(sender), url, reason: result.reason, scores, copy: () => smallCopy(url) });
+  if (!result.hide) return { ...result, scores };
+  const shown = await shownList();
+  let copy = null;
+  if (shownAgain(shown, { url })) return { hide: false, reason: null, scores, shown: true };
+  if (shown.some((entry) => entry?.copy)) {
+    copy = await smallCopy(url).catch(() => null);
+    if (copy && shownAgain(shown, { copy })) return { hide: false, reason: null, scores, shown: true };
   }
+  if (again) return { ...result, scores };
+  hiddenCount += 1;
+  await noteHidden({ site: siteOf(sender), url, reason: result.reason, scores, copy: copy ?? (() => smallCopy(url)) });
   return { ...result, scores };
 }
 

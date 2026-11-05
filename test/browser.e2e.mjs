@@ -1197,8 +1197,9 @@ describe('real browser', () => {
       page.waitForFunction((want) => want.every((id) => ['ok', 'hidden', 'small'].includes(document.getElementById(id)?.getAttribute('data-family-site-blocker'))), ids, { timeout });
 
     before(async () => {
-      servePictures(stub, ['photo', 'nude', 'lingerie', 'drawn', 'photo2', 'nude2', 'coffee', 'cat']);
+      servePictures(stub, ['photo', 'nude', 'lingerie', 'drawn', 'photo2', 'nude2', 'coffee', 'cat', 'nude-coffee']);
       stub.page('allowed.test/gallery', galleryPage(['photo', 'nude', 'lingerie', 'drawn']));
+      stub.page('allowed.test/corrected', galleryPage(['nude', 'nude-coffee', 'photo'])); // the cat and the coffee, both "nude" to the stand-in
       stub.page('allowed.test/framed', `<!doctype html><h1>Framed</h1><iframe id="frame" src="http://frames.test/inner" width="400" height="300"></iframe>`);
       stub.page('frames.test/inner', galleryPage(['nude2', 'photo2']));
       stub.page('allowed.test/later', galleryPage(['photo'], `<img id="late" width="300"><script>setTimeout(() => { document.getElementById('late').src = 'http://pics.test/pics/nude.jpg?late'; }, 300);
@@ -1550,6 +1551,61 @@ describe('real browser', () => {
       }
     });
 
+    test('a picture marked hidden by mistake is shown again, on the page open at once and on the next load, known by its address or its copy; rightly hidden hides it again (1.19.0)', async () => {
+      const page = await judge.context.newPage(); // a page showing the pictures
+      const record = await judge.context.newPage(); // Every try
+      const rowFor = (url) => record.locator('.day tbody tr.picture').filter({ has: record.locator('.picture-url', { hasText: new RegExp(`^${url.replace(/[.?]/g, '\\$&')}$`) }) }).first();
+      const shownList = () => record.evaluate(() => chrome.storage.local.get('picturesShown').then((got) => got.picturesShown ?? []));
+      const rowsFor = async (url) => (await record.evaluate(() => chrome.storage.local.get('pictures').then((got) => got.pictures))).filter((entry) => entry.url === url).length;
+      const marksOf = async () => Object.fromEntries(Object.entries(await marks(page)).map(([id, [mark]]) => [id, mark]));
+      try {
+        await record.goto(`chrome-extension://${judge.extensionId}/tries.html#pictures`);
+        await record.evaluate(() => chrome.storage.local.remove('picturesShown'));
+        // The cat (nude.jpg) and the coffee (nude-coffee.jpg, another picture) are hidden, the photo shown.
+        await page.goto('http://allowed.test/corrected');
+        await settled(page, ['nude', 'nude-coffee', 'photo']);
+        assert.deepEqual(await marksOf(), { icon: 'small', nude: 'hidden', 'nude-coffee': 'hidden', photo: 'ok' });
+        const before = await rowsFor('http://pics.test/pics/nude.jpg');
+        const rows = async () => (await record.evaluate(() => chrome.storage.local.get('pictures').then((got) => got.pictures))).length;
+        const total = await rows();
+        // Marked hidden by mistake on Every try, after a look, the cat shows on the page open, at once; the coffee stays
+        // hidden, asked about again but not noted again.
+        const nudeRow = rowFor('http://pics.test/pics/nude.jpg');
+        await nudeRow.locator('button.look').click();
+        await nudeRow.locator('.look-why').fill('a cat');
+        await record.keyboard.press('Enter');
+        await nudeRow.locator('.picture-marks').waitFor();
+        await nudeRow.locator('button', { hasText: 'Hidden by mistake' }).click();
+        await page.waitForFunction(() => document.getElementById('nude').getAttribute('data-family-site-blocker') === 'ok');
+        assert.deepEqual(await marksOf(), { icon: 'small', nude: 'ok', 'nude-coffee': 'hidden', photo: 'ok' });
+        assert.equal(await rows(), total, 'nothing noted again');
+        const shown = await shownList();
+        assert.ok(shown.some((item) => item.url === 'http://pics.test/pics/nude.jpg' && item.copy?.hash && item.copy.length > 0), `on the list by its address and its copy: ${JSON.stringify(shown)}`);
+        // On the next load it is shown from the start, known by its address, and not noted as hidden again; the
+        // same cat written out as a data: address, which tells nothing, is known by its copy.
+        await page.goto('http://allowed.test/corrected');
+        await settled(page, ['nude', 'nude-coffee', 'photo']);
+        assert.deepEqual(await marksOf(), { icon: 'small', nude: 'ok', 'nude-coffee': 'hidden', photo: 'ok' });
+        assert.equal(await rowsFor('http://pics.test/pics/nude.jpg'), before, 'not noted again');
+        await page.goto('http://allowed.test/inline');
+        await settled(page, ['inline']);
+        assert.equal((await marksOf()).inline, 'ok', 'the same picture, written out, is known by its copy');
+        // Rightly hidden takes it off the list, and the next load hides it again.
+        await nudeRow.locator('button', { hasText: 'Rightly hidden' }).click();
+        await record.waitForFunction(() => chrome.storage.local.get('picturesShown').then((got) => (got.picturesShown ?? []).length === 0));
+        await page.goto('http://allowed.test/corrected');
+        await settled(page, ['nude', 'nude-coffee', 'photo']);
+        assert.deepEqual(await marksOf(), { icon: 'small', nude: 'hidden', 'nude-coffee': 'hidden', photo: 'ok' });
+        await page.goto('http://allowed.test/inline');
+        await settled(page, ['inline']);
+        assert.equal((await marksOf()).inline, 'hidden');
+      } finally {
+        await record.evaluate(() => chrome.storage.local.remove('picturesShown')).catch(() => {});
+        await page.close();
+        await record.close();
+      }
+    });
+
     test('a hidden picture whose address is the picture itself shows from the smaller copy kept with the record (1.17.4)', async () => {
       const page = await judge.context.newPage();
       const record = await judge.context.newPage();
@@ -1660,7 +1716,7 @@ describe('real browser', () => {
         await page.keyboard.press('ArrowRight');
         await page.keyboard.press('m');
         await page.locator('#mark-status', { hasText: 'Marked' }).waitFor();
-        assert.equal(await page.locator('#mark-status').innerText(), 'Marked hidden by mistake, on 2 rows among every try.');
+        assert.equal(await page.locator('#mark-status').innerText(), 'Marked hidden by mistake, on 2 rows among every try, and shown again.');
         await page.waitForFunction(() => document.querySelectorAll('.tile').length === 2);
         assert.deepEqual(await marksOf(), [null, null, true, true, null, null, null], 'the mark on both rows of the picture, the other address included');
         assert.deepEqual(await page.locator('.tile strong').allInnerTexts(), ['check-e.test', 'check-a.test'], 'a marked picture leaves the page');
@@ -1706,8 +1762,8 @@ describe('real browser', () => {
         assert.equal(await page.locator('#check-line').isVisible(), true);
         assert.equal(await page.locator('#check-line a').getAttribute('href'), 'check.html');
       } finally {
-        // The record and the copies go back as they were, so the later tests read the record the filter wrote.
-        if (saved) await page.evaluate(({ saved: back, keys }) => chrome.storage.local.remove(keys).then(() => chrome.storage.local.set(back)), { saved, keys: Object.keys(keyed) }).catch(() => {});
+        // The record and the copies go back as they were, so the later tests read the record the filter wrote, and the marks here show nothing again.
+        if (saved) await page.evaluate(({ saved: back, keys }) => chrome.storage.local.remove([...keys, 'picturesShown']).then(() => chrome.storage.local.set(back)), { saved, keys: Object.keys(keyed) }).catch(() => {});
         await page.close();
       }
     });
