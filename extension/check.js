@@ -148,7 +148,8 @@ async function markTiles(marking, mistake) {
     if (answer?.error) throw new Error(answer.error);
     if (!answer?.found) throw new Error(`${marking.length === 1 ? 'it has' : 'they have'} gone from the record, which keeps the latest 500`);
     const rows = (answer.count ?? 0) + (answer.alike ?? 0);
-    $('mark-status').textContent = `Marked ${marking.length === 1 ? '' : `${marking.length} pictures `}${mistake ? 'hidden by mistake' : 'rightly hidden'}${rows > marking.length ? `, on ${plural(rows, 'row')} among every try` : ''}.`;
+    const where = rows > marking.length ? `, on ${plural(rows, 'row')} among every try` : '';
+    $('mark-status').textContent = `Marked ${marking.length === 1 ? '' : `${marking.length} pictures `}${mistake ? 'hidden by mistake' : 'rightly hidden'}${where}${mistake ? `${where ? ',' : ''} and shown again` : ''}.`;
   } catch (error) {
     $('mark-status').textContent = `Couldn’t mark ${marking.length === 1 ? 'it' : 'them'}: ${error.message}.`;
     nextFocus = null;

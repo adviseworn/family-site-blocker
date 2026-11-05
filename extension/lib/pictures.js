@@ -232,7 +232,73 @@ export function markAlike(record, keys, { at, mistake }, copies) {
   const marked = new Set(named);
   if (named.size) for (const members of sameGroups(list, copies)) if (members.some((member) => named.has(member))) for (const member of members) marked.add(member);
   const mark = { at, mistake: mistake === true };
-  return { record: marked.size ? list.map((entry) => (marked.has(entry) ? { ...entry, mark } : entry)) : list, found: named.size, alike: marked.size - named.size };
+  const changed = marked.size ? list.map((entry) => (marked.has(entry) ? { ...entry, mark } : entry)) : list;
+  return { record: changed, found: named.size, alike: marked.size - named.size, marked: changed.filter((entry) => entry.mark === mark) };
+}
+
+// --- Pictures shown again ----------------------------------------------------------------------------------
+// A picture marked hidden by mistake is shown again from then on (1.19.0): on the pages open, whose content
+// scripts are told to judge again what they hid, and on any page that shows it later, which the judge
+// (background.js) lets through when the picture is on the list kept here. A picture is known by its
+// address, unless that is a data: one (the picture itself written out, of which the record keeps only the
+// start), and by its kept copy's hash and length, as two rows are told alike above, so the same picture
+// at another address, or written out, is known too. Marking it rightly hidden takes it off the list, and
+// it is hidden again from the next page load. A video's mark stays a note: a video is judged by its
+// frames, under an address that may be its poster's or its page's. The list is kept apart from the
+// record, which lets its oldest rows go, so a picture stays shown when its row has gone.
+
+/** Storage key of the list, oldest first: { at, url: the address as the record keeps it ('' for a data: one), copy: { hash, length } of a kept copy, or null }. */
+export const SHOWN = 'picturesShown';
+/** How many pictures the list keeps; the oldest go when there are more. */
+export const SHOWN_KEPT = 1000;
+
+/** What a record entry's picture is known by, { url, copy } as the list keeps them, or null for a video or a picture known by nothing (a data: address with no copy kept). */
+function knownBy(entry, copies) {
+  if (!entry || isVideo(entry)) return null;
+  const url = isData(entry.url) ? '' : String(entry.url ?? '').slice(0, URL_LENGTH);
+  const kept = copies?.get(copyKey(entry));
+  const copy = typeof kept?.hash === 'string' && kept.hash ? { hash: kept.hash, length: Number(kept.length) || 0 } : null;
+  return url || copy ? { url, copy } : null;
+}
+
+/** Whether two of the list's entries, or one and a picture, are the same picture: the same address, or the same copy. */
+const sameShown = (a, b) => Boolean(a && b && ((a.url && a.url === b.url) || (a.copy && b.copy && a.copy.hash === b.copy.hash && a.copy.length === b.copy.length)));
+
+/**
+ * The list with the pictures of the record entries given (as marked hidden by mistake) on it, from `at`:
+ * one entry for each address, and one for each copy among the pictures with no address (data: ones); an
+ * entry already there for the address is made anew, keeping the copy it knew when the row has none. The
+ * oldest go past SHOWN_KEPT. Videos, and a picture known by nothing, are passed over. `copies` is the
+ * index of the copies by key (copiesByKey).
+ */
+export function showAgain(list, entries, copies, at) {
+  let kept = Array.isArray(list) ? list.filter(Boolean) : [];
+  for (const entry of Array.isArray(entries) ? entries : []) {
+    const known = knownBy(entry, copies);
+    if (!known) continue;
+    const alike = kept.filter((item) => (known.url ? item.url === known.url : !item.url && sameShown(item, known)));
+    kept = [...kept.filter((item) => !alike.includes(item)), { at, url: known.url, copy: known.copy ?? alike.find((item) => item.copy)?.copy ?? null }];
+  }
+  return kept.length > SHOWN_KEPT ? kept.slice(kept.length - SHOWN_KEPT) : kept;
+}
+
+/** The list without the pictures of the record entries given (as marked rightly hidden): hidden again as before. */
+export function hideAgain(list, entries, copies) {
+  const known = (Array.isArray(entries) ? entries : []).map((entry) => knownBy(entry, copies)).filter(Boolean);
+  return (Array.isArray(list) ? list.filter(Boolean) : []).filter((item) => !known.some((picture) => sameShown(item, picture)));
+}
+
+/**
+ * Whether a picture is on the list, to be shown again: by its address (`url`, the picture's, cut as the
+ * record cuts it; a data: one tells nothing) or by its copy (`copy`, the copy itself as smallCopyOf makes
+ * it, or { hash, length }), either given.
+ */
+export function shownAgain(list, { url, copy }) {
+  const known = {
+    url: isData(url) ? '' : String(url ?? '').slice(0, URL_LENGTH),
+    copy: typeof copy === 'string' ? (copy ? { hash: hashOf(copy), length: copy.length } : null) : (copy ?? null),
+  };
+  return (Array.isArray(list) ? list : []).some((item) => sameShown(item, known));
 }
 
 /** "3 pictures", "1 picture and 2 videos": the record's entries counted by kind, for the summaries. */
