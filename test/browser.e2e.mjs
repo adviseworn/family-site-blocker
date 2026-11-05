@@ -1197,9 +1197,10 @@ describe('real browser', () => {
       page.waitForFunction((want) => want.every((id) => ['ok', 'hidden', 'small'].includes(document.getElementById(id)?.getAttribute('data-family-site-blocker'))), ids, { timeout });
 
     before(async () => {
-      servePictures(stub, ['photo', 'nude', 'lingerie', 'drawn', 'photo2', 'nude2', 'coffee', 'cat', 'nude-coffee']);
+      servePictures(stub, ['photo', 'nude', 'lingerie', 'drawn', 'photo2', 'nude2', 'coffee', 'cat', 'nude-coffee', 'nude-seeming']);
       stub.page('allowed.test/gallery', galleryPage(['photo', 'nude', 'lingerie', 'drawn']));
       stub.page('allowed.test/corrected', galleryPage(['nude', 'nude-coffee', 'photo'])); // the cat and the coffee, both "nude" to the stand-in
+      stub.page('allowed.test/seeming', galleryPage(['nude', 'nude-seeming', 'photo'])); // "nude" to the first judge, a photo to the second (1.20.0)
       stub.page('allowed.test/framed', `<!doctype html><h1>Framed</h1><iframe id="frame" src="http://frames.test/inner" width="400" height="300"></iframe>`);
       stub.page('frames.test/inner', galleryPage(['nude2', 'photo2']));
       stub.page('allowed.test/later', galleryPage(['photo'], `<img id="late" width="300"><script>setTimeout(() => { document.getElementById('late').src = 'http://pics.test/pics/nude.jpg?late'; }, 300);
@@ -1347,7 +1348,7 @@ describe('real browser', () => {
         assert.match(await record.locator('.day h3 small').first().innerText(), /^\d+ pictures hidden$/, 'the day counts them');
 
         await settings.waitForFunction(() => /pictures? judged, \d+ hidden/.test(document.getElementById('picture-status').textContent));
-        assert.match(await settings.locator('#picture-status').innerText(), /^Pictures and videos are judged before they show: since the browser started, \d+ pictures judged, \d+ hidden \(stand-in\)\.$/);
+        assert.match(await settings.locator('#picture-status').innerText(), /^Pictures and videos are judged before they show: since the browser started, \d+ pictures judged, \d+ of them twice, \d+ hidden \(stand-in\)\.$/);
         assert.equal(await settings.locator('#picture-strictness').inputValue(), 'strict', 'the default');
         assert.deepEqual(await settings.evaluate(() => [...document.getElementById('picture-strictness').options].map((o) => o.value)), ['strict', 'nudity']);
       } finally {
@@ -1603,6 +1604,37 @@ describe('real browser', () => {
         await record.evaluate(() => chrome.storage.local.remove('picturesShown')).catch(() => {});
         await page.close();
         await record.close();
+      }
+    });
+
+    test('a picture the first judge would hide is judged again by the second, which decides: shown and not noted when it says a photo, hidden and noted with its scores when it agrees (1.20.0)', async () => {
+      const page = await judge.context.newPage();
+      const settings = await openSettingsIn(judge);
+      const marksOf = async () => Object.fromEntries(Object.entries(await marks(page)).map(([id, [mark]]) => [id, mark]));
+      const ask = (url) => settings.evaluate((u) => chrome.runtime.sendMessage({ type: 'judge-picture', url: u }), url);
+      try {
+        await settings.evaluate(() => chrome.storage.local.remove('pictures'));
+        // Both nude.jpg and nude-seeming.jpg are "nude" to the first judge; the second finds the latter a photo.
+        await page.goto('http://allowed.test/seeming');
+        await settled(page, ['nude', 'nude-seeming', 'photo']);
+        assert.deepEqual(await marksOf(), { icon: 'small', nude: 'hidden', 'nude-seeming': 'ok', photo: 'ok' });
+        const record = await settings.evaluate(() => chrome.storage.local.get('pictures').then((got) => got.pictures ?? []));
+        const { hentai, porn, sexy } = STAND_IN_SCORES.nude; // the record keeps the three scores the pages show
+        assert.deepEqual(record.map((entry) => [entry.url, entry.reason, entry.scores]), [['http://pics.test/pics/nude.jpg', 'nudity', { hentai, porn, sexy }]], 'the one hidden is noted, with the deciding scores; the one that only seemed so is not');
+        // Asked straight, the answer carries the deciding scores and, when there was a second opinion, the first.
+        const seeming = await ask('http://pics.test/pics/nude-seeming.jpg');
+        assert.deepEqual([seeming.hide, seeming.reason, seeming.scores, seeming.first], [false, null, STAND_IN_SCORES.photo, STAND_IN_SCORES.nude], JSON.stringify(seeming));
+        const agreed = await ask('http://pics.test/pics/nude.jpg');
+        assert.deepEqual([agreed.hide, agreed.reason, agreed.scores, agreed.first], [true, 'nudity', STAND_IN_SCORES.nude, STAND_IN_SCORES.nude], JSON.stringify(agreed));
+        const photo = await ask('http://pics.test/pics/photo.jpg');
+        assert.deepEqual([photo.hide, photo.scores, photo.first], [false, STAND_IN_SCORES.photo, undefined], 'no second opinion on a picture the first judge shows');
+        // The settings page counts the second opinions.
+        await settings.reload();
+        await settings.waitForFunction(() => /of them twice/.test(document.getElementById('picture-status').textContent));
+        assert.match(await settings.locator('#picture-status').innerText(), /^Pictures and videos are judged before they show: since the browser started, \d+ pictures judged, \d+ of them twice, \d+ hidden \(stand-in\)\.$/);
+      } finally {
+        await page.close();
+        await settings.close();
       }
     });
 
@@ -2026,7 +2058,7 @@ describe('real browser', () => {
         assert.equal(await madeRow.locator('.picture-look a').getAttribute('target'), '_blank');
 
         await settings.waitForFunction(() => /video frames judged/.test(document.getElementById('picture-status').textContent));
-        assert.match(await settings.locator('#picture-status').innerText(), /^Pictures and videos are judged before they show: since the browser started, \d+ pictures judged, \d+ hidden; \d+ video frames judged, \d+ videos hidden \(stand-in\)\.$/);
+        assert.match(await settings.locator('#picture-status').innerText(), /^Pictures and videos are judged before they show: since the browser started, \d+ pictures judged(?:, \d+ of them twice)?, \d+ hidden; \d+ video frames judged, \d+ videos hidden \(stand-in\)\.$/);
       } finally {
         await record.close();
         await settings.close();

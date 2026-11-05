@@ -77,7 +77,7 @@ api.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
   if (message?.type === 'picture-status') {
-    sendResponse({ backend: backendInUse(), judged: judgedCount, hidden: hiddenCount, failed: failedCount, frames: frameCount, videos: videoCount });
+    sendResponse({ backend: backendInUse(), judged: judgedCount, second: secondCount, hidden: hiddenCount, failed: failedCount, frames: frameCount, videos: videoCount });
     return true;
   }
   if (message?.type === 'note-look' || message?.type === 'mark-hidden') {
@@ -387,15 +387,20 @@ async function sweepTabs() {
 // --- The picture filter ----------------------------------------------------------------------------------
 // A page's content script (content.js) asks about each picture it shows; the picture is fetched here (the
 // browser's cache usually has it), judged by the classifier (classifier.js), and the verdict sent back
-// (lib/pictures.js). Verdicts are remembered by address, so a picture shown twice is judged once, and a
-// hidden picture is noted in the record with its scores, so a wrong verdict can be seen and understood,
-// and the picture marked hidden by mistake, after which it is shown again (judgePicture below).
+// (lib/pictures.js). From 1.20.0 a picture the first judge would hide is judged again by the second, the
+// bigger model, whose verdict decides: the first is quick but hides ordinary photos by mistake, the second
+// is slow and so only looks at what the first found. Verdicts are remembered by address, so a picture
+// shown twice is judged once, and a hidden picture is noted in the record with the deciding scores, so a
+// wrong verdict can be seen and understood, and the picture marked hidden by mistake, after which it is
+// shown again (judgePicture below).
 // For a video, the content script sends frames as it plays (small JPEGs, as data: addresses), which are
 // judged the same way but not remembered: no two frames are alike, and a frame has no address.
 const MAX_REMEMBERED = 2000;
-const judgments = new Map(); // address -> Promise<scores>, oldest first
+const judgments = new Map(); // address -> Promise<scores> from the first judge, oldest first
+const secondOpinions = new Map(); // the same from the second judge, for pictures the first would hide (1.20.0)
 let strictness = null; // Promise<string>
 let judgedCount = 0; // since this script started, for the settings page
+let secondCount = 0; // pictures judged a second time
 let hiddenCount = 0;
 let failedCount = 0; // pictures that couldn't be fetched or decoded, and so were shown
 let frameCount = 0; // video frames judged
@@ -416,22 +421,24 @@ api.storage.onChanged.addListener((changes, area) => {
   if (changes[SHOWN]) shownPictures = null;
 });
 
-function scoresFor(url) {
-  if (!judgments.has(url)) {
+function scoresFor(url, judge = 'first') {
+  const remembered = judge === 'second' ? secondOpinions : judgments;
+  if (!remembered.has(url)) {
     const scores = pictureBytes(url)
-      .then((blob) => judgeBytes(blob, url))
+      .then((blob) => judgeBytes(blob, url, judge))
       .then((scores) => {
-        judgedCount += 1;
+        if (judge === 'second') secondCount += 1;
+        else judgedCount += 1;
         return scores;
       });
     scores.catch(() => {
-      failedCount += 1;
-      judgments.delete(url); // not kept: next time may work (a passing network error)
+      if (judge === 'first') failedCount += 1;
+      remembered.delete(url); // not kept: next time may work (a passing network error)
     });
-    judgments.set(url, scores);
-    if (judgments.size > MAX_REMEMBERED) judgments.delete(judgments.keys().next().value);
+    remembered.set(url, scores);
+    if (remembered.size > MAX_REMEMBERED) remembered.delete(remembered.keys().next().value);
   }
-  return judgments.get(url);
+  return remembered.get(url);
 }
 
 const NOTE_SAME_WITHIN_MS = 60_000; // the same hidden picture on the same site is one note a minute
@@ -644,25 +651,34 @@ const siteOf = (sender) => hostOf(sender?.tab?.url ?? sender?.url ?? '') ?? 'unk
  */
 async function judgePicture(url, sender, again = false) {
   if (typeof url !== 'string' || !/^(?:https?|data):/i.test(url)) return { hide: false, reason: null };
-  const [scores, setting] = await Promise.all([scoresFor(url), currentStrictness()]);
-  const result = verdict(scores, setting);
-  if (!result.hide) return { ...result, scores };
+  const [first, setting] = await Promise.all([scoresFor(url), currentStrictness()]);
+  let result = verdict(first, setting);
+  if (!result.hide) return { ...result, scores: first };
+  // The second opinion (1.20.0): the bigger model judges a picture the first would hide, and decides. When
+  // it can't (its model didn't load, say), the first verdict stands, and the picture is hidden.
+  const second = await scoresFor(url, 'second').catch(() => null);
+  const scores = second ?? first;
+  const opinions = second ? { scores, first } : { scores };
+  if (second) {
+    result = verdict(second, setting);
+    if (!result.hide) return { ...result, ...opinions };
+  }
   const shown = await shownList();
   let copy = null;
-  if (shownAgain(shown, { url })) return { hide: false, reason: null, scores, shown: true };
+  if (shownAgain(shown, { url })) return { hide: false, reason: null, ...opinions, shown: true };
   if (shown.some((entry) => entry?.copy)) {
     copy = await smallCopy(url).catch(() => null);
-    if (copy && shownAgain(shown, { copy })) return { hide: false, reason: null, scores, shown: true };
+    if (copy && shownAgain(shown, { copy })) return { hide: false, reason: null, ...opinions, shown: true };
   }
-  if (again) return { ...result, scores };
+  if (again) return { ...result, ...opinions };
   hiddenCount += 1;
   await noteHidden({ site: siteOf(sender), url, reason: result.reason, scores, copy: copy ?? (() => smallCopy(url)) });
-  return { ...result, scores };
+  return { ...result, ...opinions };
 }
 
-// A frame of a video, judged like a picture but not remembered. A verdict to hide is noted under an
-// address someone can open: the video's own if it has one (not a blob: the page made), else its poster's,
-// else the page's.
+// A frame of a video, judged like a picture (the second judge deciding when the first would hide it) but
+// not remembered. A verdict to hide is noted under an address someone can open: the video's own if it has
+// one (not a blob: the page made), else its poster's, else the page's.
 async function judgeFrame({ frame, src, poster }, sender) {
   if (typeof frame !== 'string' || !/^data:image\//i.test(frame)) return { hide: false, reason: null };
   const [blob, setting] = await Promise.all([fetch(frame).then((response) => response.blob()), currentStrictness()]);
@@ -674,7 +690,14 @@ async function judgeFrame({ frame, src, poster }, sender) {
     throw error;
   }
   frameCount += 1;
-  const result = verdict(scores, setting);
+  let result = verdict(scores, setting);
+  if (result.hide) {
+    const second = await judgeBytes(blob, 'video-frame', 'second').catch(() => null);
+    if (second) {
+      scores = second;
+      result = verdict(second, setting);
+    }
+  }
   if (result.hide) {
     videoCount += 1;
     const page = sender?.tab?.url ?? sender?.url ?? '';

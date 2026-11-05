@@ -4,8 +4,9 @@
 // has been judged, then shows it or keeps it hidden. This file holds what both sides and the pages share:
 // how scores become a verdict, and the record of what was hidden.
 //
-// The classifier (NSFWJS's MobileNetV2 model) gives five scores that sum to 1: drawing, hentai, neutral,
-// porn, sexy. "Sexy" is its word for suggestive but not explicit: lingerie, swimwear, poses.
+// The classifier (NSFWJS's MobileNetV2 model, and from 1.20.0 its InceptionV3 model for a second opinion
+// on what the first would hide) gives five scores that sum to 1: drawing, hentai, neutral, porn, sexy.
+// "Sexy" is its word for suggestive but not explicit: lingerie, swimwear, poses.
 
 export const CLASSES = ['drawing', 'hentai', 'neutral', 'porn', 'sexy'];
 
