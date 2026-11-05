@@ -1347,8 +1347,8 @@ describe('real browser', () => {
         assert.equal(await record.locator('#pictures-alone a').getAttribute('href'), 'tries.html#pictures');
         assert.match(await record.locator('.day h3 small').first().innerText(), /^\d+ pictures hidden$/, 'the day counts them');
 
-        await settings.waitForFunction(() => /pictures? judged, \d+ hidden/.test(document.getElementById('picture-status').textContent));
-        assert.match(await settings.locator('#picture-status').innerText(), /^Pictures and videos are judged before they show: since the browser started, \d+ pictures judged, \d+ of them twice, \d+ hidden \(stand-in\)\.$/);
+        await settings.waitForFunction(() => /pictures? judged(?:, \d+ of them twice)?, \d+ hidden/.test(document.getElementById('picture-status').textContent));
+        assert.match(await settings.locator('#picture-status').innerText(), /^Pictures and videos are judged before they show: since the browser started, \d+ pictures judged(?:, \d+ of them twice)?, \d+ hidden \(stand-in\)\.$/); // the count of second opinions is checked in the 1.20.0 test below
         assert.equal(await settings.locator('#picture-strictness').inputValue(), 'strict', 'the default');
         assert.deepEqual(await settings.evaluate(() => [...document.getElementById('picture-strictness').options].map((o) => o.value)), ['strict', 'nudity']);
       } finally {
