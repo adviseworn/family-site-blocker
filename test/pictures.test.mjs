@@ -8,7 +8,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import jpeg from 'jpeg-js';
-import { BORDERLINE, CLASSES, COPIES_KEPT, COPIES_LENGTH, DEFAULT_STRICTNESS, LOOKS_KEPT, MAX_PICTURES, MIN_SIZE, PICTURE_LENGTH, STRICTNESS_CHOICES, THRESHOLD, URL_LENGTH, VIDEO_LENGTH, WHY_LENGTH, bodyUpTo, borderline, copiesByKey, copyKey, countHidden, describeHidden, hashOf, hiddenBySite, isData, isPage, isVideo, isVideoType, keepCopy, lookedAt, markAlike, markHidden, markedMistake, noteLook, recordHidden, sameGroups, sameHidden, samePicture, scoresOf, strictnessOf, verdict } from '../extension/lib/pictures.js';
+import { BORDERLINE, CLASSES, COPIES_KEPT, COPIES_LENGTH, DEFAULT_STRICTNESS, LOOKS_KEPT, MAX_PICTURES, MIN_SIZE, PICTURE_LENGTH, SHOWN, SHOWN_KEPT, STRICTNESS_CHOICES, THRESHOLD, URL_LENGTH, VIDEO_LENGTH, WHY_LENGTH, bodyUpTo, borderline, copiesByKey, copyKey, countHidden, describeHidden, hashOf, hiddenBySite, hideAgain, isData, isPage, isVideo, isVideoType, keepCopy, lookedAt, markAlike, markHidden, markedMistake, noteLook, recordHidden, sameGroups, sameHidden, samePicture, scoresOf, showAgain, shownAgain, strictnessOf, verdict } from '../extension/lib/pictures.js';
 import { hiddenWords, lookWords, timeOn } from '../extension/lib/page.js';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -266,13 +266,67 @@ test('pictures: two rows show the same picture when their addresses are the same
   assert.deepEqual(marked.record.map((row) => row.mark?.mistake ?? null), [true, true, true, null, null, null, null, null, null, null]);
   assert.equal(marked.record[0].mark.at, 50);
   assert.equal(marked.record[3], d, 'the rest are the same objects');
+  assert.deepEqual(marked.marked, marked.record.slice(0, 3), 'the entries marked, as marked (1.19.0)');
   // Several at once, in one list; the latest mark replaces an earlier one, on every row; videos get theirs alone.
   const again = markAlike(marked.record, [{ at: 3, url: 'http://x.test/c.jpg' }, { at: 4, url: data }, { at: 9, url: 'http://x.test/a.jpg' }], { at: 60, mistake: false }, copies);
   assert.deepEqual({ found: again.found, alike: again.alike }, { found: 3, alike: 3 });
   assert.deepEqual(again.record.map((row) => (row.mark ? `${row.mark.mistake}@${row.mark.at}` : null)), ['false@60', 'false@60', 'false@60', 'false@60', 'false@60', null, null, null, 'false@60', null]);
   const none = markAlike(record, [{ at: 99, url: 'nowhere' }], { at: 70, mistake: true }, copies);
   assert.deepEqual({ found: none.found, alike: none.alike, same: none.record === record }, { found: 0, alike: 0, same: true }, 'nothing found: the list as it was');
-  assert.deepEqual(markAlike(undefined, [], { at: 1, mistake: true }, copies), { record: [], found: 0, alike: 0 });
+  assert.deepEqual(markAlike(undefined, [], { at: 1, mistake: true }, copies), { record: [], found: 0, alike: 0, marked: [] });
+  assert.deepEqual(none.marked, []);
+});
+
+test('pictures: a picture marked hidden by mistake goes on the list of those shown again, known by its address or its copy, and comes off it when marked rightly hidden (1.19.0)', () => {
+  assert.equal(SHOWN, 'picturesShown');
+  const copy = (fill) => `data:image/jpeg;base64,${fill.repeat(40)}`;
+  const cat = copy('cat/');
+  const data = `data:image/png;base64,${'A'.repeat(600)}`;
+  const entry = (at, url, extra = {}) => ({ at, site: 'x.test', url: url.slice(0, URL_LENGTH), reason: 'nudity', scores: { porn: 0.9, hentai: 0, sexy: 0 }, ...extra });
+  const a = entry(1, 'http://x.test/a.jpg'); // the cat, with a copy
+  const a2 = entry(2, 'http://x.test/a.jpg'); // hidden again, no copy kept of this one
+  const b = entry(3, 'http://x.test/b.jpg'); // the cat at another address, with a copy
+  const d = entry(4, data); // the cat written out, with a copy
+  const d2 = entry(5, data); // another data: picture, with no copy: known by nothing
+  const v = entry(6, 'http://x.test/clip.mp4', { kind: 'video' });
+  const other = entry(7, 'http://x.test/other.jpg'); // a different picture, with a copy
+  let index = [];
+  for (const [row, made] of [[a, cat], [b, cat], [d, cat], [other, copy('dog/')]]) ({ index } = keepCopy(index, { at: row.at, url: row.url, copy: made }));
+  const copies = copiesByKey(index);
+  const known = { hash: hashOf(cat), length: cat.length };
+  // The address and the copy of each go on, once each: a2 folds into a's entry, d is known by its copy alone, d2 and the video not at all.
+  let list = showAgain(undefined, [a, a2, b, d, d2, v], copies, 100);
+  assert.deepEqual(list, [
+    { at: 100, url: 'http://x.test/a.jpg', copy: known },
+    { at: 100, url: 'http://x.test/b.jpg', copy: known },
+    { at: 100, url: '', copy: known },
+  ]);
+  assert.equal(shownAgain(list, { url: 'http://x.test/a.jpg' }), true, 'by the address');
+  assert.equal(shownAgain(list, { url: `http://x.test/a.jpg${'?'.padEnd(600, 'x')}` }), false, 'a longer address is another, cut as the record cuts it');
+  assert.equal(shownAgain(list, { url: 'http://x.test/c.jpg' }), false);
+  assert.equal(shownAgain(list, { url: 'http://x.test/c.jpg', copy: cat }), true, 'by the copy, given whole');
+  assert.equal(shownAgain(list, { copy: known }), true, 'or as its hash and length');
+  assert.equal(shownAgain(list, { copy: copy('dog/') }), false);
+  assert.equal(shownAgain(list, { url: data }), false, 'a data: address tells nothing');
+  assert.equal(shownAgain(list, { url: 'http://x.test/a.jpg', copy: '' }), true, 'no copy made: the address still tells');
+  assert.equal(shownAgain(undefined, { url: 'http://x.test/a.jpg' }), false);
+  assert.equal(shownAgain([null, { at: 1 }], { url: 'http://x.test/a.jpg', copy: cat }), false, 'junk entries match nothing');
+  // Marked again later: the entry is made anew, at the later time, with what was known kept.
+  list = showAgain(list, [a2], copies, 200);
+  assert.deepEqual(list.at(-1), { at: 200, url: 'http://x.test/a.jpg', copy: known }, 'a2 has no copy of its own; the copy known stays');
+  assert.equal(list.length, 3);
+  list = showAgain(list, [other], copies, 300);
+  assert.equal(list.length, 4);
+  // Rightly hidden takes the picture off: by its address, by its copy, or both; the others stay.
+  assert.deepEqual(hideAgain(list, [a2], copies).map((item) => item.url), ['http://x.test/b.jpg', '', 'http://x.test/other.jpg'], 'a2, with no copy, is known by its address');
+  assert.deepEqual(hideAgain(list, [d], copies).map((item) => item.url), ['http://x.test/other.jpg'], 'd, by its copy, takes every entry with that copy off');
+  assert.deepEqual(hideAgain(list, [v, d2], copies), list, 'a video, and a picture known by nothing, change nothing');
+  assert.deepEqual(hideAgain(undefined, [a], copies), []);
+  // The oldest go past the cap.
+  let many = [];
+  for (let i = 0; i < SHOWN_KEPT + 2; i += 1) many = showAgain(many, [entry(i, `http://many.test/${i}.jpg`)], copies, i);
+  assert.equal(many.length, SHOWN_KEPT);
+  assert.equal(many[0].url, 'http://many.test/2.jpg');
 });
 
 test('pictures: a hidden video is noted as one, counted apart in the summaries, and counted with the pictures by site', () => {
