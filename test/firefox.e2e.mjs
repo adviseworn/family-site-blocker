@@ -1059,7 +1059,7 @@ describe('Firefox', { skip: findFirefox() ? false : 'no Firefox found (set FIREF
         await sleep(300);
         line = await browser.run("return document.getElementById('picture-status').textContent");
       }
-      assert.match(line, /^Pictures and videos are judged before they show: since the browser started, \d+ pictures judged, 0 hidden \(through WebAssembly\)\.$/);
+      assert.match(line, /^Pictures and videos are judged before they show: since the browser started, \d+ pictures judged(?:, \d+ of them twice)?, 0 hidden \(through WebAssembly\)\.$/);
     });
 
     test('with the stand-in classifier: nudity and suggestive pictures are hidden, a photo shown, the record filled, and "Nudity only" lets the suggestive one through', async () => {

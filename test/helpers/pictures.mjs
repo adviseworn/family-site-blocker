@@ -19,12 +19,16 @@ export const STAND_IN_SCORES = {
 
 const STAND_IN = `// A stand-in for classifier.js, for the tests: judges a picture by its address, not its pixels, and a
 // video's frame (which has no address) by its colour: red is "nude", green "lingerie", anything else a photo.
+// The second judge (1.20.0) says the same as the first, except that a picture whose address says it only
+// seemed so ("seeming") is a photo to it.
 const SCORES = ${JSON.stringify(STAND_IN_SCORES)};
+export const JUDGES = { first: { size: 224 }, second: { size: 299 } };
 export const SIZE = 224;
 export async function loadModel() {}
 export const backendInUse = () => 'stand-in';
-export async function judgeBytes(blob, url = '') {
+export async function judgeBytes(blob, url = '', judge = 'first') {
   if (!blob || blob.size === 0) throw new Error('not a picture');
+  if (judge === 'second' && url.includes('seeming')) return SCORES.photo;
   const word = Object.keys(SCORES).find((name) => url.includes(name));
   if (word) return SCORES[word];
   if (url === 'video-frame') {
