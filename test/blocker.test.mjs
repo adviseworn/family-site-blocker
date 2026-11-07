@@ -714,10 +714,10 @@ test('watching: a visit from the history is placed by when the add-on was runnin
   assert.deepEqual(attempts.map((attempt) => whatHappened(attempt, exact)), ['history', 'unlisted', 'off', 'blocked', 'opened']);
   assert.deepEqual(attempts.map((attempt) => whatHappened(attempt, atLeast)), ['unseen', 'unlisted', 'off', 'blocked', 'opened']);
   const csv = toCsv(attempts, exact).split('\n');
-  assert.match(csv[1], /,a\.test,Visited \(browser history\),,,,$/);
-  assert.match(csv[2], /,a\.test,Visited before the site was listed,,,,$/);
-  assert.match(csv[3], /,a\.test,Visited while the add-on was off,,,,$/);
-  assert.match(toCsv(attempts, atLeast).split('\n')[1], /,a\.test,Visited after the add-on was installed,,,,$/);
+  assert.match(csv[1], /,a\.test,Visited before the add-on,,,,$/);
+  assert.match(csv[2], /,a\.test,Visited before it was listed,,,,$/);
+  assert.match(csv[3], /,a\.test,Visited while off,,,,$/);
+  assert.match(toCsv(attempts, atLeast).split('\n')[1], /,a\.test,Visited after the install,,,,$/);
   // mergeVisits with a wider window, as the sweep after a live try uses: the page of a site that got through
   // is written to the history when it finishes loading, and that is the same try.
   const live = [{ at: t, site: 'a.test', opened: true }];
@@ -759,7 +759,7 @@ test('blocked attempts: the saved file is CSV, oldest first, with local times th
   assert.equal(lines[0], 'when,site,result,address,nudity,suggestive,mark');
   assert.match(lines[1], /^2026-10-18T15:12:03[+-]\d\d:\d\d,a\.test,Blocked,,,,$/);
   assert.match(lines[2], /^2026-10-18T15:12:04[+-]\d\d:\d\d,b\.test,"Opened, not blocked",,,,$/);
-  assert.match(lines[3], /^2026-10-18T15:12:05[+-]\d\d:\d\d,"odd""name,\.test",Visited \(browser history\),,,,$/);
+  assert.match(lines[3], /^2026-10-18T15:12:05[+-]\d\d:\d\d,"odd""name,\.test",Visited before the add-on,,,,$/);
   assert.deepEqual(lines.slice(4), [''], 'ends with a newline');
   assert.equal(toCsv([]), 'when,site,result,address,nudity,suggestive,mark\n');
   // The pictures and videos hidden are rows among the tries, by time (1.18.1), with the address, the scores and the mark in their own columns.

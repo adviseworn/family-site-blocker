@@ -528,9 +528,9 @@ code {
   font-weight: 400;
 }
 
-/* A picture or video the picture filter kept hidden, among the tries: what the record says, the judge's
-   scores and the mark of a close call beside it, and under them the address to copy, cut short when long,
-   with its buttons. */
+/* A picture or video the picture filter kept hidden, among the tries: what the record says, the score that
+   decided and the mark of a close call beside it, and under them the address, cut short when long, which
+   copies when clicked, with Look at it. */
 .day tr.picture td:last-child {
   white-space: normal;
 }
@@ -554,28 +554,41 @@ code {
   margin-top: 0.25rem;
 }
 
-/* The address takes the room the buttons leave on its line, and they go under it, together, when there is
-   little (from 1.17.0 there are two); its width of 0 keeps it out of the table's own sums, so that a long
-   address can't squeeze the other columns. */
+/* The address is the button that copies it (1.21.0; a Copy address button stood beside it before), in plain
+   words: it takes the room Look at it leaves on its line, and goes under it when there is little; its width
+   of 0 keeps it out of the table's own sums, so that a long address can't squeeze the other columns. It is
+   cut short with an ellipsis on a span inside, where Firefox does that too (not on a button itself). */
 .day .picture-url {
   flex: 1 1 12rem;
   width: 0;
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: none;
   font-size: 0.85rem;
+  font-weight: 400;
+  text-align: left;
   color: var(--muted);
 }
 
-.day .picture-actions {
-  display: flex;
-  gap: 0.6rem;
+.day .picture-url span {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.day .picture-url:hover,
+.day .picture-url:focus-visible {
+  filter: none;
+  color: var(--gate);
+  text-decoration: underline;
 }
 
 /* On a phone the address wraps instead. */
 @media (max-width: 600px) {
-  .day .picture-url {
+  .day .picture-url span {
     white-space: normal;
     overflow-wrap: anywhere;
   }

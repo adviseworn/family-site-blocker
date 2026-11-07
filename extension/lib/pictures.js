@@ -51,11 +51,18 @@ export const BORDERLINE = 0.6;
  * for nudity; with sexy added for suggestive) was under BORDERLINE. A harmless picture hidden by mistake
  * usually sits here.
  */
-export function borderline({ reason, scores }) {
-  const score = (name) => Math.max(0, Number(scores?.[name]) || 0);
-  const deciding = reason === 'suggestive' ? score('porn') + score('hentai') + score('sexy') : score('porn') + score('hentai');
-  return deciding < BORDERLINE;
+export function borderline(entry) {
+  return decidingSum(entry) < BORDERLINE;
 }
+
+/** The sum that decided a hidden picture: porn and hentai together, and sexy with them for one hidden as suggestive. */
+function decidingSum({ reason, scores }) {
+  const score = (name) => Math.max(0, Number(scores?.[name]) || 0);
+  return reason === 'suggestive' ? score('porn') + score('hentai') + score('sexy') : score('porn') + score('hentai');
+}
+
+/** The score that decided, beside a hidden picture's words on its row on Every try (1.21.0): "0.92", the sum borderline compares with BORDERLINE. */
+export const decidingScore = (entry) => decidingSum(entry ?? {}).toFixed(2);
 
 /** The setting as stored, or the default when nothing valid is stored. */
 export function strictnessOf(stored) {
@@ -327,14 +334,15 @@ export function hiddenBySite(record) {
 
 /**
  * What a hidden picture's row says among every try (tries.html): "Picture hidden for nudity" or "Video
- * hidden as suggestive", with the scores beside it (scoresOf). A close call is marked by the page, not said here.
+ * hidden as suggestive", with the score that decided beside it on Every try (decidingScore) and both scores on the
+ * check page's tiles (scoresOf). A close call is marked by the page, not said here.
  */
 export function describeHidden(entry) {
   const why = entry?.reason === 'nudity' ? ' for nudity' : entry?.reason === 'suggestive' ? ' as suggestive' : '';
   return `${isVideo(entry) ? 'Video' : 'Picture'} hidden${why}`;
 }
 
-/** The judge's scores, beside a hidden picture's words on its row: "nudity 0.92, suggestive 0.02", the two the pages show (porn and hentai together, and sexy). */
+/** The judge's scores, beside a hidden picture's words on the check page's tiles (and on its row on Every try until 1.21.0): "nudity 0.92, suggestive 0.02", the two the pages show (porn and hentai together, and sexy). */
 export function scoresOf(entry) {
   const score = (name) => Math.max(0, Number(entry?.scores?.[name]) || 0);
   return `nudity ${(score('porn') + score('hentai')).toFixed(2)}, suggestive ${score('sexy').toFixed(2)}`;

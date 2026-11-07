@@ -98,23 +98,19 @@ export function hiddenWords(record, site = null) {
 const times = (count) => (count === 1 ? 'once' : count === 2 ? 'twice' : `${count} times`);
 
 /**
- * What a hidden picture's row says of the looks at it from Every try and of its mark (lib/pictures.js
- * noteLook, markHidden): "Looked at once, at 6:03 PM: “checking a close call”. Marked hidden by mistake at
- * 6:04 PM." With more looks, "Looked at 3 times, the latest at …", with the latest reason. A time on the
- * row's day (`day`, its midnight) is the time alone; any other names its day too, "Nov 1, 2026, 6:03 PM"
- * (every time, with no day given). A reason that ends in a full stop, or a question mark, gets no second one.
- * '' with neither a look nor a mark.
+ * What a hidden picture's row says of the looks at it from Every try (lib/pictures.js noteLook): "Looked at
+ * 6:03 PM: “checking a close call”." With more looks, "Looked at 3 times, the latest at …", with the latest
+ * reason. A time on the row's day (`day`, its midnight) is the time alone; any other names its day too,
+ * "Nov 1, 2026, 6:03 PM" (every time, with no day given). A reason that ends in a full stop, or a question
+ * mark, gets no second one. '' with no look. The mark (markHidden) isn't said: the button pressed in shows
+ * it (until 1.21.0 a sentence said it too, with its time, as "Looked at once, at …" said the look).
  */
 export function lookWords(entry, day = null) {
   const looks = Array.isArray(entry?.looks) ? entry.looks : [];
+  if (!looks.length) return '';
   const when = day === null ? (ms) => whenFormat.format(ms) : timeOn(day);
-  const parts = [];
-  if (looks.length) {
-    const latest = looks[looks.length - 1];
-    const reason = typeof latest.why === 'string' ? latest.why : '';
-    const why = reason ? `: “${reason}”` : '';
-    parts.push(`Looked at ${times(looks.length)}, ${looks.length === 1 ? 'at' : 'the latest at'} ${when(latest.at)}${why}${/[.!?]$/.test(reason) ? '' : '.'}`);
-  }
-  if (typeof entry?.mark?.mistake === 'boolean') parts.push(`Marked ${entry.mark.mistake ? 'hidden by mistake' : 'rightly hidden'} at ${when(entry.mark.at)}.`);
-  return parts.join(' ');
+  const latest = looks[looks.length - 1];
+  const reason = typeof latest.why === 'string' ? latest.why : '';
+  const why = reason ? `: “${reason}”` : '';
+  return `Looked at ${looks.length === 1 ? '' : `${times(looks.length)}, the latest at `}${when(latest.at)}${why}${/[.!?]$/.test(reason) ? '' : '.'}`;
 }
