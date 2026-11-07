@@ -1016,12 +1016,14 @@ test('the add-on is published on addons.mozilla.org, and copies from before 1.24
   assert.equal(manifest.browser_specific_settings.gecko.update_url, undefined, 'no update address of its own');
   assert.ok(UPDATES_URL.startsWith('https://'), 'Firefox only takes update manifests over https');
   assert.equal(UPDATES_URL, `${SITE_URL}updates.json`);
-  const check = readFileSync(join(EXT, '..', '.github', 'workflows', 'firefox-package.yml'), 'utf8');
-  assert.match(check, /addons-linter /, 'the package check runs the linter');
-  assert.doesNotMatch(check, /--self-hosted/, 'as addons.mozilla.org does for a listed add-on');
-  const sign = readFileSync(join(EXT, '..', '.github', 'workflows', 'sign-firefox.yml'), 'utf8');
-  assert.match(sign, /web-ext@[\d.]+ sign --channel=listed --amo-metadata=/, 'signing publishes the version on addons.mozilla.org, with the page');
-  assert.match(sign, /uses: \.\/\.github\/workflows\/publish-updates\.yml/, 'signing still publishes the update files, for the older copies and the lock');
+  const pipeline = readFileSync(join(EXT, '..', '.gitlab-ci.yml'), 'utf8');
+  assert.match(pipeline, /addons-linter /, 'the checks job runs the linter');
+  assert.doesNotMatch(pipeline, /--self-hosted/, 'as addons.mozilla.org does for a listed add-on');
+  assert.match(pipeline, /web-ext@[\d.]+ sign --channel=listed --amo-metadata=/, 'signing publishes the version on addons.mozilla.org, with the page');
+  assert.match(pipeline, /\nupdate-files:\n[^]*?\n {4}- node scripts\/release-files\.mjs xpis \d+\b[^\n]*\n {4}- node scripts\/updates-manifest\.mjs xpis public\n {4}- node scripts\/guide\.mjs README\.md public mac\/family-site-blocker-firefox\.mobileconfig\b(?:[^]*?\n)? {2}pages: true\b/, 'the update files, the guide and the lock\'s profile are published on GitLab Pages, for the older copies, the lock and the settings pages\' links');
+  assert.match(pipeline, /\nsign:\n[^]*?- if: \(\$CI_PIPELINE_SOURCE == "web" \|\| \$CI_PIPELINE_SOURCE == "api"\)\n {6}when: never/, 'a pipeline started by hand, from the page or the API, signs only when asked to');
+  assert.match(pipeline, /\nmozilla-backup:\n[^]*?\n {4}- node scripts\/amo-backup\.mjs backup\b/, 'every version Mozilla has signed can be backed up into the package registry');
+  assert.ok(!existsSync(join(EXT, '..', '.github')), 'the GitHub workflows are gone');
 });
 
 test("Firefox's manifest leaves out only background.service_worker, which Mozilla's linter warns about", () => {
@@ -1190,14 +1192,14 @@ test('the update manifest lists every signed version, oldest first, with its add
     assert.match(updates[1].update_hash, /^sha256:[0-9a-f]{64}$/);
     assert.deepEqual(Object.keys(built), ['addons']);
 
-    // The site: the files, the manifest for them, and nothing GitHub Pages would change.
+    // The site: the files and the manifest for them.
     const xpiDir = join(dir, 'xpis');
     mkdirSync(xpiDir);
     for (const { name, data } of xpis) writeFileSync(join(xpiDir, name), data);
     writeFileSync(join(xpiDir, 'notes.txt'), 'ignored');
     const site = join(dir, 'site');
     assert.deepEqual(buildSite(xpiDir, site), ['1.3.2', '1.9.1', '1.10.0']);
-    assert.deepEqual(readdirSync(site).sort(), ['.nojekyll', 'README.md', 'family-site-blocker-1.10.0.xpi', 'family-site-blocker-1.3.2.xpi', 'family-site-blocker-1.9.1.xpi', 'family-site-blocker.xpi', 'index.html', 'updates.json']);
+    assert.deepEqual(readdirSync(site).sort(), ['family-site-blocker-1.10.0.xpi', 'family-site-blocker-1.3.2.xpi', 'family-site-blocker-1.9.1.xpi', 'family-site-blocker.xpi', 'updates.json'], 'the guide and the profile are added by scripts/guide.mjs');
     const published = JSON.parse(readFileSync(join(site, 'updates.json'), 'utf8'));
     const listed = published.addons[manifest.browser_specific_settings.gecko.id].updates;
     assert.equal(listed[2].update_link, `${SITE_URL}family-site-blocker-1.10.0.xpi`);

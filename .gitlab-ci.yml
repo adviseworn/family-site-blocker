@@ -1,0 +1,245 @@
+# Family Site Blocker's pipelines on GitLab, in place of the GitHub Actions workflows it had until 1.24.0.
+#
+# On every push, on a Linux machine:
+#   checks    the fast checks (npm test), then the Firefox zip (npm run package:firefox) checked with Mozilla's
+#             add-on linter, the same check addons.mozilla.org runs before it publishes a version.
+#   browsers  the extension in Chromium (npm run test:browser) and in Firefox (npm run test:firefox, with
+#             Mozilla's own Firefox build). The image is Playwright's, which holds the Chromium that the
+#             playwright version in package.json expects, and Firefox's libraries: when package.json's
+#             playwright changes, change the image's tag to match.
+# When a version lands on main (a push that changes extension/manifest.json), once those have passed:
+#   sign          gets the version published on addons.mozilla.org and signed, checks the signed file, and
+#                 publishes the release: the signed .xpi, the zip that gives it the add-on's icon on a Mac and
+#                 the Firefox lock's profile go in the project's package registry, and the release links to them.
+#                 If Mozilla already has the version, it downloads that signed file instead of uploading again.
+#                 Mozilla publishes a version once its automatic check passes, but holds some for a reviewer,
+#                 the first public version among them, which can take days: the job then gives up after 25
+#                 minutes, and once Mozilla's email says the version is approved, a pipeline started by hand
+#                 (Build → Pipelines → New pipeline, on main, with the variable SIGN set to yes) signs at once,
+#                 without waiting for the tests, and finishes the job.
+#   update-files  builds the update manifest and the newest signed .xpi files from the project's releases and
+#                 publishes them on the project's GitLab Pages site (scripts/updates-site.mjs says where), which
+#                 the Firefox lock installs from and copies from before 1.24.0 update from, with the guide (the
+#                 README rendered, scripts/guide.mjs) as the site's front page and the lock's profile beside it.
+#                 The project is private; the site is what the public sees (Pages access set to Everyone). A
+#                 pipeline started by hand with PUBLISH set to yes publishes them again.
+# Started by hand, from a pipeline on main (the play button next to the job) or a pipeline started by hand
+# (Build → Pipelines → New pipeline, or through the pipelines API: the source web or api, treated alike):
+#   lock-check      tests the Firefox lock with the newest signed release, on Linux, where Firefox reads the
+#                   same policies from a policies.json next to the program (test/firefox-lock.e2e.mjs). It
+#                   fetches version 1.1.1 from Mozilla with the API key the sign job uses, and LeechBlock NG, a
+#                   site blocker from addons.mozilla.org, as another blocker's add-on.
+#   pictures-check  judges the real pictures listed in test/real-pictures.txt (npm run check:pictures), and any
+#                   in the variable PICTURE_URLS, separated by spaces.
+#   mozilla-backup  saves every version Mozilla has signed, 1.1.1 on, in the project's package registry next to
+#                   the release files (scripts/amo-backup.mjs), so the project keeps its own copies. A pipeline
+#                   started by hand with BACKUP set to yes runs it at once.
+#
+# The sign, mozilla-backup and lock-check jobs need two CI/CD variables (Settings → CI/CD → Variables, masked), the two parts of an API key
+# from https://addons.mozilla.org/developers/addon/api/key/ : AMO_JWT_ISSUER (the "JWT issuer") and
+# AMO_JWT_SECRET (the "JWT secret"). Nothing else needs setting up: the release, the package registry and
+# GitLab Pages all take the job's own token.
+#
+# GitLab's free plan has no Macs, so the Mac test run, the installer package that closes Firefox's Option key
+# (scripts/mac-installer.mjs, which needs Apple's pkgbuild) and the Mac-only checks run only on a Mac by hand.
+
+stages: [test, sign, publish]
+
+workflow:
+  rules:
+    - if: $CI_COMMIT_TAG
+      when: never # the release makes a tag; nothing runs for it
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+      when: never # the branch's own pipeline is the merge request's
+    - if: $CI_COMMIT_BRANCH
+
+variables:
+  npm_config_fund: 'false'
+  npm_config_audit: 'false'
+  npm_config_update_notifier: 'false'
+
+.node:
+  image: node:22
+  cache:
+    key:
+      files: [package.json]
+    paths: [node_modules/]
+  before_script:
+    - command -v zip > /dev/null || (apt-get update -qq && apt-get install -y -qq zip > /dev/null)
+    - node --version
+    - npm install
+
+# The two test jobs stop when a newer push to the same branch starts its own pipeline, and stay out of a
+# pipeline started by hand just to sign or publish.
+.tests:
+  extends: .node
+  stage: test
+  interruptible: true
+  rules:
+    - if: ($CI_PIPELINE_SOURCE == "web" || $CI_PIPELINE_SOURCE == "api") && ($SIGN == "yes" || $PUBLISH == "yes" || $BACKUP == "yes")
+      when: never
+    - if: $CI_COMMIT_BRANCH
+
+checks:
+  extends: .tests
+  script:
+    - npm test 2>&1 | tee fast.tap || true
+    # One fast check needs a Mac (the Finder icon on the .xpi) and is skipped here by design.
+    - node scripts/ci-summary.mjs --allow-skips=1 fast=fast.tap
+    - npm run package:firefox
+    # Checked as a listed add-on: from 1.24.0 it is published on addons.mozilla.org, so its manifest carries
+    # no update_url, which the linter would flag (until 1.23.0 the add-on was self-hosted, and the linter was
+    # told so, with the linter's self-hosted switch, which allowed one).
+    - npx --yes addons-linter dist/family-site-blocker-firefox.zip --output json --boring --max-manifest-version=3 > lint.json || true
+    - node scripts/lint-firefox-report.mjs lint.json
+
+browsers:
+  extends: .tests
+  image: mcr.microsoft.com/playwright:v1.56.0-noble
+  script:
+    - curl -fsSL --retry 3 -o firefox.tar "https://download.mozilla.org/?product=firefox-latest-ssl&os=linux64&lang=en-US"
+    - mkdir -p firefox && tar -xf firefox.tar -C firefox --strip-components=1
+    - grep PRETTY_NAME /etc/os-release; node -e "import('playwright').then(async ({ chromium }) => { const b = await chromium.launch(); console.log('Chromium', b.version()); await b.close(); })"; firefox/firefox --version
+    - npm run test:browser 2>&1 | tee chromium.tap || true
+    - FIREFOX=$PWD/firefox/firefox npm run test:firefox 2>&1 | tee firefox.tap || true
+    - node scripts/ci-summary.mjs chromium=chromium.tap firefox=firefox.tap
+
+sign:
+  extends: .node
+  stage: sign
+  interruptible: false
+  resource_group: sign-with-mozilla # one signing at a time
+  timeout: 45 minutes # Mozilla's signing can take 25
+  needs: [checks, browsers]
+  rules:
+    - if: ($CI_PIPELINE_SOURCE == "web" || $CI_PIPELINE_SOURCE == "api") && $SIGN == "yes"
+      needs: [] # signs at once, without waiting for the tests
+    - if: ($CI_PIPELINE_SOURCE == "web" || $CI_PIPELINE_SOURCE == "api")
+      when: never # a pipeline started by hand signs only when asked to (changes: is always true for one)
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      changes: [extension/manifest.json] # every version bump changes it
+  variables:
+    WEB_EXT_API_KEY: $AMO_JWT_ISSUER
+    WEB_EXT_API_SECRET: $AMO_JWT_SECRET
+  script:
+    - |
+      if [ -z "$AMO_JWT_ISSUER" ] || [ -z "$AMO_JWT_SECRET" ]; then
+        echo "No API key: save AMO_JWT_ISSUER and AMO_JWT_SECRET under Settings → CI/CD → Variables. They come from https://addons.mozilla.org/developers/addon/api/key/"
+        exit 1
+      fi
+    - npm run package:firefox
+    - VERSION=$(node -p "require('./extension/manifest.json').version")
+    - API="$CI_API_V4_URL/projects/$CI_PROJECT_ID"
+    - PACKAGE_URL="$API/packages/generic/family-site-blocker/$VERSION"
+    - |
+      if curl -fsS --header "JOB-TOKEN: $CI_JOB_TOKEN" "$API/releases/v$VERSION" > /dev/null 2>&1; then
+        if [ "$CI_PIPELINE_SOURCE" != web ] && [ "$CI_PIPELINE_SOURCE" != api ]; then
+          # A push that touched manifest.json without raising the version, or a second run for the same one.
+          echo "Version $VERSION is already signed and released; nothing to do."
+          exit 0
+        fi
+        echo "Version $VERSION is already signed and released. Raise version in extension/manifest.json first."
+        exit 1
+      fi
+    # Mozilla won't take the same version twice. If it already has this one (uploaded by hand, or by a run
+    # that stopped later on, or gave up waiting for a reviewer), download its signed file; otherwise upload it
+    # with the page's words (scripts/amo-metadata.mjs) and wait for Mozilla to approve and sign it.
+    - |
+      found=0
+      node scripts/amo-signed.mjs "$VERSION" web-ext-artifacts || found=$?
+      if [ "$found" = 3 ]; then
+        node scripts/amo-metadata.mjs "$VERSION" "$CI_COMMIT_SHA" "$CI_COMMIT_TITLE" > dist/amo-metadata.json
+        npx --yes web-ext@10.7.0 sign --channel=listed --amo-metadata=dist/amo-metadata.json --source-dir=dist/firefox --artifacts-dir=web-ext-artifacts --approval-timeout=1500000 || {
+          echo "Not signed yet: Mozilla hasn't approved and signed $VERSION in this run (see above). If the upload went through and the version is waiting for a reviewer, which the first public version does, Mozilla's email says when it's approved: start a pipeline on main by hand then, with the variable SIGN set to yes, and it downloads the signed file and publishes the release."
+          exit 1
+        }
+      elif [ "$found" != 0 ]; then
+        exit "$found"
+      fi
+    - signed=$(ls web-ext-artifacts/*.xpi)
+    - node scripts/check-signed.mjs "$signed" dist/firefox
+    - npm run package:signed -- "$signed"
+    - cp "$signed" "dist/family-site-blocker-$VERSION.xpi"
+    - echo "Signed:" "$(node scripts/check-signed.mjs "$signed" dist/firefox | sed 's/^[^:]*:\s*//')" "sha256 $(sha256sum "$signed" | cut -c1-16)…"
+    # The release's files go in the project's package registry, where anyone can download them, and the
+    # release (Deploy → Releases) is made on this commit with its tag and links to them.
+    - |
+      for file in "dist/family-site-blocker-$VERSION.xpi" "dist/family-site-blocker-$VERSION.zip" mac/family-site-blocker-firefox.mobileconfig; do
+        curl -fsS --header "JOB-TOKEN: $CI_JOB_TOKEN" --upload-file "$file" "$PACKAGE_URL/$(basename "$file")" > /dev/null
+        echo "Uploaded $PACKAGE_URL/$(basename "$file")"
+      done
+    - |
+      node scripts/release-json.mjs "$VERSION" "$CI_COMMIT_SHA" "$PACKAGE_URL" > release.json
+      curl -fsS --header "JOB-TOKEN: $CI_JOB_TOKEN" --header "Content-Type: application/json" --data @release.json "$API/releases" > /dev/null
+      echo "Released $CI_PROJECT_URL/-/releases/v$VERSION"
+
+update-files:
+  extends: .node
+  stage: publish
+  interruptible: false
+  needs:
+    - job: sign
+      optional: true # a pipeline started by hand with PUBLISH set to yes has no sign job
+  rules:
+    - if: ($CI_PIPELINE_SOURCE == "web" || $CI_PIPELINE_SOURCE == "api") && $PUBLISH == "yes"
+    - if: ($CI_PIPELINE_SOURCE == "web" || $CI_PIPELINE_SOURCE == "api")
+      when: never
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      changes: [extension/manifest.json]
+  script:
+    - node scripts/release-files.mjs xpis 5 # the newest five signed versions: Firefox only ever wants the newest
+    - node scripts/updates-manifest.mjs xpis public
+    - node scripts/guide.mjs README.md public mac/family-site-blocker-firefox.mobileconfig # the guide as the site's front page, and the lock's profile
+  pages: true # publishes the public folder on the project's GitLab Pages site
+  artifacts:
+    paths: [public]
+
+.by-hand:
+  extends: .node
+  stage: test
+  needs: []
+  rules:
+    - if: ($CI_PIPELINE_SOURCE == "web" || $CI_PIPELINE_SOURCE == "api") && ($SIGN == "yes" || $PUBLISH == "yes" || $BACKUP == "yes")
+      when: never
+    - if: ($CI_PIPELINE_SOURCE == "web" || $CI_PIPELINE_SOURCE == "api") || $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      when: manual
+      allow_failure: true
+
+lock-check:
+  extends: .by-hand
+  image: mcr.microsoft.com/playwright:v1.56.0-noble
+  timeout: 30 minutes
+  script:
+    - node scripts/release-files.mjs signed 1
+    - node scripts/amo-signed.mjs 1.1.1 older
+    - mkdir -p other && curl -fsSL --retry 3 -o other/leechblock-ng.xpi https://addons.mozilla.org/firefox/downloads/latest/leechblock-ng/latest.xpi
+    - curl -fsSL --retry 3 -o firefox.tar "https://download.mozilla.org/?product=firefox-latest-ssl&os=linux64&lang=en-US"
+    - mkdir -p firefox && tar -xf firefox.tar -C firefox --strip-components=1
+    - firefox/firefox --version; ls signed older other
+    - SIGNED_XPI=$(ls signed/*.xpi) OLDER_XPI=$(ls older/*.xpi) OTHER_XPI=other/leechblock-ng.xpi FIREFOX=$PWD/firefox/firefox npm run test:firefox-lock 2>&1 | tee lock.tap || true
+    - node scripts/ci-summary.mjs lock=lock.tap
+
+mozilla-backup:
+  extends: .node
+  stage: test
+  needs: []
+  timeout: 30 minutes
+  rules:
+    - if: ($CI_PIPELINE_SOURCE == "web" || $CI_PIPELINE_SOURCE == "api") && $BACKUP == "yes"
+    - if: ($CI_PIPELINE_SOURCE == "web" || $CI_PIPELINE_SOURCE == "api") && ($SIGN == "yes" || $PUBLISH == "yes")
+      when: never
+    - if: ($CI_PIPELINE_SOURCE == "web" || $CI_PIPELINE_SOURCE == "api") || $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      when: manual
+      allow_failure: true
+  script:
+    - node scripts/amo-backup.mjs backup 2>&1 | tee backup.txt
+  artifacts:
+    paths: [backup.txt]
+    expire_in: 1 year
+
+pictures-check:
+  extends: .by-hand
+  image: mcr.microsoft.com/playwright:v1.56.0-noble
+  timeout: 20 minutes
+  script:
+    - npm run check:pictures

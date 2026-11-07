@@ -23,10 +23,22 @@ export function token(issuer, secret, now = Math.floor(Date.now() / 1000)) {
   return `${unsigned}.${createHmac('sha256', secret).update(unsigned).digest('base64url')}`;
 }
 
-async function get(url, key) {
+export async function get(url, key) {
   const response = await fetch(url, { headers: { Authorization: `JWT ${token(key.issuer, key.secret)}`, Accept: 'application/json' } });
   if (!response.ok) throw new Error(`${url.href} answered ${response.status} ${response.statusText}: ${(await response.text()).slice(0, 300)}`);
   return response;
+}
+
+/** Every version of this add-on on addons.mozilla.org, listed or not, as Mozilla lists them (newest first). */
+export async function listVersions(key, api = 'https://addons.mozilla.org/api/v5/') {
+  const versions = [];
+  let url = new URL(`addons/addon/${encodeURIComponent(ADDON_ID)}/versions/?filter=all_with_unlisted&page_size=50`, api);
+  while (url) {
+    const page = await (await get(url, key)).json();
+    versions.push(...page.results);
+    url = page.next ? new URL(page.next) : null;
+  }
+  return versions;
 }
 
 /** This add-on's version `version` on addons.mozilla.org, listed or not, or null if there is none. */
@@ -35,7 +47,7 @@ async function findVersion(version, key, api) {
   while (url) {
     const page = await (await get(url, key)).json();
     const found = page.results.find((entry) => entry.version === version);
-    if (found) return found;
+    if (found) return found; // without reading the pages after it: this is asked every 15 seconds while waiting
     url = page.next ? new URL(page.next) : null;
   }
   return null;

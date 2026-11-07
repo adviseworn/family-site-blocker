@@ -1,7 +1,7 @@
 // The picture filter: how scores become verdicts and a record (lib/pictures.js), the files it ships, and
 // the classifier itself run in Node on two ordinary photos, which must come out as "neutral". There is no
 // explicit photo here to check the other way; the real-browser tests use a stand-in classifier for that,
-// and the Real pictures check (test/real-pictures.check.mjs) runs the model on real pictures at GitHub.
+// and the Real pictures check (test/real-pictures.check.mjs) runs the model on real pictures in a pipeline.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync, readFileSync } from 'node:fs';

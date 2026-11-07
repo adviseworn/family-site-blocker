@@ -3,7 +3,7 @@
 // it away again. Run with: npm run test:mac-installer
 //
 // Installing changes the Mac for every account (/Library/LaunchAgents) and needs sudo, so like the lock
-// tests this only runs on a Mac in CI (GitHub's), with sudo that asks for no password.
+// tests this only runs on a Mac in CI, with sudo that asks for no password.
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';

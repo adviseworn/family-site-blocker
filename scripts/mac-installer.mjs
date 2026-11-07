@@ -7,9 +7,10 @@
 //
 // Needs a Mac: pkgbuild makes the component package from a folder laid out like the disk, and productbuild
 // wraps it with a title and the text Installer shows. The package is unsigned (signing needs an Apple
-// Developer ID), so macOS asks, once, to open it anyway under Privacy & Security. The Sign with Mozilla
-// workflow builds it on GitHub's Mac and attaches it to each release (.github/workflows/mac-installer.yml),
-// and the Mac tests install it and check what it did (test/mac-installer.e2e.mjs).
+// Developer ID), so macOS asks, once, to open it anyway under Privacy & Security. Until 1.24.0 the Sign
+// with Mozilla workflow built it on GitHub's Mac and attached it to each release; GitLab's free plan has no
+// Macs, so it is built by hand on a Mac when wanted, and the Mac tests, run on a Mac, install it and check
+// what it did (test/mac-installer.e2e.mjs).
 import { execFileSync } from 'node:child_process';
 import { chmodSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, relative } from 'node:path';

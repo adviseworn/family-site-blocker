@@ -117,7 +117,7 @@ export function sameSettings(stamp, own) {
 // Firefox's own copy of the list is counted in entries: an entry is a site, or a whole top-level domain.
 const entries = (n) => (n === 1 ? '1 entry' : `${n.toLocaleString('en-US')} entries`);
 const link = (anchor, text) => ({ anchor, text });
-// The README headings the links go to, as GitHub makes anchors of them (test/readme.test.mjs checks that they exist).
+// The README headings the links go to, as GitLab (and GitHub) make anchors of them (test/readme.test.mjs checks that they exist).
 const KEEP_IT_INSTALLED = 'keep-it-installed-after-firefox-quits';
 const LOCK_IT = 'lock-it-so-nobody-can-switch-it-off-firefox-on-a-mac';
 

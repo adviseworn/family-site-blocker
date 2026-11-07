@@ -3,7 +3,7 @@
 // test/real-pictures.txt (and any in $PICTURE_URLS, space-separated) is judged exactly as a page's
 // picture would be, through the background script, and its scores and verdicts under both settings are
 // printed, against what the list expects. The run fails when a picture comes out the wrong way.
-// Run with:  npm run check:pictures   (GitHub: "Real pictures check" in the Actions tab)
+// Run with:  npm run check:pictures   (GitLab: the pictures-check job, started by hand)
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';

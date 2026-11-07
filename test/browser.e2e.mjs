@@ -495,11 +495,11 @@ describe('real browser', () => {
         await page.locator('#lock').waitFor({ state: 'visible' });
         assert.match(await page.locator('#lock-status').innerText(), /^Anyone who can open the extensions page can switch the add-on off or remove it; the lock covers Firefox only\. What to do about that\.$/);
         assert.ok(await page.evaluate(() => document.getElementById('lock').classList.contains('todo')), 'marked as something to do');
-        assert.equal(await page.locator('#lock-status a').getAttribute('href'), 'https://github.com/adviseworn/family-site-blocker#limits');
+        assert.equal(await page.locator('#lock-status a').getAttribute('href'), 'https://adviseworn.gitlab.io/family-site-blocker/#limits');
         // The page is short again (#70): the explanations live in the README, linked from each section.
         const words = await page.evaluate(() => document.body.innerText.split(/\s+/).filter(Boolean).length);
         assert.ok(words < 450, `${words} words on the settings page`);
-        assert.ok((await page.locator('a[href^="https://github.com/adviseworn/family-site-blocker#"]').count()) >= 4, 'links to the README');
+        assert.ok((await page.locator('a[href^="https://adviseworn.gitlab.io/family-site-blocker/#"]').count()) >= 4, 'links to the README');
         assert.equal(await page.locator('#lockbox-page').getAttribute('href'), 'lockbox.html');
         assert.equal(await page.locator('#lockbox-line').innerText(), 'No password is locked away.');
       } finally {
