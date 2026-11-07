@@ -2,17 +2,20 @@
 // record's one timeline. Laid in among the tries are the times the add-on was off (lib/watching.js), a
 // band in its day with the visits to listed sites from then under it; the pictures and videos the picture
 // filter kept hidden (lib/pictures.js), a row each with why, the score that decided and the address, where the
-// picture can be looked at (below); and the locked-away password's record (lib/lockbox.js), a row each in
-// the words of the password's page.
+// picture can be looked at (below); the locked-away password's record (lib/lockbox.js), a row each in
+// the words of the password's page; and from 1.22.0 the Firefox lock's record (lib/lock.js), a row for
+// each time the add-on found the lock in force or not.
 // The record page (attempts.html) shows the record summed up and links here, for the whole record, for one
 // site (tries.html#site=<the site>, from the by-site table there) or for the times the add-on was off
 // alone (tries.html#off, from "Was it ever off?" there); the pictures page links here for the pictures
-// alone (tries.html#pictures, and #site=<the site>&pictures for one site's), and the password's page for
-// its entries alone (tries.html#password). Like the other pages, this one only reads the records, apart
-// from noting the looks at hidden pictures; nothing here can clear them (see lib/attempts.js).
+// alone (tries.html#pictures, and #site=<the site>&pictures for one site's), the password's page for
+// its entries alone (tries.html#password), and this page's own line for the lock's alone (tries.html#lock).
+// Like the other pages, this one only reads the records, apart from noting the looks at hidden pictures;
+// nothing here can clear them (see lib/attempts.js).
 import { ATTEMPTS, LABELS, offDuring, outcome, summarize, timeline, toCsv } from './lib/attempts.js';
+import { LOCK_CHANGES, LOCK_NAME, lockChangeWords, lockChanges } from './lib/lock.js';
 import { EVENTS, EVENTS_SINCE, beginningOf, describeEvent, describeRecord, loadBox } from './lib/lockbox.js';
-import { dayFormat, element, hiddenWords, lookWords, offVisitsWords, offWords, plural, showVersion, timeFormat, timeOn, tries as triesWord, whenFormat } from './lib/page.js';
+import { dayFormat, element, hiddenWords, lockWords, lookWords, offVisitsWords, offWords, plural, showVersion, timeFormat, timeOn, tries as triesWord, whenFormat } from './lib/page.js';
 import { COPIES_KEPT, PICTURES, URL_LENGTH, VIDEO_LENGTH, WHY_LENGTH, bodyUpTo, borderline, copyKey, decidingScore, describeHidden, isData, isPage, isVideo, isVideoType, lookedAt } from './lib/pictures.js';
 import { WATCHING, normalize } from './lib/watching.js';
 
@@ -24,19 +27,24 @@ let attempts = []; // the record as stored: oldest first
 let pictures = []; // the pictures and videos hidden, as stored: oldest first
 let watching = null; // when the extension was running (lib/watching.js): places the visits from the history, and holds the times it was off
 let lockbox = { events: [], since: null }; // the locked-away password's record: its entries, oldest first, and when it began
+let lock = []; // the Firefox lock's record (lib/lock.js): what each check that differed from the last found, oldest first
 
 /**
  * What the address asks for: one site (tries.html#site=example.com), or null for every site; only the
  * times the add-on was off (tries.html#off); only the pictures hidden (tries.html#pictures, with a site
- * or not); or only the locked-away password's record (tries.html#password).
+ * or not); only the locked-away password's record (tries.html#password); or only the Firefox lock's
+ * (tries.html#lock).
  */
 function asked() {
   const params = new URLSearchParams(location.hash.replace(/^#/, ''));
-  return { site: params.get('site') || null, onlyOff: params.has('off'), onlyPictures: params.has('pictures'), onlyPassword: params.has('password') };
+  return { site: params.get('site') || null, onlyOff: params.has('off'), onlyPictures: params.has('pictures'), onlyPassword: params.has('password'), onlyLock: params.has('lock') };
 }
 
 /** The pictures hidden as entries for the timeline, newest first: { at, picture: the record's entry }. */
 const pictureEntries = (list) => list.map((picture) => ({ at: picture.at, picture })).reverse();
+
+/** The Firefox lock's record as entries for the timeline, newest first: { at, lock: the record's entry }. */
+const lockEntries = (list) => list.map((entry) => ({ at: entry.at, lock: entry })).reverse();
 
 /**
  * The password's record as entries for the timeline, newest first: { at, password: the entry } for each,
@@ -386,6 +394,13 @@ function renderDays(days) {
         body.append(row);
         continue;
       }
+      if (entry.lock) {
+        // The Firefox lock found in force, or not (lib/lock.js): a lock gone is marked as the add-on being off is.
+        const row = element('tr', null, { class: entry.lock.locked ? 'lock' : 'lock gone' });
+        row.append(element('td', timeFormat.format(entry.at)), element('td', LOCK_NAME), element('td', lockChangeWords(entry.lock)));
+        body.append(row);
+        continue;
+      }
       const what = outcome(entry.attempt, watching);
       const row = element('tr', null, { class: entry.during ? `${what} within` : what });
       row.append(element('td', timeFormat.format(entry.at)), element('td', entry.attempt.site), element('td', LABELS[what]));
@@ -398,9 +413,13 @@ function renderDays(days) {
   $('days').replaceChildren(fragment);
 }
 
-function renderSummary(shown, { site, onlyOff, onlyPictures, onlyPassword }, off, tracked, hidden) {
+function renderSummary(shown, { site, onlyOff, onlyPictures, onlyPassword, onlyLock }, off, tracked, hidden) {
   const counts = summarize(shown, watching);
   const summary = $('summary');
+  if (onlyLock) {
+    summary.textContent = lockWords(lock) || 'Nothing is known yet about the Firefox lock: the add-on checks whenever Firefox starts.';
+    return;
+  }
   if (onlyPassword) {
     summary.textContent = describeRecord(lockbox) || 'Nothing has been done with the locked-away password on its page yet.';
     return;
@@ -433,36 +452,41 @@ let offShown = '';
 const offPart = (state) => JSON.stringify(normalize(state).off);
 
 async function render() {
-  const stored = await api.storage.local.get([ATTEMPTS, PICTURES, WATCHING]);
+  const stored = await api.storage.local.get([ATTEMPTS, PICTURES, WATCHING, LOCK_CHANGES]);
   attempts = Array.isArray(stored[ATTEMPTS]) ? stored[ATTEMPTS] : [];
   pictures = Array.isArray(stored[PICTURES]) ? stored[PICTURES] : [];
   watching = stored[WATCHING] ?? null;
   offShown = offPart(watching);
   lockbox = await loadBox(api.storage.local);
+  lock = lockChanges(stored[LOCK_CHANGES]);
   const { off, periods } = normalize(watching);
-  const { site, onlyOff, onlyPictures, onlyPassword } = asked();
+  const { site, onlyOff, onlyPictures, onlyPassword, onlyLock } = asked();
+  const alone = onlyPictures || onlyPassword || onlyLock; // one part of the record by itself, without the tries
   let shown = site ? attempts.filter((attempt) => attempt.site === site) : attempts;
   if (onlyOff) shown = shown.filter((attempt) => offDuring(off, attempt.at));
-  if (onlyPictures || onlyPassword) shown = [];
+  if (alone) shown = [];
   // The pictures hidden go in among every try and among one site's tries, and are shown alone; the
-  // password's entries go in among every try and are shown alone; the times off are shown with the tries alone.
-  const hidden = onlyOff || onlyPassword ? [] : site ? pictures.filter((picture) => picture.site === site) : pictures;
-  const password = onlyPassword || (!site && !onlyOff && !onlyPictures) ? passwordEntries(lockbox) : [];
-  const only = [onlyOff ? 'the times the add-on was off' : '', onlyPictures ? 'the pictures hidden' : '', onlyPassword ? 'the locked-away password' : ''].filter(Boolean);
+  // password's entries and the lock's go in among every try and are shown alone; the times off are shown with the tries alone.
+  const hidden = onlyOff || onlyPassword || onlyLock ? [] : site ? pictures.filter((picture) => picture.site === site) : pictures;
+  const everything = !site && !onlyOff && !alone;
+  const password = onlyPassword || everything ? passwordEntries(lockbox) : [];
+  const changes = onlyLock || everything ? lockEntries(lock) : [];
+  const only = [onlyOff ? 'the times the add-on was off' : '', onlyPictures ? 'the pictures hidden' : '', onlyPassword ? 'the locked-away password' : '', onlyLock ? 'the Firefox lock' : ''].filter(Boolean);
   $('filter').hidden = !site && only.length === 0;
   $('filter-site').textContent = [site, ...only].filter(Boolean).join(', ');
   $('filter-clear').textContent = site ? 'Show every site' : 'Show every try';
-  document.title = `Family Site Blocker record: ${site ?? (onlyOff ? 'while the add-on was off' : onlyPictures ? 'the pictures hidden' : onlyPassword ? 'the locked-away password' : 'every try')}`;
-  renderSummary(shown, { site, onlyOff, onlyPictures, onlyPassword }, off, periods.length > 0, hidden);
+  document.title = `Family Site Blocker record: ${site ?? (onlyOff ? 'while the add-on was off' : onlyPictures ? 'the pictures hidden' : onlyPassword ? 'the locked-away password' : onlyLock ? 'the Firefox lock' : 'every try')}`;
+  renderSummary(shown, { site, onlyOff, onlyPictures, onlyPassword, onlyLock }, off, periods.length > 0, hidden);
   $('pictures-intro').hidden = hidden.length === 0;
   $('check-line').hidden = hidden.length === 0;
   $('pictures-alone').hidden = onlyPictures;
   $('password-intro').hidden = password.length === 0 || onlyPassword;
+  $('lock-intro').hidden = changes.length === 0 || onlyLock;
   $('save-file').hidden = attempts.length === 0;
   // A site with neither tries nor pictures shows nothing, not even the times the add-on was off; every
-  // other view lays those in, except the pictures' and the password's alone.
+  // other view lays those in, except the pictures', the password's and the lock's alone.
   const nothing = site && shown.length === 0 && hidden.length === 0;
-  const days = nothing ? [] : timeline(shown, onlyPictures || onlyPassword ? null : watching, [...pictureEntries(hidden), ...password]);
+  const days = nothing ? [] : timeline(shown, alone ? null : watching, [...pictureEntries(hidden), ...password, ...changes]);
   $('all').hidden = days.length === 0;
   const back = placeInRow();
   renderDays(days);
@@ -491,13 +515,14 @@ function saveFile() {
   const pad = (n) => String(n).padStart(2, '0');
   const name = `family-site-blocker-record-${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}.csv`;
   const link = document.createElement('a');
-  link.href = URL.createObjectURL(new Blob([toCsv(attempts, watching, pictures)], { type: 'text/csv' }));
+  link.href = URL.createObjectURL(new Blob([toCsv(attempts, watching, pictures, lock)], { type: 'text/csv' }));
   link.download = name;
   document.body.append(link);
   link.click();
   link.remove();
   setTimeout(() => URL.revokeObjectURL(link.href), 60_000);
-  $('save-status').textContent = `Saved ${name} to your downloads: the whole record, oldest first${pictures.length ? ', the pictures hidden among the tries' : ''}.`;
+  const among = [pictures.length ? 'the pictures hidden' : '', lock.length ? 'the Firefox lock’s rows' : ''].filter(Boolean).join(' and ');
+  $('save-status').textContent = `Saved ${name} to your downloads: the whole record, oldest first${among ? `, ${among} among the tries` : ''}.`;
 }
 
 $('save-file').addEventListener('click', saveFile);
@@ -507,7 +532,7 @@ window.addEventListener('hashchange', () => render().catch(() => {}));
 // differently, so only a change in the times off counts.)
 api.storage.onChanged.addListener((changes, area) => {
   if (area !== 'local') return;
-  if (changes[ATTEMPTS] || changes[PICTURES] || changes[EVENTS] || changes[EVENTS_SINCE]) render();
+  if (changes[ATTEMPTS] || changes[PICTURES] || changes[EVENTS] || changes[EVENTS_SINCE] || changes[LOCK_CHANGES]) render();
   else if (changes[WATCHING] && offPart(changes[WATCHING].newValue) !== offShown) render();
 });
 

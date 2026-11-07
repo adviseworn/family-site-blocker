@@ -5,9 +5,11 @@
 // rules act only on page loads), keeps listed pages blocked while the browser hasn't given the extension
 // access to websites (see "Access to websites" below), keeps the record of blocked attempts, and keeps
 // track of when it is running (lib/watching.js), so the record can say whether the extension was ever
-// off. Chrome, Edge and Brave run it as a service worker; Firefox runs it as an event page. Both load it
+// off, and whether the Firefox lock was in force (lib/lock.js), so the record can say when it came and
+// went. Chrome, Edge and Brave run it as a service worker; Firefox runs it as an event page. Both load it
 // as a module (manifest.json: background.type).
 import { ATTEMPTS, HISTORY_SCAN, bookmarksTo, hostOf, listedDomain, mergeVisits, record } from './lib/attempts.js';
+import { LOCK_CHANGES, locked, recordLock } from './lib/lock.js';
 import { COPIES, COPY_SIZE, PICTURES, PICTURE_LENGTH, SHOWN, STRICTNESS, URL_LENGTH, bodyUpTo, copiesByKey, copyKey, hashOf, hideAgain, isPage, keepCopy, markAlike, noteLook, recordHidden, sameHidden, showAgain, shownAgain, strictnessOf, verdict } from './lib/pictures.js';
 import { BLOCK_PAGE, PAGE_BLOCK_FIRST_ID, domainsOf, pageBlockRules } from './lib/rules.js';
 import { UNLISTED, tallyUnlisted } from './lib/suspects.js';
@@ -165,6 +167,28 @@ api.alarms
   .then((alarm) => alarm ?? api.alarms.create(HEARTBEAT, { periodInMinutes: BEAT_EVERY_MINUTES }))
   .catch(() => {});
 noteRunning(); // this script has just started (or been woken)
+
+// --- The Firefox lock ------------------------------------------------------------------------------------
+// Whether the Firefox lock is in force (lib/lock.js) can change only across a Firefox start: Firefox reads
+// the policies the lock is made of when it starts, and answers management.getSelf() from them. This script
+// starts with Firefox, so it asks at each of its own starts and notes what it finds in the lock's record
+// when that differs from the last time (lib/lock.js recordLock); the first check of all is noted as what
+// was found when the add-on began keeping track (1.22.0). Only Firefox has the lock, so only Firefox keeps
+// the record; the settings page reads the same answer for its lock line, as of now, without noting it.
+const isFirefox = api.runtime.getURL('').startsWith('moz-extension:');
+
+function noteLock() {
+  if (!isFirefox || typeof api.management?.getSelf !== 'function') return Promise.resolve();
+  return (writing = writing
+    .then(async () => {
+      const found = locked(await api.management.getSelf());
+      const stored = (await api.storage.local.get(LOCK_CHANGES))[LOCK_CHANGES];
+      const updated = recordLock(stored, { at: Date.now(), locked: found });
+      if (updated !== stored) await api.storage.local.set({ [LOCK_CHANGES]: updated });
+    })
+    .catch(() => {}));
+}
+noteLock(); // this script has just started, which in Firefox means Firefox may have
 
 /**
  * Looks at each silence between the stretches this script was running: the pages the browser's history
