@@ -9,7 +9,7 @@ import { dirname, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { FROM_HISTORY, LABELS, MAX_ATTEMPTS, SAME_ATTEMPT_MS, bookmarksTo, bySite, hostOf, listedDomain, mergeVisits, offDuring, outcome as whatHappened, record, summarize, timeline, toCsv } from '../extension/lib/attempts.js';
-import { everyTryShows, everyTryWords, offVisitsWords, offWords, spanWords } from '../extension/lib/page.js';
+import { everyTryShows, everyTryWords, lockWords, offVisitsWords, offWords, spanWords } from '../extension/lib/page.js';
 import { GAP_MS, MAX_OFF, MAX_PERIODS, WRITE_EVERY_MS, beat, earliestLiveTry, gapsOf, kindOfVisit, normalize, noteGaps, started, wasRunning } from '../extension/lib/watching.js';
 import { normalizeDomain, parseDomainList } from '../extension/lib/domains.js';
 import { MAX_UNLISTED, looksAdult, siteOf, tallyUnlisted } from '../extension/lib/suspects.js';
@@ -592,6 +592,19 @@ test('the link to every try, shared by the settings page and the record page: sh
   assert.equal(everyTryShows({ ...nothing, attempts: [{ at: 1, site: 'a.test' }] }), true, 'a try');
   assert.equal(everyTryShows({ ...nothing, off: [{ from: 1, to: 2, pages: 0 }] }), true, 'a time the add-on was off');
   assert.equal(everyTryShows({ ...nothing, events: [{ at: '2026-11-01T21:00:00Z', event: 'locked' }] }), true, "an entry in the password's record");
+  assert.equal(everyTryShows({ ...nothing, lock: [{ at: 1, locked: false, first: true }] }), true, "an entry in the Firefox lock's record (1.22.0)");
+});
+
+test("the Firefox lock's record summed up for Every try showing it alone (1.22.0): since when it has been in force, or not", () => {
+  const when = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+  const t = new Date(2026, 10, 7, 9).getTime();
+  assert.equal(lockWords(undefined), '');
+  assert.equal(lockWords([]), '');
+  assert.equal(lockWords([{ at: t, locked: false, first: true }]), `The Firefox lock has not been in force since at least ${when.format(t)}, when the add-on first checked. It checks whenever Firefox starts.`, 'found gone at the first check: gone since some time before');
+  assert.equal(lockWords([{ at: t, locked: true, first: true }]), `The Firefox lock has been in force since at least ${when.format(t)}, when the add-on first checked. It checks whenever Firefox starts.`);
+  assert.equal(lockWords([{ at: t, locked: true, first: true }, { at: t + 3_600_000, locked: false }]), `The Firefox lock has not been in force since ${when.format(t + 3_600_000)}. It checks whenever Firefox starts.`, 'a change: exact to the Firefox start that made it');
+  assert.equal(lockWords([{ at: t, locked: false, first: true }, { at: t + 3_600_000, locked: true }]), `The Firefox lock has been in force since ${when.format(t + 3_600_000)}. It checks whenever Firefox starts.`);
+  assert.equal(lockWords([{ at: t, locked: false, first: true }, { at: 'junk', locked: true }]), `The Firefox lock has not been in force since at least ${when.format(t)}, when the add-on first checked. It checks whenever Firefox starts.`, 'from the entries that are well-formed');
 });
 
 test('watching: the first start is noted once, exactly on an install and as "at least" for a profile that had an earlier version', () => {
@@ -784,6 +797,23 @@ test('blocked attempts: the saved file is CSV, oldest first, with local times th
     '',
   ]);
   assert.equal(toCsv([], undefined, []), 'when,site,result,address,nudity,suggestive,mark\n');
+  // The Firefox lock's record is rows among them too (1.22.0): the site column names the lock, the result says what the check found.
+  const withLock = toCsv(
+    [{ at: at + 1000, site: 'a.test' }],
+    undefined,
+    [{ at: at + 3000, site: 'pics.test', url: 'http://pics.test/one.jpg', reason: 'nudity', scores: { porn: 0.9, hentai: 0, sexy: 0.1 } }],
+    [{ at, locked: true, first: true }, { at: at + 2000, locked: false }, { at: at + 4000, locked: true }, { at: 'junk', locked: true }],
+  ).split('\n');
+  assert.deepEqual(withLock.map((line) => line.replace(/^2026-10-18T15:12:\d\d[+-]\d\d:\d\d,/, 'T,')), [
+    'when,site,result,address,nudity,suggestive,mark',
+    'T,Firefox lock,In force when first checked,,,,',
+    'T,a.test,Blocked,,,,',
+    'T,Firefox lock,Not in force,,,,',
+    'T,pics.test,Picture hidden for nudity,http://pics.test/one.jpg,0.90,0.10,',
+    'T,Firefox lock,In force,,,,',
+    '',
+  ]);
+  assert.equal(toCsv([], undefined, [], 'junk'), 'when,site,result,address,nudity,suggestive,mark\n');
   const offset = lines[1].match(/([+-])(\d\d):(\d\d),/);
   const minutes = (Number(offset[2]) * 60 + Number(offset[3])) * (offset[1] === '-' ? -1 : 1);
   assert.equal(minutes, 0 - new Date(at).getTimezoneOffset() || 0, "the offset is this computer's");

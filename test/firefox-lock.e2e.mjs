@@ -94,6 +94,8 @@ function notesAttempts(version) {
 const hasBoard = (version) => compareVersions(version, '1.7.0') >= 0;
 /** Whether a version's lock line says which copy of the profile is installed, from the stamp (from STAMP_FROM). */
 const readsStamp = (version) => compareVersions(version, STAMP_FROM) >= 0;
+/** Whether a version keeps a record of the lock being in force or not, shown on Every try (from 1.22.0). */
+const recordsLock = (version) => compareVersions(version, '1.22.0') >= 0;
 
 /**
  * Another blocker's policies, as Plucky sets them: its own add-on force-installed (and so locked) with
@@ -368,6 +370,31 @@ describe('Firefox lock', { skip: SKIP }, () => {
     });
     assert.deepEqual(self, { installType: 'admin', mayDisable: false }, `what Firefox ${firefox.version} says about an add-on the lock installed`);
   });
+
+  // From 1.22.0 the add-on also keeps a record of that answer: the first check, at its first start under the lock, found it in force.
+  if (version && recordsLock(version)) {
+    test("the add-on's record of the lock says it was in force when the add-on first checked, on Every try", async () => {
+      const host = await firefox.chrome('return WebExtensionPolicy.getByID(arguments[0])?.mozExtensionHostname ?? null;', ADDON_ID);
+      const changes = await firefox.fx.send('WebDriver:ExecuteAsyncScript', {
+        script: `const done = arguments[arguments.length - 1]; browser.storage.local.get('lockChanges').then((got) => done(got.lockChanges), (e) => done('error: ' + e));`,
+        args: [],
+      });
+      assert.ok(Array.isArray(changes), JSON.stringify(changes));
+      assert.deepEqual(changes.map(({ locked, first }) => ({ locked, first })), [{ locked: true, first: true }], JSON.stringify(changes));
+      await firefox.fx.send('WebDriver:Navigate', { url: `moz-extension://${host}/tries.html#lock` });
+      let shown = {};
+      for (let i = 0; i < 40 && shown.rows?.length !== 1; i++) {
+        if (i) await sleep(250);
+        shown = await firefox.run(`return {
+          summary: document.getElementById('summary').textContent,
+          rows: [...document.querySelectorAll('.day tbody tr')].map((row) => [row.className, ...[...row.cells].map((cell) => cell.textContent)]),
+        }`);
+      }
+      assert.equal(shown.rows.length, 1, JSON.stringify(shown));
+      assert.deepEqual([shown.rows[0][0], shown.rows[0][2], shown.rows[0][3]], ['lock', 'Firefox lock', 'In force when first checked']);
+      assert.match(shown.summary, /^The Firefox lock has been in force since at least .+, when the add-on first checked\. It checks whenever Firefox starts\.$/);
+    });
+  }
 
   test('private windows are turned off: the shortcut is gone, and asking for one opens an ordinary window, which blocks', async () => {
     // Firefox also hides the File menu's New Private Window item, but on GitHub's Mac (Firefox 155) that item

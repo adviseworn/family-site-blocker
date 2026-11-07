@@ -1016,6 +1016,80 @@ describe('real browser', () => {
       }
     });
 
+    test("the Firefox lock's record is laid in among the tries, shown alone from its line, and in the saved file; the links to every try count it (1.22.0)", async () => {
+      // Only Firefox keeps the record (the lock is Firefox's): here it is seeded as the background script writes it.
+      const page = await freshRecord();
+      const tries = await browser.context.newPage();
+      tries.errors = [];
+      tries.on('pageerror', (error) => tries.errors.push(error.message));
+      try {
+        const now = Date.now();
+        const hour = 3600_000;
+        assert.equal(await page.locator('#record-links').isVisible(), false, 'nothing to see yet');
+        await page.evaluate(([now, hour]) => chrome.storage.local.set({ lockChanges: [{ at: now - 2 * hour, locked: true, first: true }, { at: now - hour, locked: false }] }), [now, hour]);
+        await page.locator('#record-links').waitFor({ state: 'visible' });
+        assert.equal(await page.locator('#every-try').innerText(), 'See every try', 'the record of the lock counts, without a count of tries');
+        await page.evaluate(([now]) => chrome.storage.local.set({ attempts: [{ at: now - 90 * 60_000, site: 'site1.test' }] }), [now]);
+        await page.waitForFunction(() => document.getElementById('every-try').textContent === 'See every try (1)');
+
+        // Among every try: a row for each time the add-on found the lock in force or not, by its time, newest first.
+        await tries.goto(`chrome-extension://${browser.extensionId}/tries.html`);
+        const rows = () => tries.evaluate(() => [...document.querySelectorAll('.day tbody tr:not(.band)')].map((row) => [row.className, ...[...row.cells].map((cell) => cell.textContent)]));
+        await tries.waitForFunction(() => document.querySelectorAll('.day tbody tr:not(.band)').length === 3);
+        const laid = await rows();
+        assert.deepEqual(laid.map((row) => [row[0].replace(/ within$/, ''), row[2], row[3]]), [['lock gone', 'Firefox lock', 'Not in force'], ['blocked', 'site1.test', 'Blocked'], ['lock', 'Firefox lock', 'In force when first checked']], 'the first check says what it found; a later row is a change');
+        assert.match(laid[0][1], /^\d{1,2}:\d\d [AP]M$/, 'a time only; the day is in the heading');
+        assert.match(await tries.locator('#summary').innerText(), /^1 try at 1 site, the latest at .+\.$/, 'the summary counts the tries alone');
+        assert.equal(await tries.locator('#lock-intro').isVisible(), true);
+        assert.equal(await tries.locator('#lock-intro').innerText(), 'Firefox lock rows say when the lock was found in force and when not, checked whenever Firefox starts. Show them alone.');
+        assert.equal(await tries.locator('#filter').isVisible(), false);
+
+        // Alone, from that line: the summary says since when, and the first check that it can say no further back.
+        await tries.click('#lock-intro a[href="tries.html#lock"]');
+        await tries.waitForFunction(() => document.getElementById('filter-site').textContent === 'the Firefox lock');
+        assert.equal(await tries.title(), 'Family Site Blocker record: the Firefox lock');
+        assert.equal(await tries.locator('#filter').innerText(), 'Only the Firefox lock. Show every try');
+        assert.match(await tries.locator('#summary').innerText(), /^The Firefox lock has not been in force since .+\. It checks whenever Firefox starts\.$/);
+        assert.equal(await tries.locator('#lock-intro').isVisible(), false, 'nothing else to explain');
+        await tries.waitForFunction(() => document.querySelectorAll('.day tbody tr').length === 2);
+        assert.deepEqual((await rows()).map((row) => [row[0], row[3]]), [['lock gone', 'Not in force'], ['lock', 'In force when first checked']]);
+        await page.evaluate(([now, hour]) => chrome.storage.local.set({ lockChanges: [{ at: now - 2 * hour, locked: false, first: true }] }), [now, hour]);
+        await tries.waitForFunction(() => /^The Firefox lock has not been in force since at least /.test(document.getElementById('summary').textContent));
+        assert.match(await tries.locator('#summary').innerText(), /^The Firefox lock has not been in force since at least .+, when the add-on first checked\. It checks whenever Firefox starts\.$/, 'found gone at the first check: gone since some time before');
+        await page.evaluate(([now, hour]) => chrome.storage.local.set({ lockChanges: [{ at: now - 2 * hour, locked: true, first: true }, { at: now - hour, locked: false }] }), [now, hour]);
+        await tries.waitForFunction(() => document.querySelectorAll('.day tbody tr').length === 2);
+
+        // One site's tries, the times off, the pictures and the password alone leave the lock's rows out.
+        await tries.goto(`chrome-extension://${browser.extensionId}/tries.html#site=site1.test`);
+        await tries.waitForFunction(() => document.getElementById('filter-site').textContent === 'site1.test' && document.querySelectorAll('.day tbody tr:not(.band)').length === 1);
+        assert.equal(await tries.locator('#lock-intro').isVisible(), false);
+        for (const [view, name] of [['off', 'the times the add-on was off'], ['pictures', 'the pictures hidden'], ['password', 'the locked-away password']]) {
+          await tries.goto(`chrome-extension://${browser.extensionId}/tries.html#${view}`);
+          await tries.waitForFunction((wanted) => !document.getElementById('filter').hidden && document.getElementById('filter-site').textContent === wanted, name);
+          assert.equal(await tries.locator('.day tbody tr.lock').count(), 0, view);
+        }
+
+        // The file: the rows among the tries, by time, named as on the page.
+        await tries.goto(`chrome-extension://${browser.extensionId}/tries.html`);
+        await tries.waitForFunction(() => document.getElementById('filter').hidden && document.querySelectorAll('.day tbody tr:not(.band)').length === 3);
+        const [download] = await Promise.all([tries.waitForEvent('download'), tries.click('#save-file')]);
+        const lines = readFileSync(await download.path(), 'utf8').split('\n');
+        assert.deepEqual(lines.slice(1, 4).map((line) => line.split(',').slice(1).join(',').replace(/,+$/, '')), ['Firefox lock,In force when first checked', 'site1.test,Blocked', 'Firefox lock,Not in force']);
+        assert.match(await tries.locator('#save-status').innerText(), /: the whole record, oldest first, the Firefox lock’s rows among the tries\.$/);
+
+        // Gone from the page once the record is gone.
+        await page.evaluate(() => chrome.storage.local.remove('lockChanges'));
+        await tries.waitForFunction(() => document.querySelectorAll('.day tbody tr:not(.band)').length === 1);
+        assert.equal(await tries.locator('#lock-intro').isVisible(), false);
+        assert.deepEqual(tries.errors, []);
+        assert.deepEqual(page.errors, []);
+      } finally {
+        await page.evaluate(() => chrome.storage.local.remove(['lockChanges', 'attempts', 'historyScan'])).catch(() => {});
+        await tries.close();
+        await page.close();
+      }
+    });
+
     test('the record page says so when the record is empty', async () => {
       const page = await freshRecord();
       const record = await browser.context.newPage();
