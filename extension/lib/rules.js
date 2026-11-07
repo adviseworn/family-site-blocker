@@ -44,3 +44,29 @@ export function domainsOf(rules) {
     .flatMap((rule) => rule.condition.requestDomains)
     .filter((domain) => !domain.endsWith('.'));
 }
+
+/**
+ * Rules that block a listed page outright, for a browser that hasn't given the extension access to
+ * websites, as Firefox for Android can leave it. Blocking a request needs no such access, where sending
+ * the page to the block page does (a redirect), and Firefox picks the one rule that fits a request and only
+ * then asks whether the extension may act on it: a redirect it may not act on is dropped, no other rule
+ * is tried, and the page loads. At priority 2 these come before the redirect rules, which have priority 1,
+ * so the request is stopped, and the background script sends the tab to the block page itself. It keeps
+ * them as session rules while access is missing, built from the whole list, the person's sites included;
+ * their ids start beyond every id the static and the dynamic rules use.
+ */
+export const PAGE_BLOCK_FIRST_ID = 1_000_001;
+export const PAGE_BLOCK_PRIORITY = 2;
+
+export function pageBlockRules(domains, firstId = PAGE_BLOCK_FIRST_ID) {
+  const rules = [];
+  for (let i = 0; i < domains.length; i += CHUNK_SIZE) {
+    rules.push({
+      id: firstId + rules.length,
+      priority: PAGE_BLOCK_PRIORITY,
+      action: { type: 'block' },
+      condition: { requestDomains: domains.slice(i, i + CHUNK_SIZE).flatMap((domain) => [domain, `${domain}.`]), resourceTypes: ['main_frame'] },
+    });
+  }
+  return rules;
+}
