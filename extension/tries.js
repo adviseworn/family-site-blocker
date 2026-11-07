@@ -1,7 +1,7 @@
 // Every try in the record of blocked attempts, grouped by day, newest first, on a page of its own: the
 // record's one timeline. Laid in among the tries are the times the add-on was off (lib/watching.js), a
 // band in its day with the visits to listed sites from then under it; the pictures and videos the picture
-// filter kept hidden (lib/pictures.js), a row each with why, the judge's scores and the address, where the
+// filter kept hidden (lib/pictures.js), a row each with why, the score that decided and the address, where the
 // picture can be looked at (below); and the locked-away password's record (lib/lockbox.js), a row each in
 // the words of the password's page.
 // The record page (attempts.html) shows the record summed up and links here, for the whole record, for one
@@ -13,12 +13,12 @@
 import { ATTEMPTS, LABELS, offDuring, outcome, summarize, timeline, toCsv } from './lib/attempts.js';
 import { EVENTS, EVENTS_SINCE, beginningOf, describeEvent, describeRecord, loadBox } from './lib/lockbox.js';
 import { dayFormat, element, hiddenWords, lookWords, offVisitsWords, offWords, plural, showVersion, timeFormat, timeOn, tries as triesWord, whenFormat } from './lib/page.js';
-import { COPIES_KEPT, PICTURES, URL_LENGTH, VIDEO_LENGTH, WHY_LENGTH, bodyUpTo, borderline, copyKey, countHidden, describeHidden, isData, isPage, isVideo, isVideoType, lookedAt, scoresOf } from './lib/pictures.js';
+import { COPIES_KEPT, PICTURES, URL_LENGTH, VIDEO_LENGTH, WHY_LENGTH, bodyUpTo, borderline, copyKey, decidingScore, describeHidden, isData, isPage, isVideo, isVideoType, lookedAt } from './lib/pictures.js';
 import { WATCHING, normalize } from './lib/watching.js';
 
 const api = globalThis.browser ?? globalThis.chrome;
 const $ = (id) => document.getElementById(id);
-const PASSWORD = 'Locked-away password'; // what the password's rows say in the site column
+const PASSWORD = 'Password'; // what the password's rows say in the site column ('Locked-away password' until 1.21.0, which wrapped)
 
 let attempts = []; // the record as stored: oldest first
 let pictures = []; // the pictures and videos hidden, as stored: oldest first
@@ -50,13 +50,17 @@ function passwordEntries({ events, since }) {
   return entries;
 }
 
-function dayHeading(day, { tries, hidden, password }) {
+/**
+ * A day's heading: Today or Yesterday, and the date. Until 1.21.0 the day's counts followed it (3 tries, 2
+ * pictures hidden, 1 password entry) and a row of column headings headed its table; both went, with the
+ * explanations at the top cut to a line each, to keep the page short.
+ */
+function dayHeading(day) {
   const today = new Date();
   const midnight = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
   const name = day === midnight ? 'Today' : day === midnight - 86_400_000 ? 'Yesterday' : null;
   const heading = element('h3', name ? `${name}, ` : '');
-  const counts = [tries ? triesWord(tries) : '', hidden.length ? `${countHidden(hidden)} hidden` : '', password ? `${password} password ${password === 1 ? 'entry' : 'entries'}` : ''].filter(Boolean);
-  heading.append(element('span', dayFormat.format(day)), ' ', element('small', counts.join(', ') || 'no tries'));
+  heading.append(element('span', dayFormat.format(day)));
   return heading;
 }
 
@@ -69,9 +73,10 @@ function bandWords(day, { off }) {
 
 /**
  * A hidden picture's or video's row in its day's table: when, the site, and what the record says, with the
- * judge's scores beside it, the mark of a close call, and the address under them, to copy or to look at;
- * then what the record says of the looks at it and its mark (times alone for that day, as on the bands),
- * the picture itself once looked at here, and the marks to give it.
+ * score that decided beside it and the mark of a close call; under them the address, which copies when
+ * clicked (a Copy address button stood beside it until 1.21.0), and Look at it; then what the record says
+ * of the looks at it (times alone for that day, as on the bands), the picture itself once looked at here,
+ * and the marks to give it, the one it has pressed in.
  */
 function pictureRow({ at, picture }, day) {
   const close = borderline(picture);
@@ -79,18 +84,17 @@ function pictureRow({ at, picture }, day) {
   const row = element('tr', null, { class: ['picture', isVideo(picture) ? 'video' : '', close ? 'borderline' : ''].filter(Boolean).join(' ') });
   row.dataset.key = key;
   const what = element('td', describeHidden(picture));
-  what.append(element('small', scoresOf(picture), { class: 'picture-scores' }));
+  what.append(element('small', decidingScore(picture), { class: 'picture-scores' }));
   if (close) what.append(element('small', 'borderline', { class: 'borderline-mark' }));
   const where = element('div', null, { class: 'picture-where' });
-  const copy = element('button', 'Copy address', { type: 'button', class: 'secondary small' });
-  copy.addEventListener('click', () => copyAddress(picture.url, copy));
-  const look = element('button', 'Look at it', { type: 'button', class: 'secondary small look' });
-  look.addEventListener('click', () => lookAt(picture));
-  const actions = element('span', null, { class: 'picture-actions' });
-  actions.append(copy, look);
   // A data: address is the picture itself, written out, and reads as nothing: its start and its length stand for it.
   const address = isData(picture.url) ? `${picture.url.slice(0, 40)}… (${picture.url.length.toLocaleString()} characters)` : picture.url;
-  where.append(element('small', address, { class: 'picture-url', title: picture.url }), actions);
+  const copy = element('button', null, { type: 'button', class: 'picture-url', title: 'Copy the address' });
+  copy.append(element('span', address)); // the span is what is cut short with an ellipsis (options.css)
+  copy.addEventListener('click', () => copyAddress(picture.url, copy, address));
+  const look = element('button', 'Look at it', { type: 'button', class: 'secondary small look' });
+  look.addEventListener('click', () => lookAt(picture));
+  where.append(copy, look);
   what.append(where);
   const notes = lookWords(picture, day);
   if (notes) what.append(element('p', notes, { class: 'picture-notes' }));
@@ -362,18 +366,8 @@ function renderDays(days) {
   const fragment = document.createDocumentFragment();
   for (const { day, entries } of days) {
     const section = element('section', null, { class: 'day' });
-    const tries = entries.filter((entry) => entry.attempt).length;
-    const hidden = entries.filter((entry) => entry.picture).map((entry) => entry.picture);
-    const password = entries.filter((entry) => entry.password).length;
-    section.append(dayHeading(day, { tries, hidden, password }));
+    section.append(dayHeading(day));
     const table = element('table', null, { class: 'attempts' });
-    if (entries.some((entry) => !entry.off)) {
-      const head = element('thead');
-      const headRow = element('tr');
-      for (const title of ['Time', 'Site', 'Result']) headRow.append(element('th', title, { scope: 'col' }));
-      head.append(headRow);
-      table.append(head);
-    }
     const body = element('tbody');
     for (const entry of entries) {
       if (entry.off) {
@@ -388,7 +382,7 @@ function renderDays(days) {
       }
       if (entry.password || entry.began) {
         const row = element('tr', null, { class: entry.began ? 'password began' : 'password' });
-        row.append(element('td', timeFormat.format(entry.at)), element('td', PASSWORD), element('td', entry.began ? entry.began.what : describeEvent(entry.password)));
+        row.append(element('td', timeFormat.format(entry.at)), element('td', PASSWORD), element('td', entry.began ? entry.began.what : describeEvent(entry.password, { brief: true })));
         body.append(row);
         continue;
       }
@@ -431,7 +425,7 @@ function renderSummary(shown, { site, onlyOff, onlyPictures, onlyPassword }, off
       : `${triesWord(counts.tries)}${site ? '' : ` at ${plural(counts.sites, 'site')}`}, the latest at ${whenFormat.format(counts.latest)}.` +
         (counts.opened ? ` ${plural(counts.opened, 'page')} opened instead of being blocked.` : '') +
         (counts.history ? ` ${counts.history} from this browser's history${counts.off ? `, ${counts.off} of them from times the extension was off` : ''}.` : '');
-  summary.textContent = [record, offWords(off)].filter(Boolean).join(' ');
+  summary.textContent = record; // the times off are the bands below (until 1.21.0 the line said how often it was off too)
 }
 
 // What this page shows of the times the add-on was off, so that the minute-by-minute notes of running don't redraw it.
@@ -460,7 +454,6 @@ async function render() {
   $('filter-clear').textContent = site ? 'Show every site' : 'Show every try';
   document.title = `Family Site Blocker record: ${site ?? (onlyOff ? 'while the add-on was off' : onlyPictures ? 'the pictures hidden' : onlyPassword ? 'the locked-away password' : 'every try')}`;
   renderSummary(shown, { site, onlyOff, onlyPictures, onlyPassword }, off, periods.length > 0, hidden);
-  $('off-intro').hidden = off.length === 0 || onlyPictures || onlyPassword;
   $('pictures-intro').hidden = hidden.length === 0;
   $('check-line').hidden = hidden.length === 0;
   $('pictures-alone').hidden = onlyPictures;
@@ -476,17 +469,21 @@ async function render() {
   back?.();
 }
 
-async function copyAddress(url, button) {
+/**
+ * Copies a hidden picture's address from its row, where the address is the button (1.21.0): it says so for
+ * a moment, and the status line at the top says it for a screen reader.
+ */
+async function copyAddress(url, button, address) {
+  const say = (words) => button.replaceChildren(element('span', words));
   try {
     await navigator.clipboard.writeText(url);
-    button.textContent = 'Copied';
+    say('Address copied');
     $('copy-status').textContent = 'Address copied. Paste it into a browser without the extension.';
   } catch (error) {
-    $('copy-status').textContent = `Couldn’t copy: ${error.message}. Select the address in the row instead.`;
+    say('Couldn’t copy it');
+    $('copy-status').textContent = `Couldn’t copy: ${error.message}.`;
   }
-  setTimeout(() => {
-    button.textContent = 'Copy address';
-  }, 2000);
+  setTimeout(() => say(address), 2000);
 }
 
 function saveFile() {

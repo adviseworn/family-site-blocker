@@ -477,7 +477,7 @@ describe('Firefox', { skip: findFirefox() ? false : 'no Firefox found (set FIREF
       assert.equal(list[0].from, 'history', 'the oldest entry is the one from three days ago');
       // The settings page shows the latest three, which the old visit is not among; every try has its page.
       const rows = await browser.run(`return [...document.querySelectorAll('#attempts-table tbody tr')].map((row) => [...row.cells].map((cell) => cell.textContent))`);
-      assert.ok(rows.length <= 3 && rows.every((row) => row[2] !== 'Visited (browser history)'), JSON.stringify(rows));
+      assert.ok(rows.length <= 3 && rows.every((row) => row[2] !== 'Visited before the add-on'), JSON.stringify(rows));
     });
 
     test("listed sites are taken out of Firefox's history and bookmarks once they are in the record, so the address bar stops suggesting them", async () => {
@@ -660,8 +660,8 @@ describe('Firefox', { skip: findFirefox() ? false : 'no Firefox found (set FIREF
       assert.match(every.summary, new RegExp(`^${count} tr(y|ies) at 1 site, the latest at .+\\.`));
       assert.equal(every.filter, null);
       assert.ok(every.days >= 2, `the try from three days ago has a day of its own: ${every.days} days`);
-      assert.ok(every.rows.every((row) => row[1] === SITE && /^(Blocked|Opened, not blocked|Visited \(browser history\))$/.test(row[2])), JSON.stringify(every.rows.slice(0, 3)));
-      assert.equal(every.rows.at(-1)[2], 'Visited (browser history)', 'oldest last');
+      assert.ok(every.rows.every((row) => row[1] === SITE && /^(Blocked|Opened, not blocked|Visited before the add-on)$/.test(row[2])), JSON.stringify(every.rows.slice(0, 3)));
+      assert.equal(every.rows.at(-1)[2], 'Visited before the add-on', 'oldest last');
       await browser.visit(`moz-extension://${new URL(await browser.currentUrl()).host}/tries.html#site=${SITE}`);
       every = await tries(count);
       assert.equal(every.filter, `Only ${SITE}. Show every site`);
@@ -683,7 +683,7 @@ describe('Firefox', { skip: findFirefox() ? false : 'no Firefox found (set FIREF
       const lines = String(csv).split('\n');
       assert.equal(lines[0], 'when,site,result,address,nudity,suggestive,mark');
       assert.equal(lines.length, count + 2, `${count} rows, a heading and a final newline`);
-      assert.match(lines[1], new RegExp(`^\\d{4}-\\d\\d-\\d\\dT\\d\\d:\\d\\d:\\d\\d[+-]\\d\\d:\\d\\d,${SITE.replace(/\./g, '\\.')},Visited \\(browser history\\),,,,$`));
+      assert.match(lines[1], new RegExp(`^\\d{4}-\\d\\d-\\d\\dT\\d\\d:\\d\\d:\\d\\d[+-]\\d\\d:\\d\\d,${SITE.replace(/\./g, '\\.')},Visited before the add-on,,,,$`));
       await browser.fx.send('WebDriver:SwitchToWindow', { handle: settings.handle });
     });
 
@@ -823,12 +823,12 @@ describe('Firefox', { skip: findFirefox() ? false : 'no Firefox found (set FIREF
       // Every try marks it, apart from the visits from before the install.
       await browser.visit(`moz-extension://${host}/tries.html`);
       let rows = [];
-      for (let i = 0; i < 40 && !rows.some((row) => row[2] === 'Visited while the add-on was off'); i++) {
+      for (let i = 0; i < 40 && !rows.some((row) => row[2] === 'Visited while off'); i++) {
         if (i) await sleep(250);
         rows = await browser.run(`return [...document.querySelectorAll('.day tbody tr:not(.band)')].map((row) => [...row.cells].map((cell) => cell.textContent))`);
       }
-      assert.deepEqual(rows.filter((row) => row[2] === 'Visited while the add-on was off').map((row) => row[1]), [SITE]);
-      assert.ok(rows.some((row) => row[2] === 'Visited (browser history)'), `the visit from before the install keeps its wording: ${JSON.stringify(rows)}`);
+      assert.deepEqual(rows.filter((row) => row[2] === 'Visited while off').map((row) => row[1]), [SITE]);
+      assert.ok(rows.some((row) => row[2] === 'Visited before the add-on'), `the visit from before the install keeps its wording: ${JSON.stringify(rows)}`);
       const bands = await browser.run(`return [...document.querySelectorAll('.day tr.band')].map((row) => row.textContent)`);
       // A stretch that crosses midnight is laid in each day it touches (#136), so a run in the hour after midnight sees it twice.
       assert.equal(bands.length, sameDay ? 1 : 2, `the time it was off, laid in as a band: ${JSON.stringify(bands)}`);
@@ -968,9 +968,9 @@ describe('Firefox', { skip: findFirefox() ? false : 'no Firefox found (set FIREF
         if (i) await sleep(250);
         record = await browser.run("return Array.from(document.querySelectorAll('.day tbody tr'), (row) => [row.cells[1].textContent, row.cells[2].textContent])");
       }
-      assert.deepEqual(record.map(([site]) => site), Array(6).fill('Locked-away password'), JSON.stringify(record));
+      assert.deepEqual(record.map(([site]) => site), Array(6).fill('Password'), JSON.stringify(record));
       assert.equal(record[0][1], 'Locked away again, with the same wait of 5 seconds.');
-      assert.match(record[1][1], /^The password was shown \(unlocking started .+: “to try it”\)\.$/);
+      assert.equal(record[1][1], 'The password was shown.', 'without the start and the reason, which the row for the start carries (1.21.0)');
       assert.equal(record[2][1], 'Unlocking started: “to try it”.', 'with the reason asked for (1.13.2)');
       assert.equal(record[3][1], 'The wait was lengthened from 3 seconds to 5 seconds, without unlocking.');
       assert.equal(record[4][1], 'Locked away, with a wait of 3 seconds.');
@@ -1205,7 +1205,7 @@ describe('Firefox', { skip: findFirefox() ? false : 'no Firefox found (set FIREF
         await inRow('http://pics.test/pics/nude.jpg', "const field = row.querySelector('.look-why'); field.value = 'checking a close call'; field.dispatchEvent(new Event('input')); row.querySelector('button.look-go').click(); return true");
         const src = await waitInRow('http://pics.test/pics/nude.jpg', "return row.querySelector('.picture-look img')?.getAttribute('src') ?? ''");
         assert.match(src, /^data:image\/jpeg;base64,/, 'shown from the copy kept when it was hidden');
-        assert.match(await inRow('http://pics.test/pics/nude.jpg', "return row.querySelector('.picture-notes')?.textContent ?? ''"), /^Looked at once, at .+: “checking a close call”\.$/);
+        assert.match(await inRow('http://pics.test/pics/nude.jpg', "return row.querySelector('.picture-notes')?.textContent ?? ''"), /^Looked at .+: “checking a close call”\.$/);
         // The video the page made can't be shown: its row says so and links to the page, with the reason given already.
         await inRow('http://allowed.test/video-blob', "row.querySelector('button.look').click(); return true");
         const link = await waitInRow('http://allowed.test/video-blob', "const a = row.querySelector('.picture-look a'); return a ? { href: a.href, target: a.getAttribute('target'), words: row.querySelector('.picture-look p').textContent } : null");

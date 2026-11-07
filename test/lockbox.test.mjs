@@ -200,6 +200,10 @@ test('every entry has words, with its times and its share of the work', () => {
   assert.equal(describeEvent(at(T.started, 'started', { why: 'to set up the printer' })), 'Unlocking started: “to set up the printer”.', 'the reason asked for since 1.13.2');
   assert.equal(describeEvent(at(T.shown, 'shown', { startedAt: T.started, why: 'to set up the printer' })), `The password was shown (unlocking started ${when(T.started)}: “to set up the printer”).`);
   assert.equal(describeEvent(at(T.shown, 'shown', { why: 'to set up the printer' })), 'The password was shown: “to set up the printer”.');
+  // Every try's rows (1.21.0) leave out when the unlocking started and why: the row for the start says, a few rows down.
+  assert.equal(describeEvent(at(T.shown, 'shown', { startedAt: T.started, why: 'to set up the printer' }), { brief: true }), 'The password was shown.');
+  assert.equal(describeEvent(at(T.shown, 'shown', { why: 'to set up the printer' }), { brief: true }), 'The password was shown.');
+  assert.equal(describeEvent(at(T.started, 'started', { why: 'to set up the printer' }), { brief: true }), 'Unlocking started: “to set up the printer”.', 'the start keeps its reason');
   assert.equal(describeEvent(at(T.started, 'started', { why: '' })), 'Unlocking started.', 'an empty reason is no reason');
   assert.equal(describeEvent(at(T.shown, 'sealed', { delay: 60 })), 'Locked away again, with the same wait of 1 minute.');
   assert.equal(describeEvent(at(T.shown, 'sealed')), 'Locked away again, with the same wait.');

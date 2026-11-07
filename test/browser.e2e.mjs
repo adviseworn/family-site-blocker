@@ -777,7 +777,7 @@ describe('real browser', () => {
         // Dated now, the visit falls in a time the extension was running, so the page says the site can't have been listed then (#69); the
         // Firefox tests, which can date a visit, see the wording for one from before the install.
         const rows = await shown(page);
-        assert.ok(rows.some((row) => row[1] === SITE && row[2] === 'Visited before the site was listed'), JSON.stringify(rows.slice(0, 3)));
+        assert.ok(rows.some((row) => row[1] === SITE && row[2] === 'Visited before it was listed'), JSON.stringify(rows.slice(0, 3)));
         assert.match(await page.locator('#attempts-summary').innerText(), / \d+ from this browser's history\.$/);
 
         // Once in the record, listed pages are taken out of the browser's history, and bookmarks to listed
@@ -861,10 +861,10 @@ describe('real browser', () => {
         assert.match(await tries.locator('#summary').innerText(), /^60 tries at 7 sites, the latest at .+\. 1 page opened instead of being blocked\. 1 from this browser's history\.$/);
         const dayHeadings = await tries.evaluate(() => [...document.querySelectorAll('.day h3')].map((h) => h.textContent));
         assert.ok(dayHeadings.length >= 1 && dayHeadings.length <= 2, `an hour of tries spans one day, or two at midnight: ${dayHeadings}`);
-        assert.match(dayHeadings[0], /^Today, .+ \d+ tr(y|ies)$/);
+        assert.match(dayHeadings[0], /^Today, [^\d]+\d{1,2}, \d{4}$/, 'the day alone: its counts went in 1.21.0');
         const all = await rows();
         assert.deepEqual(all[0].slice(1), ['site3.test', 'Opened, not blocked']);
-        assert.deepEqual(all[59].slice(1), ['site0.test', 'Visited (browser history)']);
+        assert.deepEqual(all[59].slice(1), ['site0.test', 'Visited before the add-on']);
         assert.match(all[0][0], /^\d{1,2}:\d\d [AP]M$/, 'a time only; the day is in the heading');
         assert.equal(await tries.locator('#filter').isVisible(), false);
 
@@ -888,7 +888,7 @@ describe('real browser', () => {
         const lines = readFileSync(await download.path(), 'utf8').split('\n');
         assert.equal(lines[0], 'when,site,result,address,nudity,suggestive,mark');
         assert.equal(lines.length, 62, '60 rows, a heading and a final newline');
-        assert.match(lines[1], /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d[+-]\d\d:\d\d,site0\.test,Visited \(browser history\),,,,$/);
+        assert.match(lines[1], /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d[+-]\d\d:\d\d,site0\.test,Visited before the add-on,,,,$/);
         assert.match(lines[60], /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d[+-]\d\d:\d\d,site3\.test,"Opened, not blocked",,,,$/);
         assert.match(await record.locator('#save-status').innerText(), /^Saved family-site-blocker-record-.+\.csv to your downloads/);
 
@@ -1117,16 +1117,15 @@ describe('real browser', () => {
         const labels = await record.evaluate(() => [...document.querySelectorAll('.day tbody tr:not(.band)')].map((row) => [row.className, row.cells[2].textContent]));
         assert.deepEqual(labels, [
           ['blocked', 'Blocked'],
-          ['off within', 'Visited while the add-on was off'],
-          ['unseen', 'Visited after the add-on was installed'],
-          ['history', 'Visited (browser history)'],
+          ['off within', 'Visited while off'],
+          ['unseen', 'Visited after the install'],
+          ['history', 'Visited before the add-on'],
         ]);
         // The time the extension was off is laid in as a band, before the visit from inside it.
         const laid = await record.evaluate(() => [...document.querySelectorAll('.day tbody tr')].map((row) => (row.classList.contains('band') ? row.textContent : row.className)));
         assert.deepEqual([laid[0], ...laid.slice(2)], ['blocked', 'off within', 'unseen', 'history'], JSON.stringify(laid));
         assert.match(laid[1], /^Add-on off from .+ until .+: \d+ pages? visited meanwhile\.$/, 'the band');
-        assert.equal(await record.locator('#off-intro').isVisible(), true, 'the line that says what a band is');
-        assert.match(await record.locator('#summary').innerText(), /3 from this browser's history, 1 of them from times the extension was off\. Off once, from .+ until .+: \d+ pages? visited meanwhile\.$/);
+        assert.match(await record.locator('#summary').innerText(), /3 from this browser's history, 1 of them from times the extension was off\.$/, 'the band says when it was off (until 1.21.0 the summary said so too, and a line explained the band)');
 
         // The times it was off alone, with the visits from then: where the record page's link leads.
         await record.goto(`chrome-extension://${browser.extensionId}/tries.html#off`);
@@ -1139,7 +1138,7 @@ describe('real browser', () => {
         await record.waitForFunction(() => document.getElementById('filter').hidden && document.querySelectorAll('.day tbody tr:not(.band)').length === 4);
         const [download] = await Promise.all([record.waitForEvent('download'), record.click('#save-file')]);
         const lines = readFileSync(await download.path(), 'utf8').split('\n');
-        assert.deepEqual(lines.slice(1, 5).map((line) => line.split(',').slice(2).join(',').replace(/,+$/, '')), ['Visited (browser history)', 'Visited after the add-on was installed', 'Visited while the add-on was off', 'Blocked']);
+        assert.deepEqual(lines.slice(1, 5).map((line) => line.split(',').slice(2).join(',').replace(/,+$/, '')), ['Visited before the add-on', 'Visited after the install', 'Visited while off', 'Blocked']);
 
         // A visit the history holds from a time the extension was running (now), found by a look through
         // it: the extension noted no try, so the site can't have been listed then.
@@ -1148,7 +1147,7 @@ describe('real browser', () => {
         await page.evaluate(() => chrome.runtime.sendMessage({ type: 'scan-history' })); // as the record page's button does
         await page.waitForFunction((at) => chrome.storage.local.get('historyScan').then((got) => got.historyScan?.at > at && got.historyScan.found >= 1), scannedBefore, { timeout: 15_000 });
         await record.waitForFunction(() => document.querySelectorAll('.day tbody tr:not(.band)').length === 5);
-        assert.deepEqual(await record.evaluate(() => [...document.querySelectorAll('.day tbody tr:not(.band)')].slice(0, 1).map((row) => [row.className, row.cells[2].textContent])), [['unlisted', 'Visited before the site was listed']]);
+        assert.deepEqual(await record.evaluate(() => [...document.querySelectorAll('.day tbody tr:not(.band)')].slice(0, 1).map((row) => [row.className, row.cells[2].textContent])), [['unlisted', 'Visited before it was listed']]);
         await record.goto(`chrome-extension://${browser.extensionId}/attempts.html`);
         await record.waitForFunction(() => /1 visit to a listed site from before the site was listed, while the extension was running\.$/.test(document.getElementById('off-summary').textContent));
         assert.deepEqual(record.errors, []);
@@ -1320,21 +1319,23 @@ describe('real browser', () => {
           [...document.querySelectorAll('.day tbody tr.picture')].map((row) => [row.cells[1].textContent, row.querySelector('.picture-url').textContent, row.cells[2].firstChild.textContent, row.className, row.querySelector('.picture-scores').textContent]),
         );
         const nude = rows.find((row) => row[1].endsWith('/nude.jpg'));
-        assert.deepEqual(nude, ['allowed.test', 'http://pics.test/pics/nude.jpg', 'Picture hidden for nudity', 'picture', 'nudity 0.92, suggestive 0.02'], JSON.stringify(rows));
+        assert.deepEqual(nude, ['allowed.test', 'http://pics.test/pics/nude.jpg', 'Picture hidden for nudity', 'picture', '0.92'], JSON.stringify(rows));
         const lingerie = rows.find((row) => row[1].endsWith('/lingerie.jpg'));
         assert.equal(lingerie[2], 'Picture hidden as suggestive');
-        assert.match(lingerie[4], /^nudity 0\.\d\d, suggestive 0\.\d\d$/, 'the scores beside the words');
+        assert.match(lingerie[4], /^0\.\d\d$/, 'the score that decided beside the words (1.21.0; both scores until then)');
         // The drawn picture was hidden on 0.53, a close call: marked borderline, the likelier mistake (#56).
         const drawn = rows.find((row) => row[1].endsWith('/drawn.jpg'));
         assert.equal(drawn[3], 'picture borderline');
         assert.equal(await record.locator('.day tbody tr.picture .borderline-mark').count(), 1, 'only the close call is marked');
-        // Copy address puts the picture's address on the clipboard, to be opened in a browser without the extension.
+        // The address on the row is a button (1.21.0; Copy address beside it until then) that puts the picture's address on the clipboard, to be opened in a browser without the extension.
         await judge.context.grantPermissions(['clipboard-read', 'clipboard-write']);
-        const drawnRow = record.locator('.day tbody tr.picture', { hasText: 'drawn.jpg' });
-        await drawnRow.locator('button', { hasText: 'Copy address' }).click();
+        // The row by its key: its address, the words the row is found by, give way to "Address copied" for a moment.
+        const drawnRow = record.locator(`.day tbody tr.picture[data-key="${await record.locator('.day tbody tr.picture', { hasText: 'drawn.jpg' }).getAttribute('data-key')}"]`);
+        assert.equal(await drawnRow.locator('button.picture-url').getAttribute('title'), 'Copy the address');
+        await drawnRow.locator('button.picture-url').click();
         await record.waitForFunction(() => /Address copied/.test(document.getElementById('copy-status').textContent));
         assert.equal(await record.evaluate(() => navigator.clipboard.readText()), 'http://pics.test/pics/drawn.jpg');
-        assert.deepEqual(await drawnRow.locator('button').allInnerTexts(), ['Copied', 'Look at it']);
+        assert.deepEqual(await drawnRow.locator('button').allInnerTexts(), ['Address copied', 'Look at it'], 'the address says so for a moment, and Look at it is the row’s one other button');
         // One site's pictures, from the by-site table; and the whole timeline has them among the tries, explained.
         await record.goto(`chrome-extension://${judge.extensionId}/tries.html#site=allowed.test&pictures`);
         await record.waitForFunction(() => document.getElementById('filter-site').textContent === 'allowed.test, the pictures hidden');
@@ -1345,7 +1346,6 @@ describe('real browser', () => {
         await record.waitForFunction(() => document.getElementById('filter').hidden && document.querySelectorAll('.day tbody tr.picture').length >= 3);
         assert.equal(await record.locator('#pictures-intro').isVisible(), true);
         assert.equal(await record.locator('#pictures-alone a').getAttribute('href'), 'tries.html#pictures');
-        assert.match(await record.locator('.day h3 small').first().innerText(), /^\d+ pictures hidden$/, 'the day counts them');
 
         await settings.waitForFunction(() => /pictures? judged(?:, \d+ of them twice)?, \d+ hidden/.test(document.getElementById('picture-status').textContent));
         assert.match(await settings.locator('#picture-status').innerText(), /^Pictures and videos are judged before they show: since the browser started, \d+ pictures judged(?:, \d+ of them twice)?, \d+ hidden \(stand-in\)\.$/); // the count of second opinions is checked in the 1.20.0 test below
@@ -1424,7 +1424,7 @@ describe('real browser', () => {
         await record.waitForFunction(() => [...document.querySelectorAll('.picture-look img')].every((img) => img.complete && img.naturalWidth > 0));
         assert.match(await nudeRow.locator('.picture-look img').getAttribute('src'), /^data:image\/jpeg;base64,/, 'the copy kept when it was hidden, not loaded by the page');
         assert.equal(await nudeRow.locator('.picture-look p').count(), 0, 'the copy kept when it was hidden goes without saying');
-        assert.match(await nudeRow.locator('.picture-notes').innerText(), /^Looked at once, at \d{1,2}:\d\d [AP]M: “checking a close call”\.$/, 'the time alone: the look is on the row’s day');
+        assert.match(await nudeRow.locator('.picture-notes').innerText(), /^Looked at \d{1,2}:\d\d [AP]M: “checking a close call”\.$/, 'the time alone: the look is on the row’s day');
         const entry = await entryFor('http://pics.test/pics/nude.jpg');
         assert.equal(entry.looks.length, 1, JSON.stringify(entry));
         assert.equal(entry.looks[0].why, 'checking a close call');
@@ -1444,8 +1444,8 @@ describe('real browser', () => {
         assert.deepEqual(await nudeRow.locator('.picture-marks button').allInnerTexts(), ['Hidden by mistake', 'Rightly hidden']);
         assert.equal(await nudeRow.locator('.picture-marks button[aria-pressed="true"]').count(), 0);
         await nudeRow.locator('button', { hasText: 'Hidden by mistake' }).click();
-        await nudeRow.locator('.picture-notes', { hasText: 'Marked hidden by mistake at' }).waitFor();
-        assert.match(await nudeRow.locator('.picture-notes').innerText(), /^Looked at once, at .+: “checking a close call”\. Marked hidden by mistake at .+\.$/);
+        await nudeRow.locator('.picture-marks button[aria-pressed="true"]', { hasText: 'Hidden by mistake' }).waitFor();
+        assert.match(await nudeRow.locator('.picture-notes').innerText(), /^Looked at .+: “checking a close call”\.$/, 'the mark is shown by the button pressed in, not said (1.21.0)');
         assert.match(await record.locator('#summary').innerText(), new RegExp(` 1 looked at, ${alike} marked hidden by mistake\\.$`));
         const marked = (await record.evaluate(() => chrome.storage.local.get('pictures').then((got) => got.pictures))).filter((e) => e.mark?.mistake === true);
         assert.equal(marked.length, alike, 'the mark on every row showing the same picture, and on no other');
@@ -1453,14 +1453,15 @@ describe('real browser', () => {
         assert.equal(await nudeRow.locator('.picture-marks button[aria-pressed="true"]').innerText(), 'Hidden by mistake');
         assert.equal(await nudeRow.locator('.picture-look img').count(), 1, 'the picture stays shown through the redraw');
         await nudeRow.locator('button', { hasText: 'Rightly hidden' }).click();
-        await nudeRow.locator('.picture-notes', { hasText: 'Marked rightly hidden at' }).waitFor();
+        await nudeRow.locator('.picture-marks button[aria-pressed="true"]', { hasText: 'Rightly hidden' }).waitFor();
         assert.match(await record.locator('#summary').innerText(), / 1 looked at\.$/, 'no longer counted as a mistake');
         assert.equal((await entryFor('http://pics.test/pics/nude.jpg')).mark.mistake, false);
         // A second look, at another picture, needs no new reason: the one given stays while the page is open.
         const drawnRow = rowFor('http://pics.test/pics/drawn.jpg');
         await drawnRow.locator('button.look').click();
         await drawnRow.locator('.picture-look img').waitFor();
-        assert.match(await drawnRow.locator('.picture-notes').innerText(), /^Looked at once, at .+: “checking a close call”\.( Marked rightly hidden at .+\.)?$/, 'the mark given to the nude one went to this one, the same cat, if its copy is alike');
+        assert.match(await drawnRow.locator('.picture-notes').innerText(), /^Looked at .+: “checking a close call”\.$/);
+        assert.ok((await drawnRow.locator('.picture-marks button[aria-pressed="true"]').count()) <= 1, 'the mark given to the nude one went to this one, the same cat, if its copy is alike');
         assert.match(await record.locator('#summary').innerText(), / 2 looked at\.$/);
         await drawnRow.locator('button.look').click();
         assert.equal((await entryFor('http://pics.test/pics/drawn.jpg')).looks.length, 1, 'pressing again while it is shown is not another look');
@@ -1490,7 +1491,7 @@ describe('real browser', () => {
           await goneRow.locator('.picture-look p').innerText(),
           'Couldn’t show it: it couldn’t be fetched (404), and no copy of it is kept (only the latest 100 hidden have one).',
         );
-        assert.match(await goneRow.locator('.picture-notes').innerText(), /^Looked at once, at .+: “is it still there\?”$/, 'the question mark ends the sentence');
+        assert.match(await goneRow.locator('.picture-notes').innerText(), /^Looked at .+: “is it still there\?”$/, 'the question mark ends the sentence');
         assert.equal(await goneRow.locator('.picture-marks button').count(), 2, 'the marks are offered: the picture may be known from the page');
         const pageRow = rowFor('http://gone.test/was-a-picture');
         await pageRow.locator('button.look').click();
@@ -1665,7 +1666,7 @@ describe('real browser', () => {
         await record.waitForFunction(() => [...document.querySelectorAll('.picture-look img')].every((img) => img.complete && img.naturalWidth > 0));
         assert.deepEqual(await row.locator('.picture-look img').evaluate((img) => [img.src.startsWith('data:image/jpeg;base64,'), img.naturalWidth, img.naturalHeight]), [true, 512, 340]);
         assert.equal(await row.locator('.picture-look p').count(), 0, 'the copy kept when it was hidden goes without saying');
-        assert.match(await row.locator('.picture-notes').innerText(), /^Looked at once, at .+: “what was it\?”$/);
+        assert.match(await row.locator('.picture-notes').innerText(), /^Looked at .+: “what was it\?”$/);
         assert.equal(await row.locator('.picture-marks button').count(), 2);
       } finally {
         await page.close();
@@ -2036,9 +2037,8 @@ describe('real browser', () => {
           [...document.querySelectorAll('.day tbody tr.picture')].map((row) => [row.cells[1].textContent, row.querySelector('.picture-url').textContent, row.cells[2].firstChild.textContent, row.className, row.querySelector('.picture-scores').textContent]),
         );
         const redRow = rows.find((row) => row[1].endsWith('/videos/red.webm'));
-        assert.deepEqual(redRow, ['allowed.test', 'http://allowed.test/videos/red.webm', 'Video hidden for nudity', 'picture video', 'nudity 0.92, suggestive 0.02'], JSON.stringify(rows));
+        assert.deepEqual(redRow, ['allowed.test', 'http://allowed.test/videos/red.webm', 'Video hidden for nudity', 'picture video', '0.92'], JSON.stringify(rows));
         assert.ok(rows.find((row) => row[1].endsWith('/pics/nude.jpg'))[2].startsWith('Picture hidden '), 'a picture is a picture');
-        assert.match(await record.locator('.day h3 small').first().innerText(), /^(\d+ pictures?( and \d+ videos?)?|\d+ videos?) hidden$/, 'the day counts both');
         // Look at it on a video's row shows the video itself when the record holds its address (1.17.0); a
         // video the page made itself, noted under the page's address, can't be shown: the row says so and links to the page.
         const rowFor = (url) => record.locator('.day tbody tr.picture').filter({ has: record.locator('.picture-url', { hasText: new RegExp(`^${url.replace(/[.?]/g, '\\$&')}$`) }) }).first();
@@ -2049,7 +2049,7 @@ describe('real browser', () => {
         await redVideoRow.locator('.picture-look video').waitFor();
         assert.match(await redVideoRow.locator('.picture-look video').getAttribute('src'), /^blob:/);
         assert.equal(await redVideoRow.locator('.picture-look video').getAttribute('controls'), '', 'with controls, not playing by itself');
-        assert.match(await redVideoRow.locator('.picture-notes').innerText(), /^Looked at once, at .+: “what was it\?”$/);
+        assert.match(await redVideoRow.locator('.picture-notes').innerText(), /^Looked at .+: “what was it\?”$/);
         const madeRow = rowFor('http://allowed.test/video-blob');
         await madeRow.locator('button.look').click();
         await madeRow.locator('.picture-look a').waitFor();
@@ -2162,7 +2162,7 @@ describe('real browser', () => {
         assert.equal(await page.locator('#lockbox-record-line a').getAttribute('href'), 'tries.html#password');
         // The rows: the entry, and last the one that says when the record began (1.11.4; a row from 1.13.1): now, kept for when the oldest entries go.
         const rows = await shownRecord();
-        assert.deepEqual(rows.map(({ site, what, kind }) => [site, what, kind]), [['Locked-away password', 'Locked away, with a wait of 3 seconds.', 'password'], ['Locked-away password', 'The record began.', 'password began']], 'the entry, and the beginning as the last row');
+        assert.deepEqual(rows.map(({ site, what, kind }) => [site, what, kind]), [['Password', 'Locked away, with a wait of 3 seconds.', 'password'], ['Password', 'The record began.', 'password began']], 'the entry, and the beginning as the last row (Password alone in the site column from 1.21.0)');
         assert.match(rows[0].when, /\d:\d\d/, 'the time; the day heads the table');
         assert.equal(rows.at(-1).when, rows[0].when, "the beginning is the first entry's time");
         // Every try lays the entries in among the tries, explained, and shows them alone from the password page's link.
@@ -2179,7 +2179,7 @@ describe('real browser', () => {
           assert.match(await tries.locator('#summary').innerText(), /^1 entry, on .+: Locked away, with a wait of 3 seconds\.$/);
           assert.equal(await tries.locator('#password-intro').isVisible(), false, 'nothing else to explain');
           assert.equal(await tries.locator('#filter-clear').innerText(), 'Show every try');
-          assert.match(await tries.locator('.day h3').innerText(), /1 password entry$/);
+          assert.match(await tries.locator('.day h3').innerText(), /\d{4}$/, 'the day alone heads the table (its counts went in 1.21.0)');
           assert.equal(await tries.locator('.day tbody tr').count(), 2);
         } finally {
           await tries.close();
@@ -2252,7 +2252,7 @@ describe('real browser', () => {
         assert.equal(events[3].delay, 3);
         const rows = await shownRecord();
         assert.equal(rows[0].what, 'Locked away again, with the same wait of 3 seconds.');
-        assert.match(rows[1].what, /^The password was shown \(unlocking started .+\d:\d\d.*: “to set up the printer”\)\.$/);
+        assert.equal(rows[1].what, 'The password was shown.', 'without when its unlocking started and why: the row for the start says, below (1.21.0)');
         assert.equal(rows[2].what, 'Unlocking started: “to set up the printer”.');
         assert.equal(rows[3].what, 'Locked away, with a wait of 3 seconds.');
         const settings = await openSettings();
@@ -2504,7 +2504,7 @@ describe('real browser', () => {
         assert.match(await page.locator('#lockbox-record-line').innerText(), /^14 entries since .+, the latest on .+: Locked away, with a wait of 2 days\. See them among every try\.$/);
         const rows = await shownRecord();
         assert.equal(rows.length, 15, 'the 14 entries and the beginning');
-        assert.ok(rows.every(({ site }) => site === 'Locked-away password'), 'each marked in the site column');
+        assert.ok(rows.every(({ site }) => site === 'Password'), 'each marked in the site column');
         assert.deepEqual(rows.map(({ what }) => what).slice(0, 4), [
           'Locked away, with a wait of 2 days.',
           'Deleted.',
