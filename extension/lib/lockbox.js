@@ -246,8 +246,12 @@ export function describeRecord({ events = [], since = null }) {
 /** ": “to set up the printer”", the reason typed before unlocking started (asked for since 1.13.2), or "" without one. */
 const whyOf = (entry) => (typeof entry.why === 'string' && entry.why ? `: “${entry.why}”` : '');
 
-/** What an entry of the record says happened, in words, for the password's page's line and its rows among every try. */
-export function describeEvent(entry) {
+/**
+ * What an entry of the record says happened, in words, for the password's page's line and its rows among
+ * every try. `brief` (Every try's rows, 1.21.0) leaves out of the shown row when its unlocking started and
+ * why, which the row for that start carries a few rows down.
+ */
+export function describeEvent(entry, { brief = false } = {}) {
   switch (entry.event) {
     case 'locked':
       return typeof entry.delay === 'number' ? `Locked away, with a wait of ${duration(entry.delay)}.` : 'Locked away.';
@@ -262,6 +266,7 @@ export function describeEvent(entry) {
     case 'stopped':
       return `Unlocking stopped at ${percent(entry)}% done; the work was thrown away.`;
     case 'shown':
+      if (brief) return 'The password was shown.';
       return isTime(entry.startedAt) ? `The password was shown (unlocking started ${when(entry.startedAt)}${whyOf(entry)}).` : `The password was shown${whyOf(entry)}.`;
     case 'sealed':
       if (typeof entry.delay === 'number' && typeof entry.previous === 'number') {

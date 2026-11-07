@@ -29,13 +29,15 @@ export function outcome(attempt, watching) {
   const kind = kindOfVisit(watching, attempt.at);
   return kind === 'before' ? 'history' : kind;
 }
+// Shorter from 1.21.0, on every page and in the saved file: until then 'Visited (browser history)', 'Visited
+// while the add-on was off', 'Visited before the site was listed' and 'Visited after the add-on was installed'.
 export const LABELS = {
   blocked: 'Blocked',
   opened: 'Opened, not blocked',
-  history: 'Visited (browser history)',
-  off: 'Visited while the add-on was off',
-  unlisted: 'Visited before the site was listed',
-  unseen: 'Visited after the add-on was installed',
+  history: 'Visited before the add-on',
+  off: 'Visited while off',
+  unlisted: 'Visited before it was listed',
+  unseen: 'Visited after the install',
 };
 /** The outcomes that are visits found in the browser's history, however they are placed. */
 export const FROM_HISTORY = ['history', 'off', 'unlisted', 'unseen'];
