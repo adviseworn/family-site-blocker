@@ -1,7 +1,8 @@
 #!/usr/bin/env node
-// The files that let Firefox update Family Site Blocker by itself: updates.json, the update manifest that
-// the add-on's update_url points at (manifest.json: browser_specific_settings.gecko.update_url), and the
-// signed .xpi files it links to. Firefox reads updates.json about once a day, and installs the newest
+// The files that let Firefox update a copy of Family Site Blocker from before 1.24.0 by itself: updates.json,
+// the update manifest that those versions' update_url points at (from 1.24.0 the add-on is listed on
+// addons.mozilla.org, carries no update_url, and Firefox updates it from there), and the signed .xpi files
+// it links to. Firefox reads updates.json about once a day, and installs the newest
 // version listed that is newer than the one it has, after checking the file against the hash given here.
 // The newest version is there a second time as family-site-blocker.xpi, one name that never changes: the
 // Firefox lock installs from it (scripts/firefox-lock.mjs), so a profile the lock sets up starts from the
@@ -9,7 +10,7 @@
 //
 // Firefox has to fetch these without signing in, so they live on a public GitHub Pages site made from the
 // repository UPDATES_REPO (scripts/updates-site.mjs): only these files are there, the source stays in this
-// private repository. The "Publish updates" workflow (.github/workflows/publish-updates.yml) builds them
+// repository. The "Publish updates" workflow (.github/workflows/publish-updates.yml) builds them
 // from every signed release with this script and pushes them there; "Sign with Mozilla" runs it after each
 // new release.
 //

@@ -1,5 +1,5 @@
 # Builds the zip to upload to addons.mozilla.org (npm run package:firefox) and checks it with Mozilla's
-# add-on linter: the same check addons.mozilla.org runs before it signs an add-on. Findings appear as
+# add-on linter: the same check addons.mozilla.org runs before it publishes and signs a version. Findings appear as
 # annotations on the run; errors and warnings fail it.
 name: Firefox package check
 
@@ -23,10 +23,11 @@ jobs:
       - name: Build the Firefox zip
         run: npm run package:firefox
 
-      # --self-hosted: the add-on is distributed on its own, not listed on addons.mozilla.org, so its manifest
-      # may carry an update_url (the linter flags one on a listed add-on).
+      # Checked as a listed add-on: from 1.24.0 it is published on addons.mozilla.org, so its manifest carries
+      # no update_url, which the linter would flag (until 1.23.0 the add-on was self-hosted, and the linter was
+      # told so, which allowed one).
       - name: Run Mozilla's add-on linter on the zip
         shell: bash
         run: |
-          npx --yes addons-linter dist/family-site-blocker-firefox.zip --output json --boring --max-manifest-version=3 --self-hosted > lint.json || true
+          npx --yes addons-linter dist/family-site-blocker-firefox.zip --output json --boring --max-manifest-version=3 > lint.json || true
           node scripts/lint-firefox-report.mjs lint.json

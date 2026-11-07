@@ -1,7 +1,9 @@
 #!/usr/bin/env node
 // Downloads the signed .xpi of one version of this add-on from addons.mozilla.org, when Mozilla already has
-// that version: uploaded by hand, or by an earlier run of Sign with Mozilla that stopped after the upload.
-// Mozilla won't take the same version twice, so the workflow tries this before uploading.
+// that version: uploaded by hand, or by an earlier run of Sign with Mozilla that stopped after the upload,
+// or gave up waiting for a reviewer. Mozilla won't take the same version twice, so the workflow tries this
+// before uploading. A listed version (from 1.24.0) is signed once Mozilla has approved it: at once after its
+// automatic check, or after a reviewer has looked at it, which can take days.
 //
 // usage: node scripts/amo-signed.mjs <version> <folder to save it in>
 // Needs AMO_JWT_ISSUER and AMO_JWT_SECRET, an API key from https://addons.mozilla.org/developers/addon/api/key/
@@ -56,7 +58,7 @@ export async function downloadSigned(version, folder, key, { api = 'https://addo
       writeFileSync(path, data);
       return path;
     }
-    if (Date.now() > deadline) throw new Error(`Mozilla hasn't finished signing ${version} (file status: ${found.file?.status ?? 'none'}).`);
+    if (Date.now() > deadline) throw new Error(`Mozilla hasn't approved and signed ${version} yet (file status: ${found.file?.status ?? 'none'}); a public version can wait for a reviewer.`)
     await new Promise((done) => setTimeout(done, pollMs));
   }
 }

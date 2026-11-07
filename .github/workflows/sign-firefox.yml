@@ -1,15 +1,20 @@
-# Signs the Firefox add-on with Mozilla (addons.mozilla.org, unlisted) and publishes the result as a GitHub
-# release named after the version: the signed .xpi, and the zip that gives it the add-on's icon on a Mac
-# (npm run package:signed). It runs by itself when a version lands on main (a push that changes
-# extension/manifest.json), once the tests on that commit have passed, and can be started from the Actions
-# tab with "Run workflow", which signs at once. If Mozilla already has the version, it downloads that
-# signed file instead of uploading again. Then it publishes the update files that let installed copies
-# update themselves (.github/workflows/publish-updates.yml), when the deploy key for that is saved, and
+# Signs the Firefox add-on with Mozilla and, from 1.24.0, publishes it on addons.mozilla.org (listed: Firefox on a
+# computer or an Android phone installs it from its page there with one click, and keeps it up to date from
+# there), then publishes the result as a GitHub release named after the version: the signed .xpi, and the zip
+# that gives it the add-on's icon on a Mac (npm run package:signed). It runs by itself when a version lands on
+# main (a push that changes extension/manifest.json), once the tests on that commit have passed, and can be
+# started from the Actions tab with "Run workflow", which signs at once. If Mozilla already has the version,
+# it downloads that signed file instead of uploading again. Mozilla publishes a version once its automatic
+# check passes, but holds some for a reviewer, the first public version among them, which can take days: this
+# run then gives up after 25 minutes, and once Mozilla's email says the version is approved, "Run workflow"
+# finishes the job. Then it publishes the update files that let copies from before 1.24.0, and the Firefox
+# lock, take the version (.github/workflows/publish-updates.yml), when the deploy key for that is saved, and
 # adds the Mac files to the release (.github/workflows/mac-installer.yml).
 #
-# It needs two repository secrets (Settings → Secrets and variables → Actions), the two parts of an API key
-# from https://addons.mozilla.org/developers/addon/api/key/ : AMO_JWT_ISSUER (the "JWT issuer") and
-# AMO_JWT_SECRET (the "JWT secret").
+# The page's words (summary, description, category, license, release notes, the notes to Mozilla's reviewers)
+# come from scripts/amo-metadata.mjs. It needs two repository secrets (Settings → Secrets and variables →
+# Actions), the two parts of an API key from https://addons.mozilla.org/developers/addon/api/key/ :
+# AMO_JWT_ISSUER (the "JWT issuer") and AMO_JWT_SECRET (the "JWT secret").
 name: Sign with Mozilla
 
 on:
@@ -113,11 +118,16 @@ jobs:
           VERSION: ${{ steps.build.outputs.version }}
         run: |
           # Mozilla won't take the same version twice. If it already has this one (uploaded by hand, or by a
-          # run that stopped later on), download its signed file; otherwise upload and wait for the signature.
+          # run that stopped later on, or gave up waiting for a reviewer), download its signed file; otherwise
+          # upload it with the page's words and wait for Mozilla to approve and sign it.
           found=0
           node scripts/amo-signed.mjs "$VERSION" web-ext-artifacts || found=$?
           if [ "$found" = 3 ]; then
-            npx --yes web-ext@10.7.0 sign --channel=unlisted --source-dir=dist/firefox --artifacts-dir=web-ext-artifacts --approval-timeout=1500000
+            node scripts/amo-metadata.mjs "$VERSION" "$GITHUB_SHA" "$(git log -1 --pretty=%s)" > dist/amo-metadata.json
+            npx --yes web-ext@10.7.0 sign --channel=listed --amo-metadata=dist/amo-metadata.json --source-dir=dist/firefox --artifacts-dir=web-ext-artifacts --approval-timeout=1500000 || {
+              echo "::error title=Not signed yet::Mozilla hasn't approved and signed $VERSION in this run (see above). If the upload went through and the version is waiting for a reviewer, which the first public version does, Mozilla's email says when it's approved: start Sign with Mozilla from the Actions tab then, and it downloads the signed file and publishes the release."
+              exit 1
+            }
           elif [ "$found" != 0 ]; then
             exit "$found"
           fi
@@ -142,6 +152,10 @@ jobs:
           cat > notes.md <<EOF
           Version $VERSION, signed by Mozilla for Firefox.
 
+          **In Firefox, on a computer or an Android phone:** open https://addons.mozilla.org/firefox/addon/family-site-blocker/ and click **Add to Firefox**. Firefox keeps it up to date from there.
+
+          From a file instead:
+
           - **On a Mac:** download \`family-site-blocker-$VERSION.zip\` and double-click it. You get \`family-site-blocker-$VERSION.xpi\` with the add-on's icon.
           - **Elsewhere:** download \`family-site-blocker-$VERSION.xpi\`.
 
@@ -162,7 +176,7 @@ jobs:
             echo "publish=yes" >> "$GITHUB_OUTPUT"
           else
             echo "publish=no" >> "$GITHUB_OUTPUT"
-            echo "::warning title=Updates not published::Installed copies won't pick this version up by themselves until the update files are published. Save the UPDATES_DEPLOY_KEY secret (README: \"Let it update itself\") and run the Publish updates workflow."
+            echo "::warning title=Updates not published::Copies from before 1.24.0, and the Firefox lock, take this version from the update files, and won't see it until those are published. Save the UPDATES_DEPLOY_KEY secret (README: \"Let it update itself\") and run the Publish updates workflow."
           fi
 
   publish:

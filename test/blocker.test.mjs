@@ -1011,15 +1011,17 @@ test('one manifest works in Chrome, Edge, Brave and Firefox', () => {
   assert.equal(manifest.options_page, 'options.html');
 });
 
-test('the add-on updates itself from the update files that scripts/updates-manifest.mjs publishes', () => {
-  assert.equal(manifest.browser_specific_settings.gecko.update_url, UPDATES_URL);
+test('the add-on is published on addons.mozilla.org, and copies from before 1.24.0 update from the files scripts/updates-manifest.mjs publishes', () => {
+  // Firefox updates a listed add-on from addons.mozilla.org by itself, and Mozilla's linter rejects update_url on one.
+  assert.equal(manifest.browser_specific_settings.gecko.update_url, undefined, 'no update address of its own');
   assert.ok(UPDATES_URL.startsWith('https://'), 'Firefox only takes update manifests over https');
   assert.equal(UPDATES_URL, `${SITE_URL}updates.json`);
-  // Mozilla's linter rejects update_url on an add-on listed on addons.mozilla.org; this one is self-hosted.
   const check = readFileSync(join(EXT, '..', '.github', 'workflows', 'firefox-package.yml'), 'utf8');
-  assert.match(check, /addons-linter .*--self-hosted/, 'the package check tells the linter the add-on is self-hosted');
+  assert.match(check, /addons-linter /, 'the package check runs the linter');
+  assert.doesNotMatch(check, /--self-hosted/, 'as addons.mozilla.org does for a listed add-on');
   const sign = readFileSync(join(EXT, '..', '.github', 'workflows', 'sign-firefox.yml'), 'utf8');
-  assert.match(sign, /uses: \.\/\.github\/workflows\/publish-updates\.yml/, 'signing publishes the update files');
+  assert.match(sign, /web-ext@[\d.]+ sign --channel=listed --amo-metadata=/, 'signing publishes the version on addons.mozilla.org, with the page');
+  assert.match(sign, /uses: \.\/\.github\/workflows\/publish-updates\.yml/, 'signing still publishes the update files, for the older copies and the lock');
 });
 
 test("Firefox's manifest leaves out only background.service_worker, which Mozilla's linter warns about", () => {
