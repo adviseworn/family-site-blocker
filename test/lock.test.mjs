@@ -5,7 +5,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
-import { DIGEST_FROM, PROFILE_FILE, PROFILE_TYPE, STAMP, STAMP_FILE, STAMP_FROM, compareVersions, describeLock, hasDigest, isStamp, lockInForce, locked, managedStamp, ownStamp, profileFile, sameSettings, textOf } from '../extension/lib/lock.js';
+import { DIGEST_FROM, LOCK_CHANGES, LOCK_NAME, MAX_LOCK_CHANGES, PROFILE_FILE, PROFILE_TYPE, STAMP, STAMP_FILE, STAMP_FROM, compareVersions, describeLock, hasDigest, isStamp, lockChangeWords, lockChanges, lockInForce, locked, managedStamp, ownStamp, profileFile, recordLock, sameSettings, textOf } from '../extension/lib/lock.js';
 import { ADDON_ID, FIRST_DIGEST, FIRST_DIGEST_SINCE, STAMP_PATH, VERSION, addonStamp, digestOf, firefoxPolicies, lockSettings, lockStamp } from '../scripts/firefox-lock.mjs';
 
 const stamp = { version: '1.8.0', entries: 1000 };
@@ -248,4 +248,42 @@ test("the digest covers Firefox's own list and the lock's other settings, not th
   assert.equal(FIRST_DIGEST_SINCE, '1.10.5', 'the first release whose profile carried that list and settings');
   assert.match(FIRST_DIGEST, /^[0-9a-f]{12}$/);
   assert.equal(digestOf(lockSettings()) === FIRST_DIGEST, addonStamp().sameSince === FIRST_DIGEST_SINCE);
+});
+
+// --- The lock's record (1.22.0) ---
+
+test("the lock's record: the first check is noted as the first, a later one only when the lock has come or gone, and nothing is written otherwise", () => {
+  const t = 1_762_480_800_000; // Nov 7, 2026
+  assert.equal(LOCK_CHANGES, 'lockChanges');
+  assert.equal(recordLock(undefined, { at: NaN, locked: false }), undefined, 'a check with no time is nothing');
+  assert.equal(recordLock(undefined, { at: t, locked: 'no' }), undefined, 'or with no answer');
+  const first = recordLock(undefined, { at: t, locked: false });
+  assert.deepEqual(first, [{ at: t, locked: false, first: true }], 'the first check of all, marked as the first: it says what was found, not since when');
+  assert.equal(recordLock(first, { at: t + 60_000, locked: false }), first, 'the same answer an hour of restarts later: the list as it was, so nothing is written');
+  const back = recordLock(first, { at: t + 3_600_000, locked: true });
+  assert.deepEqual(back, [{ at: t, locked: false, first: true }, { at: t + 3_600_000, locked: true }], 'the lock in force: a change, with the time of the check');
+  assert.equal(recordLock(back, { at: t + 7_200_000, locked: true }), back);
+  const gone = recordLock(back, { at: t + 86_400_000, locked: false });
+  assert.deepEqual(gone.map(({ locked }) => locked), [false, true, false], 'gone again');
+  assert.deepEqual(recordLock([], { at: t, locked: true }), [{ at: t, locked: true, first: true }], 'an empty record: the first check');
+  assert.deepEqual(recordLock('junk', { at: t, locked: true }), [{ at: t, locked: true, first: true }], 'anything that is not a record: the first check');
+  // What is stored is read back well-formed, with anything else left out, and the first mark kept.
+  assert.deepEqual(lockChanges(gone), gone);
+  assert.deepEqual(lockChanges([{ at: t, locked: true, first: true, extra: 1 }, { at: 'x', locked: true }, { at: t + 1 }, null, { at: t + 2, locked: false, first: false }]), [{ at: t, locked: true, first: true }, { at: t + 2, locked: false }]);
+  assert.deepEqual(lockChanges(undefined), []);
+  assert.deepEqual(lockChanges({ at: t, locked: true }), []);
+  // Only the latest MAX_LOCK_CHANGES are kept.
+  let many = [];
+  for (let i = 0; i < MAX_LOCK_CHANGES + 5; i += 1) many = recordLock(many, { at: t + i * 1000, locked: i % 2 === 0 });
+  assert.equal(many.length, MAX_LOCK_CHANGES);
+  assert.equal(many[0].at, t + 5000, 'the oldest went, the first mark with it');
+  assert.equal(many[0].first, undefined);
+});
+
+test("the lock's rows, on Every try and in the saved file: Firefox lock, found in force or not, and the first check says it was the first", () => {
+  assert.equal(LOCK_NAME, 'Firefox lock');
+  assert.equal(lockChangeWords({ at: 1, locked: true }), 'In force');
+  assert.equal(lockChangeWords({ at: 1, locked: false }), 'Not in force');
+  assert.equal(lockChangeWords({ at: 1, locked: true, first: true }), 'In force when first checked');
+  assert.equal(lockChangeWords({ at: 1, locked: false, first: true }), 'Not in force when first checked', 'a lock gone before the add-on kept track: found gone, since when unknown');
 });

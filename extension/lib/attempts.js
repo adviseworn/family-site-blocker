@@ -10,6 +10,7 @@
 // when the extension was running, and outcome() says. Nothing on the settings page removes entries; only
 // the oldest go, once there are more than MAX_ATTEMPTS. HISTORY_SCAN holds when the history was last
 // looked through, and what that found.
+import { LOCK_NAME, lockChangeWords, lockChanges } from './lock.js';
 import { isVideo } from './pictures.js';
 import { kindOfVisit, normalize } from './watching.js';
 
@@ -256,9 +257,11 @@ function midnightAfter(day) {
  * offset included), the site and what happened, and from 1.18.1 a row for each picture or video the
  * picture filter hid (lib/pictures.js), among them by time, with why in the result column and its
  * address, the two scores the pages show (nudity: porn and hentai together; suggestive) and its mark,
- * hidden by mistake or rightly hidden, in columns of their own, empty on a try's row.
+ * hidden by mistake or rightly hidden, in columns of their own, empty on a try's row. From 1.22.0 the
+ * Firefox lock's record (lib/lock.js) is rows among them too, "Firefox lock" in the site column and
+ * whether it was found in force in the result column, as on Every try.
  */
-export function toCsv(attempts, watching, pictures = []) {
+export function toCsv(attempts, watching, pictures = [], lock = []) {
   const cell = (text) => (/[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text);
   const row = (fields) => fields.map((field) => cell(String(field ?? ''))).join(',');
   const score = (entry, name) => Math.max(0, Number(entry?.scores?.[name]) || 0);
@@ -275,7 +278,8 @@ export function toCsv(attempts, watching, pictures = []) {
       typeof entry.mark?.mistake === 'boolean' ? (entry.mark.mistake ? 'hidden by mistake' : 'rightly hidden') : '',
     ],
   }));
-  const lines = ['when,site,result,address,nudity,suggestive,mark', ...[...tries, ...hidden].sort((a, b) => a.at - b.at).map((item) => row(item.fields))];
+  const changes = lockChanges(lock).map((entry) => ({ at: entry.at, fields: [localIso(entry.at), LOCK_NAME, lockChangeWords(entry), '', '', '', ''] }));
+  const lines = ['when,site,result,address,nudity,suggestive,mark', ...[...tries, ...hidden, ...changes].sort((a, b) => a.at - b.at).map((item) => row(item.fields))];
   return `${lines.join('\n')}\n`;
 }
 

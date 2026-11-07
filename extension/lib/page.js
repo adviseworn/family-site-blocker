@@ -1,4 +1,5 @@
 // Small helpers the record pages share (attempts.html, tries.html, pictures.html, unlisted.html).
+import { lockChanges } from './lock.js';
 import { borderline, countHidden, hiddenBySite, lookedAt, markedMistake } from './pictures.js';
 
 /** An element with text and attributes. */
@@ -17,10 +18,10 @@ export const everyTryWords = (count) => (count ? `See every try (${count})` : 'S
 
 /**
  * Whether Every try (tries.html) has anything to show, so that the links to it show: a try, a time the
- * add-on was off (lib/watching.js's `off`), a picture hidden (lib/pictures.js) or an entry in the
- * locked-away password's record (lib/lockbox.js).
+ * add-on was off (lib/watching.js's `off`), a picture hidden (lib/pictures.js), an entry in the
+ * locked-away password's record (lib/lockbox.js) or one in the Firefox lock's (lib/lock.js, 1.22.0).
  */
-export const everyTryShows = ({ attempts, off, events, pictures = [] }) => attempts.length > 0 || off.length > 0 || events.length > 0 || pictures.length > 0;
+export const everyTryShows = ({ attempts, off, events, pictures = [], lock = [] }) => attempts.length > 0 || off.length > 0 || events.length > 0 || pictures.length > 0 || lock.length > 0;
 
 export const whenFormat = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' });
 export const dayFormat = new Intl.DateTimeFormat(undefined, { dateStyle: 'full' });
@@ -93,6 +94,20 @@ export function hiddenWords(record, site = null) {
     (close ? ` ${close === 1 ? '1 of them is' : `${close} of them are`} borderline.` : '') +
     (checked ? ` ${checked}.` : '')
   );
+}
+
+/**
+ * The Firefox lock's record (lib/lock.js) summed up, for Every try showing it alone: since when the lock
+ * has been in force, or not, from the latest entry; when that is the first check of all, since at least
+ * then, the add-on not knowing what came before; and when it checks. '' with no record.
+ */
+export function lockWords(changes) {
+  const list = lockChanges(changes);
+  if (!list.length) return '';
+  const latest = list[list.length - 1];
+  const state = latest.locked ? 'The Firefox lock has been in force' : 'The Firefox lock has not been in force';
+  const since = latest.first ? `since at least ${whenFormat.format(latest.at)}, when the add-on first checked` : `since ${whenFormat.format(latest.at)}`;
+  return `${state} ${since}. It checks whenever Firefox starts.`;
 }
 
 const times = (count) => (count === 1 ? 'once' : count === 2 ? 'twice' : `${count} times`);

@@ -651,7 +651,7 @@ describe('Firefox', { skip: findFirefox() ? false : 'no Firefox found (set FIREF
             summary: document.getElementById('summary').textContent,
             filter: document.getElementById('filter').hidden ? null : document.getElementById('filter').textContent,
             days: document.querySelectorAll('.day').length,
-            rows: [...document.querySelectorAll('.day tbody tr:not(.band)')].map((row) => [...row.cells].map((cell) => cell.textContent)),
+            rows: [...document.querySelectorAll('.day tbody tr:not(.band):not(.lock)')].map((row) => [...row.cells].map((cell) => cell.textContent)),
           }`);
           if (got.rows.length === expected) return got;
           await sleep(200);
@@ -770,6 +770,64 @@ describe('Firefox', { skip: findFirefox() ? false : 'no Firefox found (set FIREF
       assert.deepEqual(alarms, [{ name: 'heartbeat', periodInMinutes: 1 }]);
     });
 
+    // --- The Firefox lock's record (1.22.0) ---
+    test("the add-on checks the Firefox lock when it starts and keeps a record of what it found: a temporary add-on is not under the lock, and Every try says so, alone and among the tries", async () => {
+      const settings = tabsAfterInstall.find(({ url }) => url.endsWith('/options.html'));
+      await browser.fx.send('WebDriver:SwitchToWindow', { handle: settings.handle });
+      const changes = await inPage(`browser.storage.local.get('lockChanges').then((got) => done(got.lockChanges), (e) => done('error: ' + e));`);
+      assert.ok(Array.isArray(changes), JSON.stringify(changes));
+      assert.deepEqual(changes.map(({ locked, first }) => ({ locked, first })), [{ locked: false, first: true }], `one entry, the first check, finding no lock: ${JSON.stringify(changes)}`);
+      assert.ok(changes[0].at > Date.now() - 30 * 60_000 && changes[0].at <= Date.now(), `checked when the add-on started, earlier in this run: ${JSON.stringify(changes)}`);
+      // Alone, from the line that explains the rows: the row says what the first check found, the summary since when.
+      const host = new URL(settings.url).host;
+      await browser.newTab();
+      await browser.visit(`moz-extension://${host}/tries.html#lock`);
+      const read = () =>
+        browser.run(`return {
+          summary: document.getElementById('summary').textContent,
+          filter: document.getElementById('filter').hidden ? null : document.getElementById('filter').textContent,
+          introHidden: document.getElementById('lock-intro').hidden,
+          rows: [...document.querySelectorAll('.day tbody tr')].map((row) => [row.className, ...[...row.cells].map((cell) => cell.textContent)]),
+        }`);
+      let alone = {};
+      for (let i = 0; i < 40 && alone.rows?.length !== 1; i++) {
+        if (i) await sleep(250);
+        alone = await read();
+      }
+      assert.equal(alone.rows.length, 1, JSON.stringify(alone));
+      assert.deepEqual([alone.rows[0][0], alone.rows[0][2], alone.rows[0][3]], ['lock gone', 'Firefox lock', 'Not in force when first checked']);
+      assert.match(alone.rows[0][1], /\d:\d\d/, 'the time; the day heads the table');
+      assert.equal(alone.filter, 'Only the Firefox lock. Show every try');
+      assert.match(alone.summary, /^The Firefox lock has not been in force since at least .+, when the add-on first checked\. It checks whenever Firefox starts\.$/);
+      assert.equal(alone.introHidden, true, 'nothing else to explain');
+      assert.equal(await browser.run('return document.title'), 'Family Site Blocker record: the Firefox lock');
+      // Among every try: the row is laid in by its time, with the line that explains it.
+      await browser.visit(`moz-extension://${host}/tries.html`);
+      let every = {};
+      for (let i = 0; i < 40 && !every.rows?.some((row) => row[0].startsWith('lock')); i++) {
+        if (i) await sleep(250);
+        every = await read();
+      }
+      const lockRows = every.rows.filter((row) => row[0].startsWith('lock'));
+      assert.deepEqual(lockRows.map((row) => [row[0], row[2], row[3]]), [['lock gone', 'Firefox lock', 'Not in force when first checked']], JSON.stringify(every.rows.slice(0, 4)));
+      assert.ok(every.rows.some((row) => row[2] === SITE), 'among the tries');
+      assert.equal(every.filter, null);
+      assert.equal(every.introHidden, false);
+      assert.equal(await browser.run("return document.getElementById('lock-intro').textContent"), 'Firefox lock rows say when the lock was found in force and when not, checked whenever Firefox starts. Show them alone.');
+      assert.equal(await browser.run("return document.querySelector('#lock-intro a').getAttribute('href')"), 'tries.html#lock');
+      // The file has the row, between the tries by its time.
+      const csv = await browser.fx.send('WebDriver:ExecuteAsyncScript', {
+        script: `const done = arguments[arguments.length - 1];
+          import(browser.runtime.getURL('lib/attempts.js'))
+            .then((lib) => browser.storage.local.get(['attempts', 'lockChanges']).then((got) => done(lib.toCsv(got.attempts, undefined, [], got.lockChanges))))
+            .catch((error) => done('error: ' + error));`,
+        args: [],
+      });
+      const lines = String(csv).split('\n');
+      assert.equal(lines.filter((line) => /,Firefox lock,Not in force when first checked,,,,$/.test(line)).length, 1, lines.slice(0, 4).join(' | '));
+      await browser.fx.send('WebDriver:SwitchToWindow', { handle: settings.handle });
+    });
+
     test("a visit from a time the add-on was off is told from one from before it was installed: Firefox's history, dated, inside a silence in the add-on's own account of running", async () => {
       const settings = tabsAfterInstall.find(({ url }) => url.endsWith('/options.html'));
       await browser.fx.send('WebDriver:SwitchToWindow', { handle: settings.handle });
@@ -827,7 +885,7 @@ describe('Firefox', { skip: findFirefox() ? false : 'no Firefox found (set FIREF
       let rows = [];
       for (let i = 0; i < 40 && !rows.some((row) => row[2] === 'Visited while off'); i++) {
         if (i) await sleep(250);
-        rows = await browser.run(`return [...document.querySelectorAll('.day tbody tr:not(.band)')].map((row) => [...row.cells].map((cell) => cell.textContent))`);
+        rows = await browser.run(`return [...document.querySelectorAll('.day tbody tr:not(.band):not(.lock)')].map((row) => [...row.cells].map((cell) => cell.textContent))`);
       }
       assert.deepEqual(rows.filter((row) => row[2] === 'Visited while off').map((row) => row[1]), [SITE]);
       assert.ok(rows.some((row) => row[2] === 'Visited before the add-on'), `the visit from before the install keeps its wording: ${JSON.stringify(rows)}`);

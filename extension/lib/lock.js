@@ -16,6 +16,10 @@
 // own list and settings date from (sameSince in its own copy). Only a policy can write managed storage,
 // so the stamp can be trusted; and Firefox reads policies when it starts, so the line describes the lock
 // as of Firefox's last start.
+//
+// The lock's record (1.22.0), at the end of this file: whether the lock is in force can change only across a
+// Firefox start, so the background script asks at each of its own starts and notes a change in the
+// extension's storage under LOCK_CHANGES, for Every try and the saved file.
 
 /** The key under which the profile's 3rdparty policy sets the stamp, and the add-on reads it. */
 export const STAMP = 'lock';
@@ -211,3 +215,49 @@ export const lockInForce = ({ installType, mayDisable, firefox }) => firefox && 
 
 /** The parts of a line as plain text, for tests and messages. */
 export const textOf = (parts) => parts.map((part) => (typeof part === 'string' ? part : part.text)).join('');
+
+// --- The lock's record ---------------------------------------------------------------------------------
+// Firefox reads the policies the lock is made of when it starts, and management.getSelf() answers from
+// them (installType "admin" while a policy requires the add-on, mayDisable from the permissions the policy
+// strips), so whether the lock is in force can change only across a Firefox start. The background script,
+// which starts with Firefox, asks at each of its own starts (background.js noteLock) and keeps the answers
+// that differed from the last in the extension's storage under LOCK_CHANGES: a list, oldest first, of
+//   { at: <milliseconds since 1970>, locked: <boolean>, first?: true }
+// `at` is the moment of the check, which is Firefox's start, give or take a second; `locked` what it found;
+// and `first` marks the first check of all, which says what the add-on found when it began keeping track
+// (1.22.0, or the install), not since when it had been so: a lock that went before then left no row. Every
+// try lays the entries in among the tries (tries.js), and the saved file holds them as rows (lib/attempts.js).
+
+export const LOCK_CHANGES = 'lockChanges';
+export const MAX_LOCK_CHANGES = 1000; // a change takes a Firefox restart; a thousand is years of them
+/** What the lock's rows say in the site column, on Every try and in the saved file. */
+export const LOCK_NAME = 'Firefox lock';
+
+/** The lock's record as stored, well-formed: [{ at, locked, first? }], oldest first, with anything else left out. */
+export function lockChanges(stored) {
+  if (!Array.isArray(stored)) return [];
+  return stored.filter((entry) => entry && Number.isFinite(entry.at) && typeof entry.locked === 'boolean').map(({ at, locked, first }) => ({ at, locked, ...(first ? { first: true } : {}) }));
+}
+
+/**
+ * Notes what a check found, { at, locked }: the first check as the record's first entry, marked `first`;
+ * a later one only when the lock has come or gone since the last entry. Returns the new list, or `stored`
+ * itself when nothing changed, so that nothing is written.
+ */
+export function recordLock(stored, { at, locked }) {
+  if (!Number.isFinite(at) || typeof locked !== 'boolean') return stored;
+  const list = lockChanges(stored);
+  const last = list[list.length - 1];
+  if (last && last.locked === locked) return stored;
+  const kept = [...list, last ? { at, locked } : { at, locked, first: true }];
+  return kept.length > MAX_LOCK_CHANGES ? kept.slice(kept.length - MAX_LOCK_CHANGES) : kept;
+}
+
+/**
+ * What an entry's row says, on Every try and in the saved file: whether the check found the lock in force,
+ * and, for the first check, that it was the first, since the row then says what was found, not since when.
+ */
+export function lockChangeWords({ locked, first }) {
+  const found = locked ? 'In force' : 'Not in force';
+  return first ? `${found} when first checked` : found;
+}
