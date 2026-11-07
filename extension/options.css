@@ -528,6 +528,20 @@ code {
   font-weight: 400;
 }
 
+/* The Firefox lock's record among the tries (1.22.0): found in force, in the colour of a blocked try; gone,
+   in the colour of the add-on being off. */
+.day tr.lock td:nth-child(2) {
+  color: var(--muted);
+}
+
+.day tr.lock td:last-child {
+  color: var(--ok);
+}
+
+.day tr.lock.gone td:last-child {
+  color: var(--bad);
+}
+
 /* A picture or video the picture filter kept hidden, among the tries: what the record says, the score that
    decided and the mark of a close call beside it, and under them the address, cut short when long, which
    copies when clicked, with Look at it. */
