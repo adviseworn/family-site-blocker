@@ -29,6 +29,15 @@ export const STAMP_FROM = '1.8.0';
 export const DIGEST_FROM = '1.15.0';
 /** The add-on's own copy of the stamp, in its package (the build writes it). */
 export const STAMP_FILE = 'rules/lock.json';
+/**
+ * The add-on's own copy of the lock's profile, in its package (the build writes it next to mac/'s): what the
+ * settings page saves when its lock line asks for the profile to be installed, so that a Mac whose Firefox
+ * can't reach the release page, or that sits on an older copy, has the file at hand (1.23.0). Installing it
+ * is still a person's doing, in System Settings with an administrator's password: no add-on can do that.
+ */
+export const PROFILE_FILE = 'mac/family-site-blocker-firefox.mobileconfig';
+/** The content type of a configuration profile, which the saved file carries. */
+export const PROFILE_TYPE = 'application/x-apple-aspen-config';
 
 /** Compares two dotted version numbers: negative when a is older, 0 when the same, positive when newer. */
 export function compareVersions(a, b) {
@@ -61,6 +70,20 @@ export async function managedStamp(storage) {
   } catch {
     return null;
   }
+}
+
+/**
+ * The lock's profile from the add-on's package (PROFILE_FILE), for saving: { name, blob }, the name being
+ * the file's, by which macOS knows it as a configuration profile, and the blob typed as one. `runtime` is the
+ * browser's runtime API, for the file's address; `fetcher` fetches it. Throws when the file can't be read
+ * or isn't a profile.
+ */
+export async function profileFile(runtime, fetcher = globalThis.fetch) {
+  const response = await fetcher(runtime.getURL(PROFILE_FILE));
+  if (!response.ok) throw new Error(`the add-on's copy of the profile couldn't be read (${response.status})`);
+  const text = await response.text();
+  if (!text.includes('<key>PayloadType</key>')) throw new Error("the add-on's copy of the profile isn't a profile");
+  return { name: PROFILE_FILE.slice(PROFILE_FILE.lastIndexOf('/') + 1), blob: new Blob([text], { type: PROFILE_TYPE }) };
 }
 
 /**
@@ -112,7 +135,9 @@ const CATCH_UP = "Install the current profile so Firefox's own list and the lock
  * What the lock line says and how it is marked. `installType` and `mayDisable` are management.getSelf()'s;
  * `stamp` the installed profile's (managedStamp), or null; `own` the add-on's version; `ownStamp` the
  * add-on's own copy of the stamp (ownStamp), or null; `firefox` whether this is Firefox. Returns
- * { state: 'ok' | 'todo', parts }, the parts being strings and { anchor, text } links into the README.
+ * { state: 'ok' | 'todo', parts, installProfile }, the parts being strings and { anchor, text } links into
+ * the README, and installProfile true when what the line asks for is the lock's profile installed (so the
+ * page can offer the file, profileFile): on Firefox, with no lock, or with a copy to replace.
  */
 export function describeLock({ installType, mayDisable, stamp = null, own, ownStamp = null, firefox }) {
   const byPolicy = locked({ installType, mayDisable });
@@ -120,6 +145,7 @@ export function describeLock({ installType, mayDisable, stamp = null, own, ownSt
     if (!stamp) {
       return {
         state: 'todo',
+        installProfile: true,
         parts: [
           `${IN_FORCE} The lock installed is a copy from before version ${STAMP_FROM}, so this page can't say which; installing the current profile gives Firefox the current list, and says so here. `,
           link(LOCK_IT, 'How to install it'),
@@ -137,6 +163,7 @@ export function describeLock({ installType, mayDisable, stamp = null, own, ownSt
     if (age < 0) {
       return {
         state: 'todo',
+        installProfile: true,
         parts: [
           `The Firefox lock is in force, but it's an older copy: from version ${stamp.version}, with ${entries(stamp.entries)} in Firefox's own list, while this is version ${own}. ${CATCH_UP}`,
           link(LOCK_IT, 'How to install it'),
@@ -151,6 +178,7 @@ export function describeLock({ installType, mayDisable, stamp = null, own, ownSt
       // Stamped with this version, but built from another list or other settings (a local build, say).
       return {
         state: 'todo',
+        installProfile: true,
         parts: [
           `The Firefox lock is in force, but the copy installed isn't this version's (${own}): its list or settings differ, with ${entries(stamp.entries)} in Firefox's own list. ${CATCH_UP}`,
           link(LOCK_IT, 'How to install it'),
@@ -172,6 +200,7 @@ export function describeLock({ installType, mayDisable, stamp = null, own, ownSt
   if (firefox) {
     return {
       state: 'todo',
+      installProfile: true,
       parts: ['Not under the Firefox lock: anyone who opens the Add-ons Manager can switch the add-on off or remove it. ', link(LOCK_IT, 'How to lock it, on a Mac'), '.'],
     };
   }
