@@ -1358,6 +1358,62 @@ describe('Firefox', { skip: findFirefox() ? false : 'no Firefox found (set FIREF
     });
   });
 
+  describe('without access to websites, as Firefox for Android can leave it', () => {
+    // Firefox drops a redirect rule on a site the add-on has no access to and tries no other, so until 1.21.1
+    // a listed page loaded there. The access is taken away and given back from Firefox itself, as the
+    // Permissions tab of about:addons does it; given back, because the tests before and after expect it.
+    const changeAccess = (way) =>
+      browser.inFirefox(
+        `const done = arguments[arguments.length - 1];
+         const { ExtensionPermissions } = ChromeUtils.importESModule('resource://gre/modules/ExtensionPermissions.sys.mjs');
+         const policy = WebExtensionPolicy.getByID(arguments[0]);
+         ExtensionPermissions[arguments[1]](arguments[0], { permissions: [], origins: ['<all_urls>'] }, policy.extension).then(() => done('ok'), (error) => done('error: ' + error));`,
+        browser.addonId,
+        way,
+      );
+    const onSettingsPage = async (script) => {
+      const settings = tabsAfterInstall.find(({ url }) => url.endsWith('/options.html'));
+      await browser.fx.send('WebDriver:SwitchToWindow', { handle: settings.handle });
+      return browser.fx.send('WebDriver:ExecuteAsyncScript', { script: `const done = arguments[arguments.length - 1]; ${script}`, args: [] });
+    };
+    const pageBlockingRules = () => onSettingsPage('browser.declarativeNetRequest.getSessionRules().then((rules) => done(rules.length), () => done(-1));');
+    const rulesUntil = async (test) => {
+      const until = Date.now() + 10_000;
+      let count = await pageBlockingRules();
+      while (!test(count) && Date.now() < until) {
+        await sleep(200);
+        count = await pageBlockingRules();
+      }
+      return count;
+    };
+
+    test('a listed site is still blocked, with the block page in its place, and the board says what the access is for (1.21.1)', async () => {
+      try {
+        assert.equal(await changeAccess('remove'), 'ok');
+        assert.equal((await browser.grants()).origins.includes('<all_urls>'), false, 'the access is gone');
+        assert.ok((await rulesUntil((count) => count > 0)) > 0, 'the background script put the page-blocking rules in place');
+        const line = await onSettingsPage(`const until = Date.now() + 5000;
+          (function look() {
+            const access = document.getElementById('access');
+            if (!access.hidden || Date.now() > until) done(access.hidden ? '' : access.innerText);
+            else setTimeout(look, 100);
+          })();`);
+        assert.match(line, /hasn’t given Family Site Blocker access to websites yet\. Listed sites are still blocked, but pictures aren’t judged and safe search isn’t turned on\./);
+        stub.clear();
+        await browser.newTab();
+        await browser.run('location.assign(arguments[0])', BLOCKED_URL); // the request is stopped, and the tab then sent to the block page
+        await waitForBlockPage();
+        assert.equal(stub.reached(SITE), false, 'a request reached the site');
+      } finally {
+        assert.equal(await changeAccess('add'), 'ok');
+      }
+      assert.equal((await browser.grants()).origins.includes('<all_urls>'), true, 'the access is back');
+      assert.equal(await rulesUntil((count) => count === 0), 0, 'the page-blocking rules came off');
+      await browser.newTab();
+      await assertBlocked(BLOCKED_URL);
+    });
+  });
+
   describe('the extension folder itself, loaded as the README\'s "Try it" steps do', () => {
     let folder;
     let tabsAfterLoad = [];

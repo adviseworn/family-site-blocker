@@ -14,7 +14,7 @@ import { GAP_MS, MAX_OFF, MAX_PERIODS, WRITE_EVERY_MS, beat, earliestLiveTry, ga
 import { normalizeDomain, parseDomainList } from '../extension/lib/domains.js';
 import { MAX_UNLISTED, looksAdult, siteOf, tallyUnlisted } from '../extension/lib/suspects.js';
 import { addToMyList, myList, saveMyList } from '../extension/lib/mylist.js';
-import { BLOCK_PAGE, CHUNK_SIZE, buildRules, domainsOf } from '../extension/lib/rules.js';
+import { BLOCK_PAGE, CHUNK_SIZE, PAGE_BLOCK_FIRST_ID, PAGE_BLOCK_PRIORITY, buildRules, domainsOf, pageBlockRules } from '../extension/lib/rules.js';
 import { BLOCKLIST_DIR, DOMAINS_PATH, MANIFEST_PATH, MAX_RULESET_BYTES, NEVER_FILE, RULES_DIR, SAFE_SEARCH_PATH, formatManifest, listFiles, loadBlocklists, loadNever, loadRules, renderDomains, renderRulesets, renderSafeSearch, ruleResources } from '../scripts/build-rules.mjs';
 import { ENGINES, FIRST_ID, YOUTUBE, safeSearchAddress, safeSearchRules } from '../extension/lib/safesearch.js';
 import { BANDS, COMMUNITY_PATH, COMMUNITY_URL, LINKS_URL, POPULAR_PATH, POPULAR_SIZE, POPULAR_URL, communityList, inOrder, linkRanks, looksAdult as nameLooksAdult, popularList, rankSites, worthALook } from '../scripts/update-blocklist.mjs';
@@ -45,6 +45,25 @@ function outcome(url, type = 'main_frame') {
     }
   }
   return 'allow';
+}
+
+// The browser's choice when the extension has no access to websites, as Firefox for Android can leave it:
+// the one rule that fits best is picked (the highest priority, then a block before a redirect, which is how
+// both browsers rank them), and only then is the extension's access asked about. A redirect it may not act
+// on is dropped, no other rule is tried, and the page loads; a block stands (Firefox's ExtensionDNR.sys.mjs,
+// RequestEvaluator and isRuleActionAllowed).
+function outcomeWithoutAccess(ruleList, url, type = 'main_frame') {
+  const host = new URL(url).hostname;
+  const rank = { allow: 1, allowAllRequests: 2, block: 3, upgradeScheme: 4, redirect: 5 };
+  const fits = ruleList.filter((rule) => {
+    const { requestDomains, resourceTypes, excludedResourceTypes } = rule.condition;
+    if (resourceTypes && !resourceTypes.includes(type)) return false;
+    if (excludedResourceTypes?.includes(type)) return false;
+    return requestDomains.some((domain) => host === domain || host.endsWith(`.${domain}`));
+  });
+  fits.sort((a, b) => b.priority - a.priority || rank[a.action.type] - rank[b.action.type] || a.id - b.id);
+  const best = fits[0];
+  return !best || best.action.type === 'redirect' ? 'allow' : best.action.type;
 }
 
 test('test case: navigating to exampleadultsite.com is blocked', () => {
@@ -113,6 +132,41 @@ test('every domain is listed with and without a trailing dot, because Firefox ma
       assert.ok(listed.has(twin), `${domain} has ${twin} next to it`);
     }
   }
+});
+
+test('without access to websites, as Firefox for Android can leave it, the built-in rules alone let a listed page load: Firefox drops the redirect and tries no other', () => {
+  assert.equal(outcomeWithoutAccess(rules, 'https://exampleadultsite.com/'), 'allow');
+  assert.equal(outcomeWithoutAccess(rules, 'https://exampleadultsite.com/x', 'image'), 'block', 'what a page loads from the site is blocked outright, which needs no access');
+});
+
+test('the page-blocking rules the background script keeps while access is missing stop the page outright (1.21.1)', () => {
+  const { domains } = loadBlocklists();
+  const blocking = pageBlockRules(domains);
+  for (const url of ['https://exampleadultsite.com/', 'http://www.exampleadultsite.com./page', 'https://cdn.img.exampleadultsite.com:8443/']) {
+    assert.equal(outcomeWithoutAccess([...rules, ...blocking], url), 'block', url);
+  }
+  assert.equal(outcomeWithoutAccess([...rules, ...blocking], 'https://notexampleadultsite.com/'), 'allow');
+  // The person's own sites go in too: the background script builds the rules from the whole list.
+  assert.equal(outcomeWithoutAccess([...rules, ...pageBlockRules([...domains, 'added.example'])], 'https://www.added.example/'), 'block');
+});
+
+test('page-blocking rules: one per chunk, pages only, both spellings, ahead of the other rules, ids beyond theirs, and not part of the list the rules give back', () => {
+  const domains = ['a.example', 'b.example', 'c.example'];
+  const blocking = pageBlockRules(domains);
+  assert.deepEqual(blocking, [
+    {
+      id: PAGE_BLOCK_FIRST_ID,
+      priority: PAGE_BLOCK_PRIORITY,
+      action: { type: 'block' },
+      condition: { requestDomains: ['a.example', 'a.example.', 'b.example', 'b.example.', 'c.example', 'c.example.'], resourceTypes: ['main_frame'] },
+    },
+  ]);
+  const many = pageBlockRules(Array.from({ length: CHUNK_SIZE * 2 + 1 }, (_, i) => `site${i}.example`));
+  assert.deepEqual(many.map((rule) => rule.id), [PAGE_BLOCK_FIRST_ID, PAGE_BLOCK_FIRST_ID + 1, PAGE_BLOCK_FIRST_ID + 2]);
+  assert.ok(many.every((rule) => rule.condition.requestDomains.length <= CHUNK_SIZE * 2));
+  assert.ok(PAGE_BLOCK_PRIORITY > Math.max(...rules.map((rule) => rule.priority)), 'ahead of every built-in rule');
+  assert.ok(PAGE_BLOCK_FIRST_ID > Math.max(...ALL_RULES.map((rule) => rule.id)), 'beyond every static rule id');
+  assert.deepEqual(domainsOf([...buildRules(domains), ...blocking]), domains, "the person's list is read from the redirect rules; these are left alone");
 });
 
 test('extension/rules/*.json and manifest.json are up to date with blocklists/ (run npm run build)', () => {
