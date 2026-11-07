@@ -16,7 +16,7 @@ import { MAX_UNLISTED, looksAdult, siteOf, tallyUnlisted } from '../extension/li
 import { addToMyList, myList, saveMyList } from '../extension/lib/mylist.js';
 import { BLOCK_PAGE, CHUNK_SIZE, PAGE_BLOCK_FIRST_ID, PAGE_BLOCK_PRIORITY, buildRules, domainsOf, pageBlockRules } from '../extension/lib/rules.js';
 import { BLOCKLIST_DIR, DOMAINS_PATH, MANIFEST_PATH, MAX_RULESET_BYTES, NEVER_FILE, RULES_DIR, SAFE_SEARCH_PATH, formatManifest, listFiles, loadBlocklists, loadNever, loadRules, renderDomains, renderRulesets, renderSafeSearch, ruleResources } from '../scripts/build-rules.mjs';
-import { ENGINES, FIRST_ID, YOUTUBE, safeSearchAddress, safeSearchRules } from '../extension/lib/safesearch.js';
+import { ENGINES, FIRST_ID, safeSearchAddress, safeSearchRules } from '../extension/lib/safesearch.js';
 import { BANDS, COMMUNITY_PATH, COMMUNITY_URL, LINKS_URL, POPULAR_PATH, POPULAR_SIZE, POPULAR_URL, communityList, inOrder, linkRanks, looksAdult as nameLooksAdult, popularList, rankSites, worthALook } from '../scripts/update-blocklist.mjs';
 import { firefoxManifest, packageFirefox } from '../scripts/package-firefox.mjs';
 import { ADDON_PROFILE_PATH, AGENT_LABEL, AGENT_PATH, FILTER_LIMIT, PROFILE_PATH, SAFE_MODE_KEY_VARIABLE, STAMP_PATH, VERSION as LOCK_VERSION, WHOLE_DOMAINS, XPI_URL, addonStamp, digestOf, filterEntries, filterPattern, filterSites, firefoxPolicies, launchAgent, lockSettings, lockStamp, mobileconfig, onWholeDomain } from '../scripts/firefox-lock.mjs';
@@ -361,11 +361,11 @@ test('domainsOf reads back the domains a set of rules was built from, each once'
   assert.ok(domainsOf(rules).includes('exampleadultsite.com'));
 });
 
-test('safe search: each engine gets an allow rule for addresses already strict and a redirect that adds the setting; YouTube gets its header', () => {
+test('safe search: each engine gets an allow rule for addresses already strict and a redirect that adds the setting; YouTube is left alone', () => {
   const safe = safeSearchRules();
   assert.deepEqual(readFileSync(SAFE_SEARCH_PATH, 'utf8'), renderSafeSearch(), 'rules/safe-search.json is up to date (run npm run build)');
   assert.deepEqual(ALL_RULES.filter((rule) => rule.id >= FIRST_ID), safe, 'the manifest loads exactly these');
-  assert.equal(safe.length, ENGINES.length * 2 + 1);
+  assert.equal(safe.length, ENGINES.length * 2, 'two rules an engine, and nothing else: the YouTube header rule went in 1.26.0');
   ENGINES.forEach((engine, i) => {
     const [allow, redirect] = safe.slice(i * 2, i * 2 + 2);
     assert.equal(allow.action.type, 'allow');
@@ -408,10 +408,9 @@ test('safe search: each engine gets an allow rule for addresses already strict a
   for (const url of ['https://www.google.com/', 'https://www.google.com/maps?q=test', 'https://mail.google.com/mail/?q=test', 'https://duckduckgo.com/', 'https://www.bing.com/', 'https://www.youtube.com/results?search_query=test', 'https://example.com/search?q=test', 'https://notgoogle.com/search?q=test']) {
     assert.equal(safeSearchAddress(url), url, `${url} is left alone`);
   }
-  const header = safe.at(-1);
-  assert.deepEqual(header.action, { type: 'modifyHeaders', requestHeaders: [{ header: 'YouTube-Restrict', operation: 'set', value: 'Strict' }] });
-  assert.deepEqual(header.condition.requestDomains, YOUTUBE.domains);
-  assert.ok(header.condition.resourceTypes.includes('main_frame') && header.condition.resourceTypes.includes('xmlhttprequest'), 'page loads and the calls pages make');
+  // Until 1.25.0 a last rule set the YouTube-Restrict header on every request to YouTube, which kept it in Restricted Mode and hid ordinary videos; no rule touches YouTube now.
+  assert.ok(safe.every((rule) => rule.action.type !== 'modifyHeaders'), 'no header rule');
+  assert.ok(!safe.some((rule) => JSON.stringify(rule).toLowerCase().includes('youtube')), 'nothing about YouTube');
   assert.deepEqual(manifest.declarative_net_request.rule_resources.at(-1), { id: 'safe-search', enabled: true, path: 'rules/safe-search.json' });
 });
 

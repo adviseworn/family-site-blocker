@@ -27,7 +27,7 @@ export const LISTING = {
   },
   description: {
     'en-US': [
-      'Family Site Blocker blocks adult websites in the browser it is installed in, for a family. It starts with a built-in list of about sixty thousand sites, lets you add your own on its settings page, turns safe search on at the main search engines and YouTube, and judges every picture and video a page shows before it appears, keeping the ones that show nudity hidden.',
+      'Family Site Blocker blocks adult websites in the browser it is installed in, for a family. It starts with a built-in list of about sixty thousand sites, lets you add your own on its settings page, turns safe search on at the main search engines, and judges every picture and video a page shows before it appears, keeping the ones that show nudity hidden.',
       'It keeps a record on the computer or phone, and nowhere else: every try at a listed site, with the time and whether it was blocked, the pictures it hid, and the times it was off. The settings page shows whether it is working, with a test site.',
       'For a parent there is a locked-away password page: a password you can only get back after a wait you choose. On a Mac, a configuration profile can lock the add-on so that nobody can switch it off; on a phone there is no lock, so anyone who can open Firefox’s settings can remove it.',
       `The full guide, with how it works and what it can't do: ${HOME_URL}`,

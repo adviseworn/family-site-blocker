@@ -1,9 +1,9 @@
-// Safe search: the rules that keep the big search engines' adult filters on, and YouTube in Restricted
-// Mode, whatever the settings on the site say. A site blocker can't filter search results, and Google
-// Images, Bing and the rest show explicit results with their filter off; each of them, though, reads a
-// strict-filter setting from the address itself. So a search page's address gets that setting added
-// (a redirect to the same address plus one parameter, done by the browser before the request goes out),
-// and every request to YouTube carries the YouTube-Restrict header that network administrators use.
+// Safe search: the rules that keep the big search engines' adult filters on, whatever the settings on
+// the site say. A site blocker can't filter search results, and Google Images, Bing and the rest show
+// explicit results with their filter off; each of them, though, reads a strict-filter setting from the
+// address itself. So a search page's address gets that setting added (a redirect to the same address
+// plus one parameter, done by the browser before the request goes out). YouTube is left alone: its
+// Restricted Mode hid ordinary videos, allows no exceptions, and stopped being set here in 1.26.0.
 //
 // npm run build writes these rules to rules/safe-search.json, a ruleset of its own in manifest.json next
 // to the adult-N.json files, so the list can be rebuilt without touching them.
@@ -51,17 +51,7 @@ export const ENGINES = [
   },
 ];
 
-/** The header YouTube reads, and the hosts it must go to (the site and the services its pages call). */
-export const YOUTUBE = {
-  header: 'YouTube-Restrict',
-  value: 'Strict',
-  domains: ['youtube.com', 'youtube-nocookie.com', 'youtubei.googleapis.com', 'youtube.googleapis.com'],
-};
-
 export const FIRST_ID = 1001; // the adult rulesets count up from 1; these stay out of their way
-// Every kind of request both Chrome and Firefox know, so the header goes on page loads and the calls a
-// page makes alike. (Left out, a rule would skip page loads.)
-const EVERY_TYPE = ['main_frame', 'sub_frame', 'stylesheet', 'script', 'image', 'font', 'object', 'xmlhttprequest', 'ping', 'media', 'websocket', 'other'];
 
 /** The whole ruleset, in the browsers' declarativeNetRequest form. */
 export function safeSearchRules() {
@@ -83,12 +73,6 @@ export function safeSearchRules() {
       condition: { regexFilter: pattern, resourceTypes: ['main_frame', 'sub_frame'] },
     });
   }
-  rules.push({
-    id: id++,
-    priority: 1,
-    action: { type: 'modifyHeaders', requestHeaders: [{ header: YOUTUBE.header, operation: 'set', value: YOUTUBE.value }] },
-    condition: { requestDomains: YOUTUBE.domains, resourceTypes: EVERY_TYPE },
-  });
   return rules;
 }
 

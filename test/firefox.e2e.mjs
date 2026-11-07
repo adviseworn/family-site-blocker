@@ -208,14 +208,16 @@ describe('Firefox', { skip: findFirefox() ? false : 'no Firefox found (set FIREF
       }
     });
 
-    test('requests to YouTube carry the Restricted Mode header; others do not', async () => {
+    // Until 1.25.0 every request to YouTube carried the YouTube-Restrict header, which kept it in Restricted Mode and hid ordinary videos too.
+    test('requests to YouTube go out as they are, with no Restricted Mode header, and so do other sites', async () => {
       stub.clear();
       stub.page('www.youtube.com/results', '<script>fetch("http://www.youtube.com/youtubei/v1/search").catch(() => {})</script>');
       await browser.visit('http://www.youtube.com/results?search_query=test');
       await sleep(500);
       const toYouTube = stub.requests.filter((r) => r.host === 'www.youtube.com');
       assert.ok(toYouTube.length >= 2, JSON.stringify(stub.requests.map((r) => r.host + r.path)));
-      assert.ok(toYouTube.every((r) => r.headers['youtube-restrict'] === 'Strict'), JSON.stringify(toYouTube.map((r) => [r.path, r.headers['youtube-restrict']])));
+      assert.ok(toYouTube.some((r) => r.path === '/results' && r.search === '?search_query=test'), 'the page was asked for unchanged');
+      assert.ok(toYouTube.every((r) => r.headers['youtube-restrict'] === undefined), JSON.stringify(toYouTube.map((r) => [r.path, r.headers['youtube-restrict']])));
       stub.clear();
       await browser.visit('http://allowed.test/');
       assert.equal(stub.requests.find((r) => r.host === 'allowed.test')?.headers['youtube-restrict'], undefined);
