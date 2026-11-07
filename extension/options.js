@@ -3,7 +3,7 @@
 // the locked-away password stands. The record and the password have pages of their own.
 import { ATTEMPTS, LABELS, outcome, summarize } from './lib/attempts.js';
 import { parseDomainList } from './lib/domains.js';
-import { describeLock, lockInForce, managedStamp, ownStamp } from './lib/lock.js';
+import { describeLock, lockInForce, managedStamp, ownStamp, profileFile } from './lib/lock.js';
 import { BOX, EVENTS, PROGRESS, describeBox, loadBox } from './lib/lockbox.js';
 import { MY_LIST_CHANGED, myList, saveMyList } from './lib/mylist.js';
 import { everyTryShows, everyTryWords } from './lib/page.js';
@@ -153,6 +153,8 @@ const lockState = (async () => {
   if (lockInForce(state)) [state.stamp, state.ownStamp] = await Promise.all([managedStamp(api.storage), ownStamp(api.runtime)]);
   return state;
 })();
+// Which system this is: the lock's profile is for a Mac, so the page offers it there only.
+const platform = Promise.resolve().then(() => api.runtime.getPlatformInfo()).catch(() => ({ os: '' }));
 
 async function checkLock() {
   const line = $('lock');
@@ -173,8 +175,32 @@ async function checkLock() {
   const described = describeLock(state);
   status.replaceChildren(...described.parts.map((part) => (typeof part === 'string' ? part : readme(part))));
   markLine('lock', described.state);
+  // On a Mac, when the line asks for the lock's profile to be installed, the page hands out the add-on's own
+  // copy of it (1.23.0): saved to the downloads, it is installed from System Settings with an
+  // administrator's password, which no add-on can do itself; so the file is at hand even when Firefox
+  // can't reach the release page.
+  $('lock-save').hidden = !(described.installProfile && isFirefox && (await platform).os === 'mac');
   line.hidden = false;
 }
+
+async function saveProfile() {
+  const status = $('lock-save-status');
+  status.hidden = false;
+  try {
+    const { name, blob } = await profileFile(api.runtime);
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = name;
+    document.body.append(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(link.href), 60_000);
+    status.textContent = `Saved ${name} to your downloads. Double-click it, install it under System Settings → General → Device Management with an administrator’s name and password, then quit Firefox and open it again.`;
+  } catch (error) {
+    status.textContent = `Couldn’t save the profile: ${error.message}.`;
+  }
+}
+$('lock-save').addEventListener('click', saveProfile);
 
 // Browsers switch extensions off in private windows unless the person allows them there, which would
 // leave an easy way round the blocker. Say so, and point at the switch. The Firefox lock turns private

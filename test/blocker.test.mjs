@@ -19,7 +19,7 @@ import { BLOCKLIST_DIR, DOMAINS_PATH, MANIFEST_PATH, MAX_RULESET_BYTES, NEVER_FI
 import { ENGINES, FIRST_ID, YOUTUBE, safeSearchAddress, safeSearchRules } from '../extension/lib/safesearch.js';
 import { BANDS, COMMUNITY_PATH, COMMUNITY_URL, LINKS_URL, POPULAR_PATH, POPULAR_SIZE, POPULAR_URL, communityList, inOrder, linkRanks, looksAdult as nameLooksAdult, popularList, rankSites, worthALook } from '../scripts/update-blocklist.mjs';
 import { firefoxManifest, packageFirefox } from '../scripts/package-firefox.mjs';
-import { AGENT_LABEL, AGENT_PATH, FILTER_LIMIT, PROFILE_PATH, SAFE_MODE_KEY_VARIABLE, STAMP_PATH, VERSION as LOCK_VERSION, WHOLE_DOMAINS, XPI_URL, addonStamp, digestOf, filterEntries, filterPattern, filterSites, firefoxPolicies, launchAgent, lockSettings, lockStamp, mobileconfig, onWholeDomain } from '../scripts/firefox-lock.mjs';
+import { ADDON_PROFILE_PATH, AGENT_LABEL, AGENT_PATH, FILTER_LIMIT, PROFILE_PATH, SAFE_MODE_KEY_VARIABLE, STAMP_PATH, VERSION as LOCK_VERSION, WHOLE_DOMAINS, XPI_URL, addonStamp, digestOf, filterEntries, filterPattern, filterSites, firefoxPolicies, launchAgent, lockSettings, lockStamp, mobileconfig, onWholeDomain } from '../scripts/firefox-lock.mjs';
 import { STAMP } from '../extension/lib/lock.js';
 import { AGENT_INSTALLED_PATH, PKG_IDENTIFIER, TITLE, VERSION as INSTALLER_VERSION, buildInstaller, conclusion, distribution, pkgName, postinstall, welcome } from '../scripts/mac-installer.mjs';
 import { ICNS_PATH, packageSigned } from '../scripts/package-signed.mjs';
@@ -1310,6 +1310,9 @@ test('mac/family-site-blocker-firefox.mobileconfig is up to date with blocklists
   assert.match(profile, new RegExp(`<key>3rdparty</key>\\s*<dict>\\s*<key>Extensions</key>\\s*<dict>\\s*<key>${manifest.browser_specific_settings.gecko.id.replace('.', '\\.')}</key>\\s*<dict>\\s*<key>${STAMP}</key>\\s*<dict>\\s*<key>version</key>\\s*<string>${manifest.version.replaceAll('.', '\\.')}</string>\\s*<key>entries</key>\\s*<integer>${FILTER_LIMIT}</integer>\\s*<key>digest</key>\\s*<string>[0-9a-f]{12}</string>\\s*</dict>`));
   assert.ok(profile.includes(`This is the copy from version ${manifest.version} of Family Site Blocker, with 1,000 entries in Firefox\u2019s own list`), 'the description names the version');
   assert.equal(readFileSync(STAMP_PATH, 'utf8'), `${JSON.stringify(addonStamp(), null, 2)}\n`, 'extension/rules/lock.json carries the same stamp, with sameSince');
+  // The add-on's own copy, which the settings page saves (1.23.0): the same bytes, in its package.
+  assert.equal(ADDON_PROFILE_PATH.split(sep).slice(-3).join('/'), 'extension/mac/family-site-blocker-firefox.mobileconfig');
+  assert.equal(readFileSync(ADDON_PROFILE_PATH, 'utf8'), profile, "extension/mac/ carries the same profile, the add-on's own copy");
 });
 
 test('the launch agent that closes the Option key is up to date and sets the variable Firefox checks (run npm run build)', () => {
