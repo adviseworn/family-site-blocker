@@ -284,6 +284,7 @@ describe('Firefox', { skip: findFirefox() ? false : 'no Firefox found (set FIREF
           lockStatus: document.getElementById('lock-status').textContent,
           lockMark: document.getElementById('lock').className,
           lockLink: document.querySelector('#lock-status a')?.getAttribute('href'),
+          lockSaveShown: !document.getElementById('lock-save').hidden,
           lockboxLine: document.getElementById('lockbox-line').textContent,
           words: document.body.innerText.split(/\s+/).filter(Boolean).length,
         }`);
@@ -304,6 +305,7 @@ describe('Firefox', { skip: findFirefox() ? false : 'no Firefox found (set FIREF
       assert.equal(state.lockStatus, 'Loaded temporarily: Firefox removes the add-on when it quits, and anyone can switch it off before then. How to keep it installed, and lock it.');
       assert.equal(state.lockMark, 'todo');
       assert.equal(state.lockLink, 'https://github.com/adviseworn/family-site-blocker#keep-it-installed-after-firefox-quits');
+      assert.equal(state.lockSaveShown, false, 'no "Save the lock’s profile" button for a temporary add-on: keeping it installed comes first');
       assert.equal(state.lockboxLine, 'No password is locked away.');
       assert.ok(state.words < 450, `${state.words} words on the settings page`);
       // What that line rests on (#69): Firefox reports a temporary add-on as "development", with a switch, through management.getSelf, which needs no permission.

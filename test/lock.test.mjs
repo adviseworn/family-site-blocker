@@ -5,7 +5,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
-import { DIGEST_FROM, LOCK_CHANGES, LOCK_NAME, MAX_LOCK_CHANGES, STAMP, STAMP_FILE, STAMP_FROM, compareVersions, describeLock, hasDigest, isStamp, lockChangeWords, lockChanges, lockInForce, locked, managedStamp, ownStamp, recordLock, sameSettings, textOf } from '../extension/lib/lock.js';
+import { DIGEST_FROM, LOCK_CHANGES, LOCK_NAME, MAX_LOCK_CHANGES, PROFILE_FILE, PROFILE_TYPE, STAMP, STAMP_FILE, STAMP_FROM, compareVersions, describeLock, hasDigest, isStamp, lockChangeWords, lockChanges, lockInForce, locked, managedStamp, ownStamp, profileFile, recordLock, sameSettings, textOf } from '../extension/lib/lock.js';
 import { ADDON_ID, FIRST_DIGEST, FIRST_DIGEST_SINCE, STAMP_PATH, VERSION, addonStamp, digestOf, firefoxPolicies, lockSettings, lockStamp } from '../scripts/firefox-lock.mjs';
 
 const stamp = { version: '1.8.0', entries: 1000 };
@@ -151,6 +151,38 @@ test('the lock line elsewhere: policy in another browser, a temporary add-on, an
     text: 'Anyone who can open the extensions page can switch the add-on off or remove it; the lock covers Firefox only. What to do about that.',
   });
   assert.deepEqual(links({ installType: 'development', firefox: false, own: '1.8.0' }), [{ anchor: 'limits', text: 'What to do about that' }], 'unpacked in Chrome is the ordinary case there');
+});
+
+test("the lock line asks for the profile where installing it is what to do, so the page can offer the file (1.23.0)", () => {
+  const own = { version: '1.23.0', entries: 1000, digest: 'cd' };
+  const asks = (state) => describeLock(state).installProfile === true;
+  assert.equal(asks({ installType: 'normal', firefox: true, own: '1.23.0' }), true, 'not under the lock');
+  assert.equal(asks({ installType: 'admin', firefox: true, own: '1.23.0', stamp: null }), true, 'a copy from before the stamp');
+  assert.equal(asks({ installType: 'admin', firefox: true, own: '1.23.0', stamp: { version: '1.8.0', entries: 1000, digest: 'ab' }, ownStamp: own }), true, 'an older copy');
+  assert.equal(asks({ installType: 'admin', firefox: true, own: '1.23.0', stamp: { version: '1.23.0', entries: 1000, digest: 'ab' }, ownStamp: own }), true, "this version's number, another list or settings");
+  assert.equal(asks({ installType: 'admin', firefox: true, own: '1.23.0', stamp: { version: '1.23.0', entries: 1000, digest: 'cd' }, ownStamp: own }), false, "this version's copy");
+  assert.equal(asks({ installType: 'admin', firefox: true, own: '1.23.0', stamp: { version: '1.11.3', entries: 1000, digest: 'cd' }, ownStamp: own }), false, 'an older copy with the same list and settings');
+  assert.equal(asks({ installType: 'admin', firefox: true, own: '1.23.0', stamp: { version: '2.0.0', entries: 1000, digest: 'ef' }, ownStamp: own }), false, 'a newer copy');
+  assert.equal(asks({ installType: 'development', firefox: true, own: '1.23.0' }), false, 'loaded temporarily: keeping it installed comes first');
+  assert.equal(asks({ installType: 'normal', firefox: false, own: '1.23.0' }), false, 'the lock covers Firefox only');
+  assert.equal(asks({ installType: 'admin', firefox: false, own: '1.23.0' }), false);
+});
+
+test("the lock's profile is read from the add-on's package for saving, as a configuration profile file", async () => {
+  assert.equal(PROFILE_FILE, 'mac/family-site-blocker-firefox.mobileconfig');
+  assert.equal(PROFILE_TYPE, 'application/x-apple-aspen-config');
+  const runtime = { getURL: (path) => `moz-extension://abc/${path}` };
+  const text = '<?xml version="1.0"?><plist><dict><key>PayloadType</key><string>Configuration</string></dict></plist>';
+  let asked;
+  const serving = (body, ok = true, status = 200) => async (url) => { asked = url; return { ok, status, text: async () => body }; };
+  const file = await profileFile(runtime, serving(text));
+  assert.equal(asked, 'moz-extension://abc/mac/family-site-blocker-firefox.mobileconfig');
+  assert.equal(file.name, 'family-site-blocker-firefox.mobileconfig', 'the name macOS knows a profile by');
+  assert.equal(file.blob.type, PROFILE_TYPE);
+  assert.equal(await file.blob.text(), text, 'the file as it is');
+  await assert.rejects(profileFile(runtime, serving('not a profile')), /isn't a profile/);
+  await assert.rejects(profileFile(runtime, serving(text, false, 404)), /couldn't be read \(404\)/);
+  await assert.rejects(profileFile(runtime, async () => { throw new Error('no such file'); }), /no such file/);
 });
 
 test('either report of a lock is enough: installed by policy, or no way to switch the add-on off (#69)', () => {

@@ -39,7 +39,10 @@
 //
 // `npm run firefox-lock` writes them as mac/family-site-blocker-firefox.mobileconfig, a configuration
 // profile: installed once with an administrator's password, it applies to every account on the Mac, and only
-// an administrator can remove it. Firefox installs the add-on from XPI_URL, the newest signed version on the
+// an administrator can remove it. The same file goes into the add-on's package (extension/mac/), where the
+// settings page's lock line offers to save it whenever it asks for the profile to be installed (1.23.0):
+// only a person can install a profile, in System Settings with an administrator's password, but the file
+// is then at hand on a Mac whose Firefox can't reach the release page, or that sits on an older copy. Firefox installs the add-on from XPI_URL, the newest signed version on the
 // update site (scripts/updates-site.mjs), once in each Firefox profile for each value of that address (and
 // tries again at the next start if it couldn't fetch it). So installing a profile whose address differs from
 // the last one's makes Firefox install the newest version in every account at its next start, permissions
@@ -63,7 +66,7 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, relative } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { parseDomainList } from '../extension/lib/domains.js';
-import { STAMP } from '../extension/lib/lock.js';
+import { PROFILE_FILE, STAMP } from '../extension/lib/lock.js';
 import { BLOCKLIST_DIR, listFiles, loadNever } from './build-rules.mjs';
 import { LATEST_URL } from './updates-site.mjs';
 
@@ -75,6 +78,8 @@ export const VERSION = MANIFEST.version;
 export const PROFILE_PATH = join(ROOT, 'mac', 'family-site-blocker-firefox.mobileconfig');
 /** The add-on's own copy of the stamp, so it knows which copy of the profile belongs to its version. */
 export const STAMP_PATH = join(ROOT, 'extension', 'rules', 'lock.json');
+/** The add-on's own copy of the profile, which its settings page saves for installing (lib/lock.js, PROFILE_FILE). */
+export const ADDON_PROFILE_PATH = join(ROOT, 'extension', PROFILE_FILE);
 // The newest signed version, on the public update site; the Mac has to be online when Firefox first starts.
 export const XPI_URL = LATEST_URL;
 
@@ -269,14 +274,17 @@ export function launchAgent() {
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const { sites, leftOut, covered } = filterSites();
+  const profile = mobileconfig();
   mkdirSync(dirname(PROFILE_PATH), { recursive: true });
-  writeFileSync(PROFILE_PATH, mobileconfig());
+  writeFileSync(PROFILE_PATH, profile);
+  mkdirSync(dirname(ADDON_PROFILE_PATH), { recursive: true });
+  writeFileSync(ADDON_PROFILE_PATH, profile);
   writeFileSync(AGENT_PATH, launchAgent());
   mkdirSync(dirname(STAMP_PATH), { recursive: true });
   const own = addonStamp();
   writeFileSync(STAMP_PATH, `${JSON.stringify(own, null, 2)}\n`);
   console.log(
-    `Wrote ${relative(process.cwd(), PROFILE_PATH)}, with ${WHOLE_DOMAINS.length} whole domains (${WHOLE_DOMAINS.map((tld) => `.${tld}`).join(', ')}, ` +
+    `Wrote ${relative(process.cwd(), PROFILE_PATH)} and the add-on's copy of it, ${relative(process.cwd(), ADDON_PROFILE_PATH)}, with ${WHOLE_DOMAINS.length} whole domains (${WHOLE_DOMAINS.map((tld) => `.${tld}`).join(', ')}, ` +
       `covering ${covered} built-in sites) and ${sites.length} built-in sites in Firefox's own filter, stamped as version ${VERSION} ` +
       `(digest ${own.digest}${own.sameSince ? `, the list and settings of every profile since ${own.sameSince}` : ', a list or settings no profile from before the digest carries'}); ` +
       `${relative(process.cwd(), AGENT_PATH)}; and ${relative(process.cwd(), STAMP_PATH)}`,
