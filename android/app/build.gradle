@@ -42,7 +42,12 @@ android {
 
     buildTypes {
         release {
-            minifyEnabled = false
+            // R8 shrinks and renames the app's own code (GeckoView and Android Components keep what they
+            // need through the rules in their own libraries), and unused resources are dropped. The engine's
+            // native libraries and omni.ja are the bulk of the APK and are not touched.
+            minifyEnabled = true
+            shrinkResources = true
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
             signingConfig = releaseKeystore != null ? signingConfigs.release : signingConfigs.debug
         }
     }
@@ -110,6 +115,8 @@ project.configurations.configureEach {
 }
 
 dependencies {
+    testImplementation(libs.junit)
+    testImplementation(libs.org.json) // Android's org.json is a stub in unit tests
     implementation libs.androidx.activity
     implementation libs.androidx.appcompat
     implementation libs.androidx.constraintlayout

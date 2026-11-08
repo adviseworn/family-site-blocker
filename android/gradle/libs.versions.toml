@@ -17,6 +17,8 @@ swiperefreshlayout = "1.2.0"
 material = "1.14.0"
 
 [libraries]
+junit = { module = "junit:junit", version = "4.13.2" }
+org-json = { module = "org.json:json", version = "20250517" }
 kotlin-gradle-plugin = { module = "org.jetbrains.kotlin:kotlin-gradle-plugin", version.ref = "kotlin" }
 androidx-activity = { module = "androidx.activity:activity-ktx", version.ref = "activity" }
 androidx-appcompat = { module = "androidx.appcompat:appcompat", version.ref = "appcompat" }

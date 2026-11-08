@@ -1,12 +1,14 @@
 package io.gitlab.adviseworn.familysiteblocker
 
 import android.content.Context
+import android.content.Intent
 import android.os.Bundle
 import android.util.AttributeSet
 import android.view.View
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.WindowCompat
 import io.gitlab.adviseworn.familysiteblocker.ext.components
+import io.gitlab.adviseworn.familysiteblocker.lock.LockFragment
 import mozilla.components.concept.engine.EngineView
 import mozilla.components.feature.contextmenu.ext.DefaultSelectionActionDelegate
 import mozilla.components.support.base.feature.UserInteractionHandler
@@ -22,7 +24,7 @@ class BrowserActivity : AppCompatActivity() {
 
         if (savedInstanceState == null) {
             supportFragmentManager.beginTransaction()
-                .replace(R.id.container, BrowserFragment.create())
+                .replace(R.id.container, if (intent?.getBooleanExtra(EXTRA_OPEN_LOCK, false) == true) LockFragment() else BrowserFragment.create())
                 .commit()
         }
 
@@ -49,8 +51,22 @@ class BrowserActivity : AppCompatActivity() {
             else -> super.onCreateView(parent, name, context, attrs)
         }
 
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        if (intent.getBooleanExtra(EXTRA_OPEN_LOCK, false)) {
+            supportFragmentManager.beginTransaction()
+                .replace(R.id.container, LockFragment())
+                .commit()
+        }
+    }
+
     override fun onDestroy() {
         super.onDestroy()
         components.notificationsDelegate.unBindActivity(this)
+    }
+
+    companion object {
+        /** Opens the Lock page instead of the browser (the unlocking notification). */
+        const val EXTRA_OPEN_LOCK = "openLock"
     }
 }

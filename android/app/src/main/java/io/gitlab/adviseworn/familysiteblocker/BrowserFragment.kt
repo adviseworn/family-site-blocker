@@ -15,6 +15,8 @@ import io.gitlab.adviseworn.familysiteblocker.downloads.DownloadService
 import io.gitlab.adviseworn.familysiteblocker.ext.components
 import io.gitlab.adviseworn.familysiteblocker.integration.ContextMenuIntegration
 import io.gitlab.adviseworn.familysiteblocker.integration.FindInPageIntegration
+import io.gitlab.adviseworn.familysiteblocker.lock.LockFragment
+import io.gitlab.adviseworn.familysiteblocker.lock.LockState
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.map
@@ -275,10 +277,25 @@ class BrowserFragment : Fragment(), UserInteractionHandler {
                 .collect { noTabs -> if (noTabs) newTab() }
         }
 
+        // A page opening in a new tab (the add-on's settings page on the first start, a link from another app)
+        // takes the address bar out of edit mode, so its address shows.
+        consumeFlow(components.store) { flow ->
+            flow.mapNotNull { state -> state.selectedTab }
+                .map { tab -> tab.id to tab.content.url }
+                .distinctUntilChanged()
+                .collect { (_, url) -> if (url != NEW_TAB_URL) binding.toolbar.displayMode() }
+        }
+
         if (savedInstanceState == null) {
             if (arguments?.getBoolean(ARG_FOCUS_URL_BAR) == true) binding.toolbar.editMode()
             DefaultBrowser.askOnce(requireContext(), components.preferences) { intent ->
                 defaultBrowserRequest.launch(intent)
+            }
+            // The first start also shows the Lock page once, so the lock gets set up; Back returns to browsing.
+            val lock = LockState(requireContext())
+            if (!lock.introShown) {
+                lock.markIntroShown()
+                binding.root.post { if (isAdded) showLock() }
             }
         }
     }
@@ -387,6 +404,9 @@ class BrowserFragment : Fragment(), UserInteractionHandler {
             ) {
                 openExtensionPage(FamilySiteBlocker.CHECK_PAGE)
             },
+            BrowserMenuImageText(getString(R.string.menu_lock), R.drawable.ic_lock_24, iconTint) {
+                showLock()
+            },
             BrowserMenuImageText(getString(R.string.menu_default_browser), iconsR.drawable.mozac_ic_globe_24, iconTint) {
                 requestDefaultBrowser()
             }.apply {
@@ -436,6 +456,13 @@ class BrowserFragment : Fragment(), UserInteractionHandler {
     private fun showTabs() {
         parentFragmentManager.beginTransaction()
             .replace(R.id.container, TabsTrayFragment())
+            .commit()
+    }
+
+    /** The Lock page (lock/LockFragment): the phone's own lock, its setup and its record. */
+    fun showLock() {
+        parentFragmentManager.beginTransaction()
+            .replace(R.id.container, LockFragment())
             .commit()
     }
 
