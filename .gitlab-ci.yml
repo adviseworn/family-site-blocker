@@ -97,6 +97,8 @@ browsers:
   extends: .tests
   image: mcr.microsoft.com/playwright:v1.56.0-noble
   script:
+    # Firefox for Linux comes as a .tar.xz; the job's image may have no xz to open it with (Playwright's hasn't).
+    - command -v xz > /dev/null || (apt-get update -qq && apt-get install -y -qq xz-utils > /dev/null)
     - curl -fsSL --retry 3 -o firefox.tar "https://download.mozilla.org/?product=firefox-latest-ssl&os=linux64&lang=en-US"
     - mkdir -p firefox && tar -xf firefox.tar -C firefox --strip-components=1
     - grep PRETTY_NAME /etc/os-release; node -e "import('playwright').then(async ({ chromium }) => { const b = await chromium.launch(); console.log('Chromium', b.version()); await b.close(); })"; firefox/firefox --version
@@ -213,6 +215,8 @@ lock-check:
     - node scripts/release-files.mjs signed 1
     - node scripts/amo-signed.mjs 1.1.1 older
     - mkdir -p other && curl -fsSL --retry 3 -o other/leechblock-ng.xpi https://addons.mozilla.org/firefox/downloads/latest/leechblock-ng/latest.xpi
+    # Firefox for Linux comes as a .tar.xz; the job's image may have no xz to open it with (Playwright's hasn't).
+    - command -v xz > /dev/null || (apt-get update -qq && apt-get install -y -qq xz-utils > /dev/null)
     - curl -fsSL --retry 3 -o firefox.tar "https://download.mozilla.org/?product=firefox-latest-ssl&os=linux64&lang=en-US"
     - mkdir -p firefox && tar -xf firefox.tar -C firefox --strip-components=1
     - firefox/firefox --version; ls signed older other
