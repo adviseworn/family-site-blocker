@@ -16,6 +16,9 @@
 // until then (X shows a tweet's picture that way, under a see-through <img>). Backgrounds set in
 // stylesheets and pictures inside shadow roots are not covered, and a video whose frames the page itself
 // isn't allowed to read (served from another site without permission) is judged by its poster alone.
+// A captcha's frames are left out altogether (manifest.json's exclude_matches names the frames that Arkose
+// Labs, hCaptcha, reCAPTCHA and Cloudflare's challenge put on a page): their pictures are the puzzle, and a
+// puzzle with a picture blanked can't be solved, which kept a sign-in from finishing (1.26.1).
 (() => {
   const api = globalThis.browser ?? globalThis.chrome;
   const ATTR = 'data-family-site-blocker';

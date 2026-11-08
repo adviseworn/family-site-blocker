@@ -348,8 +348,9 @@ test('pictures: a hidden video is noted as one, counted apart in the summaries, 
 });
 
 test('pictures: the content script runs in every page and frame from the start, and the model and its runtime ship with the add-on', () => {
-  const [script] = manifest.content_scripts;
+  const [{ exclude_matches: captchaFrames, ...script }] = manifest.content_scripts;
   assert.deepEqual(script, { matches: ['<all_urls>'], js: ['content.js'], css: ['content.css'], run_at: 'document_start', all_frames: true });
+  assert.ok(Array.isArray(captchaFrames) && captchaFrames.length >= 4, "a captcha's frames are left alone; blocker.test.mjs checks the list (1.26.1)");
   assert.match(manifest.content_security_policy.extension_pages, /^script-src 'self' 'wasm-unsafe-eval'; object-src 'self';$/, 'WebAssembly allowed, nothing else loosened; no upgrade-insecure-requests, so a picture is fetched the way the page fetched it');
   for (const file of ['content.js', 'content.css', 'classifier.js', 'lib/pictures.js', 'vendor/tf.fesm.min.js', 'vendor/tf-global.js', 'vendor/tf-backend-wasm.min.js', 'vendor/tfjs-backend-wasm.wasm', 'vendor/tfjs-backend-wasm-simd.wasm', 'vendor/LICENSES.md', 'models/nsfw-mobilenet-v2/model.json', 'models/nsfw-inception-v3/model.json']) {
     assert.ok(existsSync(join(EXT, file)), `${file} exists`);

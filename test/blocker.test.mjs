@@ -991,6 +991,39 @@ test('manifest points at files that exist', () => {
   }
 });
 
+/** Whether a match pattern (manifest.json content_scripts) covers an address: scheme, host (*. takes the subdomains and the domain itself) and path with the query. */
+function matchesPattern(pattern, url) {
+  const [, scheme, host, path] = pattern.match(/^(\*|https?):\/\/([^/]+)(\/.*)$/);
+  const address = new URL(url);
+  if (!(scheme === '*' ? /^https?:$/.test(address.protocol) : address.protocol === `${scheme}:`)) return false;
+  if (!(host.startsWith('*.') ? address.hostname === host.slice(2) || address.hostname.endsWith(host.slice(1)) : address.hostname === host)) return false;
+  const glob = path.split('*').map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('.*');
+  return new RegExp(`^${glob}$`).test(address.pathname + address.search);
+}
+
+test("the picture filter runs in every frame but a captcha's: their pictures are the puzzle (1.26.1)", () => {
+  const [filter, ...others] = manifest.content_scripts;
+  assert.deepEqual(others, [], 'one content script');
+  assert.deepEqual(filter.matches, ['<all_urls>']);
+  assert.equal(filter.all_frames, true, 'pictures inside frames are judged too');
+  assert.equal(filter.run_at, 'document_start', 'before any picture shows');
+  for (const pattern of filter.exclude_matches) assert.match(pattern, /^\*:\/\/(\*\.)?[a-z0-9.-]+\/[^\s]*$/, `${pattern} is a match pattern Chrome and Firefox both read`);
+  const captchaFrames = [
+    'https://client-api.arkoselabs.com/v2/4.6.1/enforcement.html', // Arkose Labs, which GitLab, Roblox and Microsoft use
+    'https://gitlab-api.arkoselabs.com/fc/gc/?token=x',
+    'http://client-api.arkoselabs.com/fc/assets/ec-game-core/game-core/1.0.0/standard/index.html',
+    'https://octocaptcha.com/?origin_page=github_signup', // GitHub's frame around the same captcha
+    'https://newassets.hcaptcha.com/captcha/v1/abc/static/hcaptcha.html',
+    'https://www.google.com/recaptcha/api2/bframe?hl=en',
+    'https://www.google.com/recaptcha/enterprise/anchor?ar=1',
+    'https://www.recaptcha.net/recaptcha/api2/bframe',
+    'https://challenges.cloudflare.com/cdn-cgi/challenge-platform/h/b/turnstile/if/ov2/av0/rcv/x',
+  ];
+  for (const frame of captchaFrames) assert.ok(filter.exclude_matches.some((pattern) => matchesPattern(pattern, frame)), `${frame} is left alone`);
+  const pages = ['https://gitlab.com/users/sign_in', 'https://www.google.com/search?q=recaptcha', 'https://www.google.com/', 'https://example.com/recaptcha/api2/bframe', 'https://arkoselabs.com.example.com/', 'https://cloudflare.com/'];
+  for (const page of pages) assert.ok(!filter.exclude_matches.some((pattern) => matchesPattern(pattern, page)), `${page} is judged`);
+});
+
 test('one manifest works in Chrome, Edge, Brave and Firefox', () => {
   const { background, browser_specific_settings: settings } = manifest;
   // Chrome, Edge and Brave run the service worker; Firefox runs the same file as an event page.

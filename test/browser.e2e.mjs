@@ -1278,6 +1278,9 @@ describe('real browser', () => {
       stub.page('allowed.test/seeming', galleryPage(['nude', 'nude-seeming', 'photo'])); // "nude" to the first judge, a photo to the second (1.20.0)
       stub.page('allowed.test/framed', `<!doctype html><h1>Framed</h1><iframe id="frame" src="http://frames.test/inner" width="400" height="300"></iframe>`);
       stub.page('frames.test/inner', galleryPage(['nude2', 'photo2']));
+      // A captcha's frame (the stand-in would hide both of these by their names): left alone, as the manifest says (1.26.1).
+      stub.page('allowed.test/captcha', `<!doctype html><h1>Captcha</h1><img id="nude" src="http://pics.test/pics/nude.jpg?captcha" width="300"><iframe id="captcha" src="http://client-api.arkoselabs.com/fc/gc/?token=test" width="400" height="300"></iframe>`);
+      stub.page('client-api.arkoselabs.com/fc/gc/', galleryPage(['nude2', 'nude-coffee']));
       stub.page('allowed.test/later', galleryPage(['photo'], `<img id="late" width="300"><script>setTimeout(() => { document.getElementById('late').src = 'http://pics.test/pics/nude.jpg?late'; }, 300);
         setTimeout(() => { document.getElementById('photo').src = 'http://pics.test/pics/lingerie.jpg?swapped'; }, 600);</script>`));
       stub.page('allowed.test/blob', `<!doctype html><img id="made" width="300"><script>fetch('/pics/nude.jpg?blob').then((r) => r.blob()).then((b) => { document.getElementById('made').src = URL.createObjectURL(b); });</script>`);
@@ -1892,6 +1895,21 @@ describe('real browser', () => {
         await settings.waitForFunction(() => chrome.storage.local.get('pictureStrictness').then((got) => got.pictureStrictness === 'strict')).catch(() => {});
         await page.close();
         await settings.close();
+      }
+    });
+
+    test("a captcha's frames are left alone: their pictures are the puzzle, and a blanked one can't be solved (1.26.1)", async () => {
+      const page = await judge.context.newPage();
+      try {
+        await page.goto('http://allowed.test/captcha');
+        await settled(page, ['nude']);
+        assert.deepEqual((await marks(page)).nude, ['hidden', 'hidden'], 'the page around the captcha is judged as any page is');
+        const frame = page.frames().find((candidate) => candidate.url().startsWith('http://client-api.arkoselabs.com/'));
+        assert.ok(frame, 'the captcha frame loaded');
+        await frame.waitForFunction(() => [...document.images].every((img) => img.complete && img.naturalWidth > 0));
+        assert.deepEqual(await frame.evaluate(`Object.fromEntries(${MARKS})`), { icon: [null, 'visible'], nude2: [null, 'visible'], 'nude-coffee': [null, 'visible'] }, 'nothing in the frame is marked, hidden or judged');
+      } finally {
+        await page.close();
       }
     });
 
