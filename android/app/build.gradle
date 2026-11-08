@@ -42,11 +42,12 @@ android {
 
     buildTypes {
         release {
-            // R8 shrinks and renames the app's own code (GeckoView and Android Components keep what they
-            // need through the rules in their own libraries), and unused resources are dropped. The engine's
-            // native libraries and omni.ja are the bulk of the APK and are not touched.
+            // R8 shrinks and renames the app's own code; GeckoView and Android Components keep what they
+            // need through the rules in their own libraries. The engine's native libraries and omni.ja are
+            // the bulk of the APK and are not touched. Resource shrinking stays off: it cannot be combined
+            // with per-ABI APK splits and the app bundle in one build (AGP issue 402800800), and the code
+            // shrink is where the saving is.
             minifyEnabled = true
-            shrinkResources = true
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
             signingConfig = releaseKeystore != null ? signingConfigs.release : signingConfigs.debug
         }

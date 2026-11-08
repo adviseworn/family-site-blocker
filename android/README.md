@@ -66,11 +66,12 @@ cd android
 ./gradlew bundleRelease            # app/build/outputs/bundle/release/app-release.aab for Google Play
 ```
 
-The release build runs R8 and resource shrinking (`minifyEnabled`, `shrinkResources` in `app/build.gradle`,
-with `proguard-rules.pro`): it renames and drops the app's own unused code and resources, about forty
-megabytes. GeckoView and Android Components keep what they need through the rules inside their own libraries;
-the engine's native libraries and `omni.ja`, the bulk of the package, are not touched. A changed keep rule can
-only show as a runtime crash, so a shrunk build is worth a run before release.
+The release build runs R8 (`minifyEnabled` in `app/build.gradle`, with `proguard-rules.pro`): it renames and
+drops the app's own unused code, about twenty-five megabytes. GeckoView and Android Components keep what they
+need through the rules inside their own libraries; the engine's native libraries and `omni.ja`, the bulk of
+the package, are not touched. Resource shrinking stays off: it cannot be combined with the per-ABI APK splits
+and the app bundle in one build (AGP issue 402800800), and it saved little here. A changed keep rule can only
+show as a runtime crash, so a shrunk build is worth a run before release.
 
 Without a release key the debug key signs the build: it installs on a phone but Google Play will not take
 it. For a real release, pass the key through Gradle properties (in GitLab: masked CI variables, the keystore
