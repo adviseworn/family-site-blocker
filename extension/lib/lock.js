@@ -120,6 +120,7 @@ const link = (anchor, text) => ({ anchor, text });
 // The README headings the links go to, as GitLab (and GitHub) make anchors of them (test/readme.test.mjs checks that they exist).
 const KEEP_IT_INSTALLED = 'keep-it-installed-after-firefox-quits';
 const LOCK_IT = 'lock-it-so-nobody-can-switch-it-off-firefox-on-a-mac';
+const ON_A_PHONE = 'on-an-android-phone-firefox';
 
 const IN_FORCE = 'The Firefox lock is in force: Firefox installed the add-on itself and gives no way to switch it off or remove it.';
 
@@ -134,12 +135,13 @@ const CATCH_UP = "Install the current profile so Firefox's own list and the lock
 /**
  * What the lock line says and how it is marked. `installType` and `mayDisable` are management.getSelf()'s;
  * `stamp` the installed profile's (managedStamp), or null; `own` the add-on's version; `ownStamp` the
- * add-on's own copy of the stamp (ownStamp), or null; `firefox` whether this is Firefox. Returns
+ * add-on's own copy of the stamp (ownStamp), or null; `firefox` whether this is Firefox; `phone` whether it is
+ * Firefox for Android, which takes no lock at all. Returns
  * { state: 'ok' | 'todo', parts, installProfile }, the parts being strings and { anchor, text } links into
  * the README, and installProfile true when what the line asks for is the lock's profile installed (so the
  * page can offer the file, profileFile): on Firefox, with no lock, or with a copy to replace.
  */
-export function describeLock({ installType, mayDisable, stamp = null, own, ownStamp = null, firefox }) {
+export function describeLock({ installType, mayDisable, stamp = null, own, ownStamp = null, firefox, phone = false }) {
   const byPolicy = locked({ installType, mayDisable });
   if (byPolicy && firefox) {
     if (!stamp) {
@@ -195,6 +197,14 @@ export function describeLock({ installType, mayDisable, stamp = null, own, ownSt
     return {
       state: 'todo',
       parts: ['Loaded temporarily: Firefox removes the add-on when it quits, and anyone can switch it off before then. ', link(KEEP_IT_INSTALLED, 'How to keep it installed, and lock it'), '.'],
+    };
+  }
+  if (firefox && phone) {
+    // Firefox for Android takes no configuration profile, so there is no lock to ask for: the line says so
+    // rather than reading as if something were missing.
+    return {
+      state: 'ok',
+      parts: ['No Firefox lock on a phone: Firefox for Android takes no profile, so anyone who can open its settings can switch the add-on off or remove it. ', link(ON_A_PHONE, 'What differs on a phone'), '.'],
     };
   }
   if (firefox) {

@@ -146,6 +146,12 @@ test('the lock line elsewhere: policy in another browser, a temporary add-on, an
     text: 'Not under the Firefox lock: anyone who opens the Add-ons Manager can switch the add-on off or remove it. How to lock it, on a Mac.',
   });
   assert.deepEqual(links({ installType: 'normal', firefox: true, own: '1.8.0' }), [{ anchor: 'lock-it-so-nobody-can-switch-it-off-firefox-on-a-mac', text: 'How to lock it, on a Mac' }]);
+  assert.deepEqual(describe({ installType: 'normal', firefox: true, own: '1.8.0', phone: true }), {
+    state: 'ok',
+    text: 'No Firefox lock on a phone: Firefox for Android takes no profile, so anyone who can open its settings can switch the add-on off or remove it. What differs on a phone.',
+  }, 'Firefox for Android takes no lock, so the line is no to-do there');
+  assert.deepEqual(links({ installType: 'normal', firefox: true, own: '1.8.0', phone: true }), [{ anchor: 'on-an-android-phone-firefox', text: 'What differs on a phone' }]);
+  assert.equal(describe({ installType: 'normal', firefox: false, own: '1.8.0', phone: true }).text, describe({ installType: 'normal', firefox: false, own: '1.8.0' }).text, 'a phone changes the line in Firefox only');
   assert.deepEqual(describe({ installType: 'normal', firefox: false, own: '1.8.0' }), {
     state: 'todo',
     text: 'Anyone who can open the extensions page can switch the add-on off or remove it; the lock covers Firefox only. What to do about that.',
@@ -157,6 +163,7 @@ test("the lock line asks for the profile where installing it is what to do, so t
   const own = { version: '1.23.0', entries: 1000, digest: 'cd' };
   const asks = (state) => describeLock(state).installProfile === true;
   assert.equal(asks({ installType: 'normal', firefox: true, own: '1.23.0' }), true, 'not under the lock');
+  assert.equal(asks({ installType: 'normal', firefox: true, own: '1.23.0', phone: true }), false, 'a phone takes no profile');
   assert.equal(asks({ installType: 'admin', firefox: true, own: '1.23.0', stamp: null }), true, 'a copy from before the stamp');
   assert.equal(asks({ installType: 'admin', firefox: true, own: '1.23.0', stamp: { version: '1.8.0', entries: 1000, digest: 'ab' }, ownStamp: own }), true, 'an older copy');
   assert.equal(asks({ installType: 'admin', firefox: true, own: '1.23.0', stamp: { version: '1.23.0', entries: 1000, digest: 'ab' }, ownStamp: own }), true, "this version's number, another list or settings");

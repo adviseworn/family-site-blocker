@@ -104,7 +104,7 @@ Before 1.24.0 the add-on wasn't on Mozilla's site, and a phone could only instal
 
 A phone differs from a computer in three ways:
 
-- There is no lock. The Firefox lock is a Mac profile, so on a phone anyone who can open Firefox's settings can switch the add-on off or remove it. Family Link and the phone's own controls can keep other browsers off the phone, but can't lock an add-on.
+- There is no lock. The Firefox lock is a Mac profile, so on a phone anyone who can open Firefox's settings can switch the add-on off or remove it; the **Is it working?** board's lock line says so, as "No Firefox lock on a phone". Family Link and the phone's own controls can keep other browsers off the phone, but can't lock an add-on.
 - Firefox for Android doesn't open its history or bookmarks to add-ons. The record notes tries as they happen, but the look through the browser's history, the sweep of the address bar's history and the record's "off" bands don't work there, and the record page says it couldn't look through the browser's history, which is expected on a phone.
 - Newer versions arrive from Mozilla's site by themselves, as for any add-on installed from there. A copy from before 1.24.0, installed from a file, reads the update manifest instead (see **Let it update itself**), which brings it to 1.24.0; from then on it too updates from Mozilla's site.
 

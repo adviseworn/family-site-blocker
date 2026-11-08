@@ -153,7 +153,8 @@ const lockState = (async () => {
   if (lockInForce(state)) [state.stamp, state.ownStamp] = await Promise.all([managedStamp(api.storage), ownStamp(api.runtime)]);
   return state;
 })();
-// Which system this is: the lock's profile is for a Mac, so the page offers it there only.
+// Which system this is: the lock's profile is for a Mac, so the page offers it there only; a phone (Firefox for
+// Android) takes no lock at all, and the line says so.
 const platform = Promise.resolve().then(() => api.runtime.getPlatformInfo()).catch(() => ({ os: '' }));
 
 async function checkLock() {
@@ -172,7 +173,7 @@ async function checkLock() {
     link.textContent = text;
     return link;
   };
-  const described = describeLock(state);
+  const described = describeLock({ ...state, phone: (await platform).os === 'android' });
   status.replaceChildren(...described.parts.map((part) => (typeof part === 'string' ? part : readme(part))));
   markLine('lock', described.state);
   // On a Mac, when the line asks for the lock's profile to be installed, the page hands out the add-on's own

@@ -29,7 +29,7 @@ test('every anchor the lock line links to is a heading in the README', () => {
   for (const installType of ['admin', 'development', 'normal']) {
     for (const firefox of [true, false]) {
       for (const stamp of [null, { version: '1.0.0', entries: 1000 }, { version: '9.0.0', entries: 1000 }, { version: '1.0.0', entries: 1000, digest: 'ab' }, { version: '1.8.0', entries: 999, digest: 'ab' }]) {
-        for (const ownStamp of [null, { version: '1.8.0', entries: 1000, digest: 'cd', sameSince: '1.5.0' }]) states.push({ installType, firefox, own: '1.8.0', stamp, ownStamp });
+        for (const ownStamp of [null, { version: '1.8.0', entries: 1000, digest: 'cd', sameSince: '1.5.0' }]) for (const phone of [false, true]) states.push({ installType, firefox, own: '1.8.0', stamp, ownStamp, phone });
       }
     }
   }
