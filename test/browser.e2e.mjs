@@ -2278,7 +2278,7 @@ describe('real browser', () => {
         assert.equal(await page.locator('#lockbox-record').isVisible(), false, 'no record yet');
         await lockAway(page, SECRET, 3);
         assert.equal(await page.inputValue('#lockbox-secret'), '', 'the typed password is cleared');
-        assert.match(await page.locator('#lockbox-summary').innerText(), /^A password is locked away \(since .+\)\. Getting it back takes about [1-4] seconds of computing/);
+        assert.match(await page.locator('#lockbox-summary').innerText(), /^A password is locked away \(since .+\), never unlocked; getting it back takes about [1-4] seconds\.$/);
         const stored = await storedLockbox(page);
         assert.ok(!JSON.stringify(stored).includes(SECRET));
         assert.equal(stored.lockbox.delay, 3);
@@ -2438,7 +2438,7 @@ describe('real browser', () => {
         const settings = await openSettings();
         await settings.waitForFunction(() => /unlocking it is \d+% done, started .+\.$/.test(document.getElementById('lockbox-line').textContent));
         await settings.close();
-        assert.match(await page.locator('#lockbox-progress-text').innerText(), /^\d+% done, about \d+ seconds? to go\.$/);
+        assert.match(await page.locator('#lockbox-progress-text').innerText(), /^\d+% done, about \d+ seconds? to go with this page open and the computer awake\. If the page is closed or the computer sleeps, the work pauses and carries on later\.$/);
         assert.equal(await page.locator('#lockbox-stop').isVisible(), true);
         await startUnlocking(page);
         await page.locator('#lockbox-open').waitFor({ state: 'visible', timeout: 20_000 });
@@ -2578,7 +2578,7 @@ describe('real browser', () => {
         assert.equal(restored.lockedAt, first.lockedAt);
         assert.ok(restored.lengthenedAt, 'lengthened now');
         assert.ok(!JSON.stringify(await storedLockbox(page)).includes(first.data), 'the old box is inside the new puzzle, not beside it');
-        assert.match(await page.locator('#lockbox-summary').innerText(), /^A password is locked away \(since .+, wait lengthened .+\)\. Getting it back takes about [5-7] seconds of computing/);
+        assert.match(await page.locator('#lockbox-summary').innerText(), /^A password is locked away \(since .+, wait lengthened .+\), never unlocked; getting it back takes about [5-7] seconds\.$/);
         assert.deepEqual(await recordedEvents(page), ['locked', 'lengthened', 'deleted', 'restored', 'deleted', 'restored']);
         const { lockboxEvents: events } = await storedLockbox(page);
         assert.deepEqual([events.at(-1).from, events.at(-1).to, events.at(-1).lockedAt], [2, 6, first.lockedAt]);
@@ -2684,7 +2684,7 @@ describe('real browser', () => {
         assert.ok(!text.includes(before.n) && !text.includes(before.data), 'the old box is inside the new puzzle, not beside it');
         assert.ok(!text.includes(SECRET));
         assert.equal((await storedLockbox(page)).lockboxProgress, undefined);
-        assert.match(await page.locator('#lockbox-summary').innerText(), /^A password is locked away \(since .+, wait lengthened .+\)\. Getting it back takes about [4-6] seconds of computing/);
+        assert.match(await page.locator('#lockbox-summary').innerText(), /^A password is locked away \(since .+, wait lengthened .+\), never unlocked; getting it back takes about [4-6] seconds\.$/);
         // The record says so (#75), and lengthening is not an unlock.
         assert.deepEqual(await recordedEvents(page), ['locked', 'lengthened']);
         assert.equal((await shownRecord())[0].what, 'The wait was lengthened from 2 seconds to 5 seconds, without unlocking.');
@@ -2709,7 +2709,7 @@ describe('real browser', () => {
         await page.locator('#lockbox-empty').waitFor({ state: 'visible' });
         await page.setInputFiles('#lockbox-restore', file);
         await page.locator('#lockbox-locked').waitFor({ state: 'visible' });
-        assert.match(await page.locator('#lockbox-summary').innerText(), /wait lengthened .+\)\. Getting it back takes about [4-6] seconds of computing/);
+        assert.match(await page.locator('#lockbox-summary').innerText(), /wait lengthened .+\), never unlocked; getting it back takes about [4-6] seconds\.$/);
         assert.deepEqual((await storedLockbox(page)).lockbox, longer);
 
         // Unlocking solves the outer puzzle, then the inner one, and ends in the password.
@@ -2727,7 +2727,7 @@ describe('real browser', () => {
         assert.equal(after.delay, 5, 'with the whole wait');
         assert.equal(after.inside, undefined);
         assert.equal((await storedLockbox(page)).lockboxProgress, undefined);
-        assert.match(await page.locator('#lockbox-again').innerText(), /^It’s already locked away again with the same wait \(5 seconds\)\. It stays on this page/);
+        assert.match(await page.locator('#lockbox-again').innerText(), /^Locked away again already, with the same wait of 5 seconds\. Hide and Lock it away again take it off this page/);
         assert.deepEqual(await recordedEvents(page), ['locked', 'lengthened', 'deleted', 'restored', 'started', 'shown', 'sealed']);
         assert.equal((await shownRecord())[0].what, 'Locked away again, with the same wait of 5 seconds.');
         assert.deepEqual(page.errors, []);
@@ -2755,7 +2755,7 @@ describe('real browser', () => {
         page.on('pageerror', (error) => page.errors.push(error.message));
         await page.goto(`chrome-extension://${browser.extensionId}/lockbox.html`);
         await page.waitForFunction(() => document.getElementById('lockbox-start').textContent === 'Carry on unlocking');
-        const [, percent] = /^(\d+)% done, about \d+ seconds? to go\.$/.exec(await page.locator('#lockbox-progress-text').innerText()) ?? [];
+        const [, percent] = /^(\d+)% done, about \d+ seconds? to go with this page open/.exec(await page.locator('#lockbox-progress-text').innerText()) ?? [];
         assert.ok(Number(percent) >= outerShare(box) && Number(percent) < 100, `the outer puzzle (${outerShare(box)}% of the squarings) done: ${percent}%`);
         const settings = await openSettings();
         try {
@@ -2844,7 +2844,7 @@ describe('real browser', () => {
         await page.click('#lockbox-lengthen');
         await page.waitForFunction(() => /^The wait is now/.test(document.getElementById('lockbox-status').textContent));
         assert.match(await lockboxStatus(page), /^The wait is now 2 days\./);
-        assert.match(await page.locator('#lockbox-summary').innerText(), /Getting it back takes about 2 days of computing/);
+        assert.match(await page.locator('#lockbox-summary').innerText(), /getting it back takes about 2 days\.$/);
         const box = (await storedLockbox(page)).lockbox;
         assert.equal(box.delay, 172_800);
         const wait = box.steps / box.rate + box.inside[0].steps / box.inside[0].rate;
@@ -2889,7 +2889,7 @@ describe('real browser', () => {
         assert.equal(longer.version, 1);
         assert.notEqual(longer.n, same.n, 'a fresh puzzle');
         assert.equal(await page.inputValue('#lockbox-revealed'), SECRET, 'still shown');
-        assert.match(await page.locator('#lockbox-again').innerText(), /^It’s locked away again with a wait of 4 seconds\. It stays on this page/);
+        assert.match(await page.locator('#lockbox-again').innerText(), /^It’s locked away again with a wait of 4 seconds\. Hide and Lock it away again take it off this page/);
         assert.deepEqual(await recordedEvents(page), ['locked', 'started', 'shown', 'sealed', 'sealed']);
         assert.equal((await shownRecord())[0].what, 'Locked away again, with a wait of 4 seconds in place of 2 seconds.');
 
@@ -2906,7 +2906,7 @@ describe('real browser', () => {
 
         await page.click('#lockbox-hide');
         await page.locator('#lockbox-locked').waitFor({ state: 'visible' });
-        assert.match(await page.locator('#lockbox-summary').innerText(), /^A password is locked away \(since .+\)\. Getting it back takes about [2-4] seconds of computing/);
+        assert.match(await page.locator('#lockbox-summary').innerText(), /^A password is locked away \(since .+\), unlocked once, last on .+; getting it back takes about [2-4] seconds\.$/);
         await startUnlocking(page);
         await page.locator('#lockbox-open').waitFor({ state: 'visible', timeout: 20_000 });
         assert.equal(await page.inputValue('#lockbox-revealed'), SECRET, 'the same password, after the new wait');

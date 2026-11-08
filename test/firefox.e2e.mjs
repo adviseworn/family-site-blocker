@@ -981,7 +981,7 @@ describe('Firefox', { skip: findFirefox() ? false : 'no Firefox found (set FIREF
         status = await browser.run("return document.getElementById('lockbox-status').textContent");
       }
       assert.match(status, /^The wait is now [4-6] seconds\. Save a new backup file/);
-      assert.match(await browser.run("return document.getElementById('lockbox-summary').textContent"), /^A password is locked away \(since .+, wait lengthened .+\)\. Getting it back takes about [4-6] seconds of computing/);
+      assert.match(await browser.run("return document.getElementById('lockbox-summary').textContent"), /^A password is locked away \(since .+, wait lengthened .+\), never unlocked; getting it back takes about [4-6] seconds\.$/);
       const stored = await storedBox();
       assert.equal(stored.version, 2);
       assert.equal(stored.holds, 'box');
@@ -1015,7 +1015,7 @@ describe('Firefox', { skip: findFirefox() ? false : 'no Firefox found (set FIREF
         args: [],
       });
       assert.deepEqual(events, ['locked', 'lengthened', 'started', 'shown', 'sealed']);
-      assert.match(await browser.run("return document.getElementById('lockbox-again').textContent"), /^It’s already locked away again with the same wait \(5 seconds\)\./);
+      assert.match(await browser.run("return document.getElementById('lockbox-again').textContent"), /^Locked away again already, with the same wait of 5 seconds\./);
 
       await browser.run("document.getElementById('lockbox-hide').click()");
       await waitUntilShown('lockbox-locked');

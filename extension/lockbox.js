@@ -8,7 +8,7 @@
 // tries.html (tries.html#password shows them alone). The boxes that
 // have held each password are noted too (WAITS), with the wait last set for it, so that a backup file
 // saved before the wait was lengthened is lengthened to it as it is restored here (1.13.0).
-import { BOX, PROGRESS, describeRecord, duration, fractionDone, layerUnderWork, loadBox, longerWaitFor, noteBox, recordEvent, sinceText } from './lib/lockbox.js';
+import { BOX, PROGRESS, describeBox, describeRecord, duration, fractionDone, layerUnderWork, loadBox, longerWaitFor, noteBox, recordEvent } from './lib/lockbox.js';
 import { element, showVersion } from './lib/page.js';
 import { START, isBox, lengthen, modulusOf, open, seal, secondsOf, stepsOf, waitOf } from './lib/timelock.js';
 
@@ -24,7 +24,7 @@ const OLD_BACKUPS =
   'A backup file saved before this still opens after the old wait anywhere but here: delete it (and empty the Trash) or make up a new password, and save a new backup file.';
 // How the password shown leaves the page, said under it: Hide and Lock it away again clear it from the clipboard
 // (clearClipboard); closing the page can't, since the browser only lets the page write to the clipboard after a click.
-const STAYS = 'It stays on this page until you click Hide or close the page. Hide and Lock it away again also clear it from the clipboard if it was copied here; closing the page doesn’t.';
+const STAYS = 'Hide and Lock it away again take it off this page and the clipboard; closing the page only takes it off the page.';
 
 let worker = null;
 let lastSaved = 0;
@@ -125,7 +125,7 @@ function showProgress(box, progress, rate) {
   $('lockbox-progress').value = fraction;
   // The rest of this layer at the rate seen, then the layers inside it at the rates they were timed at.
   const toGo = (layer.steps - progress.done) / rate + secondsOf(layer.inside ?? []);
-  $('lockbox-progress-text').textContent = `${Math.floor(fraction * 100)}% done, about ${duration(toGo)} to go.`;
+  $('lockbox-progress-text').textContent = `${Math.floor(fraction * 100)}% done, about ${duration(toGo)} to go with this page open and the computer awake. If the page is closed or the computer sleeps, the work pauses and carries on later.`;
 }
 
 /** The record summed up in a line (lib/lockbox.js describeRecord), with a link to its entries among every try; nothing with no record. */
@@ -147,10 +147,7 @@ async function render() {
     return;
   }
   showOnly('lockbox-locked');
-  $('lockbox-summary').textContent =
-    `A password is locked away (${sinceText({ box, events })}). Getting it back takes about ${duration(waitOf(box))} ` +
-    'of computing with this page open and the computer awake. If the page is closed or the computer sleeps, ' +
-    'the work pauses and carries on where it left off.';
+  $('lockbox-summary').textContent = describeBox({ box, progress: null, events });
 
   const running = worker !== null;
   $('lockbox-start').hidden = running;
@@ -318,7 +315,7 @@ async function reveal(box, secret) {
   try {
     await lockAway(secret, box.delay, { previous: box });
     await record('sealed', { delay: box.delay });
-    $('lockbox-again').textContent = `It’s already locked away again with the same wait (${duration(box.delay)}). ${STAYS}`;
+    $('lockbox-again').textContent = `Locked away again already, with the same wait of ${duration(box.delay)}. ${STAYS}`;
     say('');
   } catch (error) {
     // The old box is still stored, so the password stays locked away, but unlocking it starts from the beginning.
