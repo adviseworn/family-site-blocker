@@ -18,7 +18,10 @@
 // isn't allowed to read (served from another site without permission) is judged by its poster alone.
 // A captcha's frames are left out altogether (manifest.json's exclude_matches names the frames that Arkose
 // Labs, hCaptcha, reCAPTCHA and Cloudflare's challenge put on a page): their pictures are the puzzle, and a
-// puzzle with a picture blanked can't be solved, which kept a sign-in from finishing (1.26.1).
+// puzzle with a picture blanked can't be solved, which kept a sign-in from finishing (1.26.1). A picture
+// that has had no verdict after WAIT_MS is reported to the background script, which notes it in the record
+// with what it was doing for it, and again when the verdict comes; the picture stays hidden until it does
+// (1.27.0, lib/pictures.js WAITING).
 (() => {
   const api = globalThis.browser ?? globalThis.chrome;
   const ATTR = 'data-family-site-blocker';
@@ -27,6 +30,7 @@
   const FRAME_EVERY_MS = 1500; // while a video plays, one frame in this long is judged
   const FRAME_RETRY_MS = 100; // how soon to ask again for a frame the browser hadn't handed over yet
   const FRAME_WAIT_MS = 3000; // a video that promised a frame and shows none in this long has nothing to see
+  const WAIT_MS = 20_000; // a picture with no verdict in this long is noted in the record (lib/pictures.js WAITING); it stays hidden until judged
   const HAVE_NOTHING = 0; // HTMLMediaElement.readyState: nothing is known yet
   const HAVE_METADATA = 1; // the size and length are known, no frame yet
   const HAVE_CURRENT_DATA = 2; // the frame at the current position is there
@@ -43,11 +47,36 @@
 
   const fetchable = (url) => /^(?:https?|data):/i.test(url); // what the background script can fetch
 
+  /** Sends the background script a message whose answer doesn't matter. */
+  const tell = (message) => Promise.resolve(api.runtime.sendMessage(message)).catch(() => {});
+
+  /**
+   * A judgment asked of the background script, watched (1.27.0): when no verdict has come in WAIT_MS the
+   * background script is told, and notes the picture in the record with what it was doing for it
+   * (lib/pictures.js WAITING), and it is told again when the verdict comes after all, with how long it
+   * took and what it was. The verdict itself is awaited as long as it takes: the picture stays hidden until
+   * judged, and null stands for an answer that never came. `kind` is 'video' for a video's frame.
+   */
+  function watched(request, url, kind = null) {
+    const started = performance.now();
+    const waited = () => Math.round(performance.now() - started);
+    let told = false;
+    const timer = setTimeout(() => {
+      told = true;
+      tell({ type: 'picture-waiting', url, waited: waited(), ...(kind ? { kind } : {}) });
+    }, WAIT_MS);
+    return Promise.resolve(request)
+      .catch(() => null)
+      .then((result) => {
+        clearTimeout(timer);
+        if (told) tell({ type: 'picture-waiting', url, waited: waited(), outcome: result?.hide ? 'hidden' : result && !result.error ? 'shown' : 'unjudged', ...(kind ? { kind } : {}) });
+        return result;
+      });
+  }
+
   function judge(url) {
     if (!pending.has(url)) {
-      const request = Promise.resolve(api.runtime.sendMessage({ type: 'judge-picture', url }))
-        .catch(() => null)
-        .finally(() => pending.delete(url));
+      const request = watched(api.runtime.sendMessage({ type: 'judge-picture', url }), url).finally(() => pending.delete(url));
       pending.set(url, request);
     }
     return pending.get(url);
@@ -372,7 +401,9 @@
       }
       if (frame) {
         state.lastFrameAt = performance.now();
-        checks.push(Promise.resolve(api.runtime.sendMessage({ type: 'judge-video-frame', frame, src: state.src, poster })).catch(() => null));
+        // Watched under the address a hidden frame is noted under (background.js judgeFrame): the video's, its poster's or the page's.
+        const address = [state.src, poster, location.href].find((candidate) => /^https?:/i.test(candidate)) ?? location.href;
+        checks.push(watched(api.runtime.sendMessage({ type: 'judge-video-frame', frame, src: state.src, poster }), address, 'video'));
       } else if (!state.settled && !state.unreadable) {
         // The browser drew nothing yet: ask again in a moment.
         state.retry ??= setTimeout(() => {

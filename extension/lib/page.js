@@ -1,6 +1,6 @@
 // Small helpers the record pages share (attempts.html, tries.html, pictures.html, unlisted.html).
 import { lockChanges } from './lock.js';
-import { borderline, countHidden, hiddenBySite, lookedAt, markedMistake } from './pictures.js';
+import { borderline, countHidden, hiddenBySite, lookedAt, markedMistake, waitingList } from './pictures.js';
 
 /** An element with text and attributes. */
 export function element(tag, text, attributes = {}) {
@@ -19,9 +19,10 @@ export const everyTryWords = (count) => (count ? `See every try (${count})` : 'S
 /**
  * Whether Every try (tries.html) has anything to show, so that the links to it show: a try, a time the
  * add-on was off (lib/watching.js's `off`), a picture hidden (lib/pictures.js), an entry in the
- * locked-away password's record (lib/lockbox.js) or one in the Firefox lock's (lib/lock.js, 1.22.0).
+ * locked-away password's record (lib/lockbox.js), one in the Firefox lock's (lib/lock.js, 1.22.0) or a
+ * picture that waited for a verdict (lib/pictures.js WAITING, 1.27.0).
  */
-export const everyTryShows = ({ attempts, off, events, pictures = [], lock = [] }) => attempts.length > 0 || off.length > 0 || events.length > 0 || pictures.length > 0 || lock.length > 0;
+export const everyTryShows = ({ attempts, off, events, pictures = [], lock = [], waiting = [] }) => attempts.length > 0 || off.length > 0 || events.length > 0 || pictures.length > 0 || lock.length > 0 || waiting.length > 0;
 
 export const whenFormat = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' });
 export const dayFormat = new Intl.DateTimeFormat(undefined, { dateStyle: 'full' });
@@ -108,6 +109,25 @@ export function lockWords(changes) {
   const state = latest.locked ? 'The Firefox lock has been in force' : 'The Firefox lock has not been in force';
   const since = latest.first ? `since at least ${whenFormat.format(latest.at)}, when the add-on first checked` : `since ${whenFormat.format(latest.at)}`;
   return `${state} ${since}. It checks whenever Firefox starts.`;
+}
+
+/**
+ * The pictures that waited for a verdict (lib/pictures.js WAITING, 1.27.0) summed up, for Every try showing
+ * them alone: "3 pictures waited long for a verdict, the latest at …: 2 were judged in the end, 1 wasn't."
+ * '' with none.
+ */
+export function waitingWords(record) {
+  const list = waitingList(record);
+  if (!list.length) return '';
+  const judged = list.filter((entry) => entry.judged).length;
+  const rest = list.length - judged;
+  const count = list.length === 1 ? '1 picture waited' : `${list.length} pictures waited`;
+  const latest = whenFormat.format(Math.max(...list.map((entry) => entry.at)));
+  let ending;
+  if (rest === 0) ending = list.length === 1 ? 'it was judged in the end' : 'all were judged in the end';
+  else if (judged === 0) ending = list.length === 1 ? 'it was never judged' : 'none was judged';
+  else ending = `${judged} ${judged === 1 ? 'was' : 'were'} judged in the end, ${rest} ${rest === 1 ? "wasn't" : "weren't"}`;
+  return `${count} long for a verdict, the latest at ${latest}: ${ending}.`;
 }
 
 const times = (count) => (count === 1 ? 'once' : count === 2 ? 'twice' : `${count} times`);

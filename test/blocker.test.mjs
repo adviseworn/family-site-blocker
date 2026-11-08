@@ -646,6 +646,7 @@ test('the link to every try, shared by the settings page and the record page: sh
   assert.equal(everyTryShows({ ...nothing, off: [{ from: 1, to: 2, pages: 0 }] }), true, 'a time the add-on was off');
   assert.equal(everyTryShows({ ...nothing, events: [{ at: '2026-11-01T21:00:00Z', event: 'locked' }] }), true, "an entry in the password's record");
   assert.equal(everyTryShows({ ...nothing, lock: [{ at: 1, locked: false, first: true }] }), true, "an entry in the Firefox lock's record (1.22.0)");
+  assert.equal(everyTryShows({ ...nothing, waiting: [{ at: 1, site: 'a.test', url: 'u', waited: 20, stage: null }] }), true, 'a picture that waited for a verdict (1.27.0)');
 });
 
 test("the Firefox lock's record summed up for Every try showing it alone (1.22.0): since when it has been in force, or not", () => {
@@ -867,6 +868,26 @@ test('blocked attempts: the saved file is CSV, oldest first, with local times th
     '',
   ]);
   assert.equal(toCsv([], undefined, [], 'junk'), 'when,site,result,address,nudity,suggestive,mark\n');
+  // The pictures that waited for a verdict are rows too (1.27.0): the row's words in the result column, the address in its own.
+  const withWaiting = toCsv(
+    [{ at: at + 1000, site: 'a.test' }],
+    undefined,
+    [],
+    [],
+    [
+      { at, site: 'slow.test', url: 'http://slow.test/big.jpg', waited: 20, stage: 'fetching', judged: { after: 47, outcome: 'shown' } },
+      { at: at + 2000, site: 'stuck.test', url: 'http://stuck.test/tile.png?a=1,b=2', waited: 20, stage: 'judging' },
+      null,
+    ],
+  ).split('\n');
+  assert.deepEqual(withWaiting.map((line) => line.replace(/^2026-10-18T15:12:\d\d[+-]\d\d:\d\d,/, 'T,')), [
+    'when,site,result,address,nudity,suggestive,mark',
+    'T,slow.test,Picture judged after 47 s: shown,http://slow.test/big.jpg,,,',
+    'T,a.test,Blocked,,,,',
+    'T,stuck.test,Picture unjudged after 20 s: with the first judge,"http://stuck.test/tile.png?a=1,b=2",,,',
+    '',
+  ]);
+  assert.equal(toCsv([], undefined, [], [], 'junk'), 'when,site,result,address,nudity,suggestive,mark\n');
   const offset = lines[1].match(/([+-])(\d\d):(\d\d),/);
   const minutes = (Number(offset[2]) * 60 + Number(offset[3])) * (offset[1] === '-' ? -1 : 1);
   assert.equal(minutes, 0 - new Date(at).getTimezoneOffset() || 0, "the offset is this computer's");

@@ -8,8 +8,8 @@ import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import jpeg from 'jpeg-js';
-import { BORDERLINE, CLASSES, COPIES_KEPT, COPIES_LENGTH, DEFAULT_STRICTNESS, LOOKS_KEPT, MAX_PICTURES, MIN_SIZE, PICTURE_LENGTH, SHOWN, SHOWN_KEPT, STRICTNESS_CHOICES, THRESHOLD, URL_LENGTH, VIDEO_LENGTH, WHY_LENGTH, bodyUpTo, borderline, copiesByKey, copyKey, countHidden, decidingScore, describeHidden, hashOf, hiddenBySite, hideAgain, isData, isPage, isVideo, isVideoType, keepCopy, lookedAt, markAlike, markHidden, markedMistake, noteLook, recordHidden, sameGroups, sameHidden, samePicture, scoresOf, showAgain, shownAgain, strictnessOf, verdict } from '../extension/lib/pictures.js';
-import { hiddenWords, lookWords, timeOn } from '../extension/lib/page.js';
+import { BORDERLINE, CLASSES, COPIES_KEPT, COPIES_LENGTH, DEFAULT_STRICTNESS, LOOKS_KEPT, MAX_PICTURES, MAX_WAITING, MIN_SIZE, NOTE_WAITING_WITHIN_MS, PICTURE_LENGTH, SHOWN, SHOWN_KEPT, STAGES, STRICTNESS_CHOICES, THRESHOLD, URL_LENGTH, VIDEO_LENGTH, WAITING, WHY_LENGTH, bodyUpTo, borderline, copiesByKey, copyKey, countHidden, decidingScore, describeHidden, describeWaiting, hashOf, hiddenBySite, hideAgain, isData, isPage, isVideo, isVideoType, keepCopy, lookedAt, markAlike, markHidden, markedMistake, noteLook, recordHidden, recordWaiting, sameGroups, sameHidden, samePicture, scoresOf, settleWaiting, showAgain, shownAgain, strictnessOf, verdict, waitingList } from '../extension/lib/pictures.js';
+import { hiddenWords, lookWords, timeOn, waitingWords } from '../extension/lib/page.js';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const EXT = join(ROOT, 'extension');
@@ -347,6 +347,59 @@ test('pictures: a hidden video is noted as one, counted apart in the summaries, 
   assert.equal(recordHidden([], { at: 1, site: 's', url: 'u', reason: 'nudity', scores: {}, kind: 'picture' })[0].kind, undefined, 'only video is a kind');
 });
 
+test('pictures: a picture that waited long for a verdict is noted, with what the judge was doing, and the note says when the verdict came (1.27.0)', () => {
+  assert.equal(WAITING, 'picturesWaiting');
+  assert.equal(MAX_WAITING, 200);
+  assert.equal(NOTE_WAITING_WITHIN_MS, 60_000);
+  assert.deepEqual(Object.keys(STAGES), ['fetching', 'judging', 'second', 'copying', 'noting']);
+  let record = recordWaiting(undefined, { at: 1000, site: 'a.test', url: 'https://a.test/x.jpg', waited: 20_040, stage: 'fetching' });
+  assert.deepEqual(record, [{ at: 1000, site: 'a.test', url: 'https://a.test/x.jpg', waited: 20, stage: 'fetching' }], 'the wait in whole seconds');
+  assert.equal(describeWaiting(record[0]), 'Picture unjudged after 20 s: being fetched');
+  assert.equal(recordWaiting(record, { at: 30_000, site: 'a.test', url: 'https://a.test/x.jpg', waited: 20_000, stage: 'judging' }), record, 'the same picture on the same site within a minute is one note');
+  record = recordWaiting(record, { at: 2000, site: 'a.test', url: 'https://a.test/y.jpg', waited: 20_000, stage: 'nonsense', kind: 'video' });
+  assert.deepEqual(record[1], { at: 2000, site: 'a.test', url: 'https://a.test/y.jpg', waited: 20, stage: null, kind: 'video' }, 'a stage the record does not know is none; a video is noted as one');
+  assert.equal(describeWaiting(record[1]), 'Video unjudged after 20 s: no judgment under way');
+  record = recordWaiting(record, { at: 3000, site: 'b.test', url: 'x'.repeat(900), waited: 20_000, stage: 'second' });
+  assert.equal(record[2].url.length, URL_LENGTH, 'long addresses are cut');
+  assert.equal(describeWaiting(record[2]), 'Picture unjudged after 20 s: with the second judge');
+  assert.equal(describeWaiting({ waited: 20, stage: 'copying' }), 'Picture unjudged after 20 s: being copied for the record');
+  assert.equal(describeWaiting({ waited: 20, stage: 'noting' }), 'Picture unjudged after 20 s: being noted in the record');
+  assert.equal(describeWaiting(undefined), 'Picture unjudged after 0 s: no judgment under way', 'junk says what it can');
+  // The verdict comes after all: the latest entry still waiting for that picture on that site says so.
+  const before = record;
+  record = settleWaiting(record, { site: 'a.test', url: 'https://a.test/x.jpg', waited: 47_400, outcome: 'shown' });
+  assert.notEqual(record, before, 'a new list');
+  assert.deepEqual(record[0], { at: 1000, site: 'a.test', url: 'https://a.test/x.jpg', waited: 20, stage: 'fetching', judged: { after: 47, outcome: 'shown' } });
+  assert.equal(describeWaiting(record[0]), 'Picture judged after 47 s: shown');
+  assert.equal(record[1], before[1], 'the rest are the same objects');
+  assert.equal(settleWaiting(record, { site: 'a.test', url: 'https://a.test/x.jpg', waited: 50_000, outcome: 'hidden' }), record, 'judged already: the list as it was');
+  assert.equal(settleWaiting(record, { site: 'c.test', url: 'https://a.test/y.jpg', waited: 50_000, outcome: 'hidden' }), record, 'another site: no entry waits');
+  record = settleWaiting(record, { site: 'a.test', url: 'https://a.test/y.jpg', waited: 60_000, outcome: 'hidden' });
+  assert.equal(describeWaiting(record[1]), 'Video judged after 60 s: hidden');
+  record = settleWaiting(record, { site: 'b.test', url: 'x'.repeat(900), waited: 90_000, outcome: 'error' });
+  assert.deepEqual(record[2].judged, { after: 90, outcome: 'unjudged' }, 'an outcome the record does not know is a failed judgment');
+  assert.equal(describeWaiting(record[2]), 'Picture shown unjudged after 90 s');
+  // Once judged, the same picture waiting again is a new note, and the latest one waiting takes the next verdict.
+  record = recordWaiting(record, { at: 4000, site: 'a.test', url: 'https://a.test/x.jpg', waited: 20_000, stage: 'fetching' });
+  assert.equal(record.length, 4);
+  assert.deepEqual(settleWaiting(record, { site: 'a.test', url: 'https://a.test/x.jpg', waited: 1, outcome: 'shown' })[3].judged, { after: 0, outcome: 'shown' });
+  assert.deepEqual(waitingList([...record, null, { at: 'x' }, { at: 5, site: 's' }]), record, 'junk is passed over');
+  assert.deepEqual(waitingList(undefined), []);
+  let many = [];
+  for (let i = 0; i < MAX_WAITING + 3; i += 1) many = recordWaiting(many, { at: i * NOTE_WAITING_WITHIN_MS, site: 's.test', url: `u${i}`, waited: 20_000, stage: 'fetching' });
+  assert.equal(many.length, MAX_WAITING);
+  assert.equal(many[0].url, 'u3', 'the oldest go');
+  // Summed up for Every try showing them alone (lib/page.js).
+  const when = (at) => new Date(at).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+  assert.equal(waitingWords(record), `4 pictures waited long for a verdict, the latest at ${when(4000)}: 3 were judged in the end, 1 wasn't.`);
+  assert.equal(waitingWords(record.slice(0, 3)), `3 pictures waited long for a verdict, the latest at ${when(3000)}: all were judged in the end.`);
+  assert.equal(waitingWords(record.slice(3)), `1 picture waited long for a verdict, the latest at ${when(4000)}: it was never judged.`);
+  assert.equal(waitingWords([record[0]]), `1 picture waited long for a verdict, the latest at ${when(1000)}: it was judged in the end.`);
+  assert.equal(waitingWords([record[3], record[3]]), `2 pictures waited long for a verdict, the latest at ${when(4000)}: none was judged.`);
+  assert.equal(waitingWords([]), '');
+  assert.equal(waitingWords(undefined), '');
+});
+
 test('pictures: the content script runs in every page and frame from the start, and the model and its runtime ship with the add-on', () => {
   const [{ exclude_matches: captchaFrames, ...script }] = manifest.content_scripts;
   assert.deepEqual(script, { matches: ['<all_urls>'], js: ['content.js'], css: ['content.css'], run_at: 'document_start', all_frames: true });
@@ -376,6 +429,8 @@ test('pictures: the content script runs in every page and frame from the start, 
   const content = readFileSync(join(EXT, 'content.js'), 'utf8');
   assert.match(content, /const WATCHED = 'img, video, \[style\*="url\(" i\]'/, 'the content script watches videos and background pictures as well as pictures');
   assert.match(content, /judge-video-frame/, 'and sends their frames to be judged');
+  assert.match(content, /const WAIT_MS = 20_000;/, 'a picture with no verdict in 20 seconds is noted in the record (1.27.0)');
+  assert.match(content, /type: 'picture-waiting'/, 'by telling the background script');
   assert.doesNotMatch(readFileSync(join(EXT, 'vendor/tf.fesm.min.js'), 'utf8').slice(0, 20000), /\bimport\s+[\w$]+\s+from\s*"/, 'the runtime is self-contained');
 });
 

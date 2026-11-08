@@ -17,10 +17,14 @@ export const STAND_IN_SCORES = {
   photo: { drawing: 0.001, hentai: 0, neutral: 0.999, porn: 0, sexy: 0 },
 };
 
+/** How long the stand-in takes over a picture whose address says "slow" (1.27.0). */
+export const STAND_IN_SLOW_MS = 5000;
+
 const STAND_IN = `// A stand-in for classifier.js, for the tests: judges a picture by its address, not its pixels, and a
 // video's frame (which has no address) by its colour: red is "nude", green "lingerie", anything else a photo.
 // The second judge (1.20.0) says the same as the first, except that a picture whose address says it only
-// seemed so ("seeming") is a photo to it.
+// seemed so ("seeming") is a photo to it. A picture whose address says "slow" takes ${STAND_IN_SLOW_MS} ms to
+// judge, and one whose address says "stuck" never gets a verdict (1.27.0).
 const SCORES = ${JSON.stringify(STAND_IN_SCORES)};
 export const JUDGES = { first: { size: 224 }, second: { size: 299 } };
 export const SIZE = 224;
@@ -28,6 +32,8 @@ export async function loadModel() {}
 export const backendInUse = () => 'stand-in';
 export async function judgeBytes(blob, url = '', judge = 'first') {
   if (!blob || blob.size === 0) throw new Error('not a picture');
+  if (url.includes('stuck')) return new Promise(() => {});
+  if (url.includes('slow')) await new Promise((resolve) => setTimeout(resolve, ${STAND_IN_SLOW_MS}));
   if (judge === 'second' && url.includes('seeming')) return SCORES.photo;
   const word = Object.keys(SCORES).find((name) => url.includes(name));
   if (word) return SCORES[word];
@@ -47,12 +53,21 @@ export async function judgeBytes(blob, url = '', judge = 'first') {
 
 /**
  * A copy of the extension with the stand-in classifier, in a temporary folder (real path, because Chrome
- * works out an unpacked extension's id from it). Remove it with the returned function.
+ * works out an unpacked extension's id from it). With { waitMs } the content script notes a picture with no
+ * verdict after that long rather than after its own 20 seconds (1.27.0), so a test needn't wait that long.
+ * Remove it with the returned function.
  */
-export function extensionWithStandInClassifier() {
+export function extensionWithStandInClassifier({ waitMs = null } = {}) {
   const dir = realpathSync(mkdtempSync(join(tmpdir(), 'family-site-blocker-stand-in-')));
   cpSync(EXTENSION_DIR, dir, { recursive: true, filter: (source) => basename(source) !== '_metadata' });
   writeFileSync(join(dir, 'classifier.js'), STAND_IN);
+  if (waitMs !== null) {
+    const content = join(dir, 'content.js');
+    const source = readFileSync(content, 'utf8');
+    const line = 'const WAIT_MS = 20_000;';
+    if (!source.includes(line)) throw new Error(`content.js no longer says "${line}"`);
+    writeFileSync(content, source.replace(line, `const WAIT_MS = ${waitMs};`));
+  }
   return { dir, remove: () => rmSync(dir, { recursive: true, force: true }) };
 }
 

@@ -1272,7 +1272,7 @@ describe('real browser', () => {
       page.waitForFunction((want) => want.every((id) => ['ok', 'hidden', 'small'].includes(document.getElementById(id)?.getAttribute('data-family-site-blocker'))), ids, { timeout });
 
     before(async () => {
-      servePictures(stub, ['photo', 'nude', 'lingerie', 'drawn', 'photo2', 'nude2', 'coffee', 'cat', 'nude-coffee', 'nude-seeming']);
+      servePictures(stub, ['photo', 'nude', 'lingerie', 'drawn', 'photo2', 'nude2', 'coffee', 'cat', 'nude-coffee', 'nude-seeming', 'slow', 'stuck']);
       stub.page('allowed.test/gallery', galleryPage(['photo', 'nude', 'lingerie', 'drawn']));
       stub.page('allowed.test/corrected', galleryPage(['nude', 'nude-coffee', 'photo'])); // the cat and the coffee, both "nude" to the stand-in
       stub.page('allowed.test/seeming', galleryPage(['nude', 'nude-seeming', 'photo'])); // "nude" to the first judge, a photo to the second (1.20.0)
@@ -1281,6 +1281,8 @@ describe('real browser', () => {
       // A captcha's frame (the stand-in would hide both of these by their names): left alone, as the manifest says (1.26.1).
       stub.page('allowed.test/captcha', `<!doctype html><h1>Captcha</h1><img id="nude" src="http://pics.test/pics/nude.jpg?captcha" width="300"><iframe id="captcha" src="http://client-api.arkoselabs.com/fc/gc/?token=test" width="400" height="300"></iframe>`);
       stub.page('client-api.arkoselabs.com/fc/gc/', galleryPage(['nude2', 'nude-coffee']));
+      // A picture the stand-in judge is slow over, and one it never answers for: noted in the record after the wait (1.27.0).
+      stub.page('allowed.test/waiting', galleryPage(['slow', 'stuck']));
       stub.page('allowed.test/later', galleryPage(['photo'], `<img id="late" width="300"><script>setTimeout(() => { document.getElementById('late').src = 'http://pics.test/pics/nude.jpg?late'; }, 300);
         setTimeout(() => { document.getElementById('photo').src = 'http://pics.test/pics/lingerie.jpg?swapped'; }, 600);</script>`));
       stub.page('allowed.test/blob', `<!doctype html><img id="made" width="300"><script>fetch('/pics/nude.jpg?blob').then((r) => r.blob()).then((b) => { document.getElementById('made').src = URL.createObjectURL(b); });</script>`);
@@ -1315,7 +1317,7 @@ describe('real browser', () => {
       // to the same picture as streams from elsewhere.
       stub.page('camera.test/camera', cameraPage());
       stub.page('camera.test/streams', cameraPage({ streams: true }));
-      standIn = extensionWithStandInClassifier();
+      standIn = extensionWithStandInClassifier({ waitMs: 3000 }); // a picture with no verdict is noted after 3 seconds here, 20 in the real add-on (1.27.0)
       judge = await launchBrowser(stub, { extensionDir: standIn.dir, args: FAKE_CAMERA_ARGS });
       // This copy opens its settings page on install too, and Chrome puts that page into the tab in front
       // when that tab is blank, which could be the first test's (#109): let it open, then close it, as the
@@ -1910,6 +1912,43 @@ describe('real browser', () => {
         assert.deepEqual(await frame.evaluate(`Object.fromEntries(${MARKS})`), { icon: [null, 'visible'], nude2: [null, 'visible'], 'nude-coffee': [null, 'visible'] }, 'nothing in the frame is marked, hidden or judged');
       } finally {
         await page.close();
+      }
+    });
+
+    test('a picture with no verdict after a while is noted in the record, with what the judge was doing, and the note says when the verdict came (1.27.0)', async () => {
+      // This copy notes a picture after 3 seconds without a verdict; the stand-in judge takes 5 seconds over "slow" and never answers for "stuck".
+      const page = await judge.context.newPage();
+      const record = await judge.context.newPage();
+      try {
+        await page.goto('http://allowed.test/waiting', { waitUntil: 'domcontentloaded' });
+        await settled(page, ['slow']);
+        const after = await marks(page);
+        assert.deepEqual([after.slow, after.stuck], [['ok', 'visible'], ['checking', 'hidden']], `the slow picture shows once judged; the one with no verdict stays hidden: ${JSON.stringify(after)}`);
+        await record.goto(`chrome-extension://${judge.extensionId}/tries.html#waiting`);
+        await record.waitForFunction(() => document.querySelectorAll('.day tbody tr.waiting').length >= 2 && document.querySelectorAll('.day tbody tr.waiting.judged').length >= 1);
+        const rows = await record.evaluate(() => [...document.querySelectorAll('.day tbody tr.waiting')].map((row) => [row.className, row.cells[1].textContent, row.cells[2].firstChild.textContent, row.querySelector('.picture-url').textContent]).sort((a, b) => a[3].localeCompare(b[3])));
+        assert.equal(rows.length, 2, JSON.stringify(rows));
+        assert.deepEqual([rows[0][0], rows[0][1], rows[0][3]], ['waiting judged', 'allowed.test', 'http://pics.test/pics/slow.jpg'], JSON.stringify(rows));
+        assert.match(rows[0][2], /^Picture judged after [5-9] s: shown$/, JSON.stringify(rows));
+        assert.deepEqual([rows[1][0], rows[1][1], rows[1][3]], ['waiting', 'allowed.test', 'http://pics.test/pics/stuck.jpg'], JSON.stringify(rows));
+        assert.match(rows[1][2], /^Picture unjudged after [3-5] s: with the first judge$/, JSON.stringify(rows));
+        assert.match(await record.locator('#summary').innerText(), /^2 pictures waited long for a verdict, the latest at .+: 1 was judged in the end, 1 wasn't\.$/);
+        assert.equal(await record.locator('#waiting-intro').isHidden(), true, 'shown alone: no line about them');
+        assert.equal(await record.locator('#pictures-intro').isHidden(), true, 'nor about the pictures hidden');
+        assert.equal(await record.locator('.day tbody tr.picture').count(), 0, 'the pictures hidden are not among them');
+        // Among every try: the rows by their time, the line that explains them, and the saved file's rows.
+        await record.goto(`chrome-extension://${judge.extensionId}/tries.html`);
+        await record.waitForFunction(() => document.querySelectorAll('.day tbody tr.waiting').length >= 2);
+        assert.equal(await record.locator('#waiting-intro').innerText(), 'Picture unjudged rows are pictures kept hidden for 20 seconds with no verdict yet and what the judge was doing; Picture judged says when the verdict came. Show them alone.');
+        assert.equal(await record.locator('#waiting-intro a').getAttribute('href'), 'tries.html#waiting');
+        const csv = await record.evaluate(() => import('./lib/attempts.js').then((lib) => chrome.storage.local.get('picturesWaiting').then((got) => lib.toCsv([], undefined, [], [], got.picturesWaiting))));
+        const lines = csv.trim().split('\n').slice(1).map((line) => line.replace(/^[^,]+,/, '')).sort();
+        assert.equal(lines.length, 2, csv);
+        assert.match(lines[0], /^allowed\.test,Picture judged after [5-9] s: shown,http:\/\/pics\.test\/pics\/slow\.jpg,,,$/, csv);
+        assert.match(lines[1], /^allowed\.test,Picture unjudged after [3-5] s: with the first judge,http:\/\/pics\.test\/pics\/stuck\.jpg,,,$/, csv);
+      } finally {
+        await page.close();
+        await record.close();
       }
     });
 

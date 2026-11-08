@@ -12,7 +12,7 @@ import { ATTEMPTS, HISTORY_SCAN, bySite, summarize, toCsv } from './lib/attempts
 import { LOCK_CHANGES, lockChanges } from './lib/lock.js';
 import { EVENTS, loadBox } from './lib/lockbox.js';
 import { element, everyTryShows, everyTryWords, offVisitsWords, offWords, plural, showVersion, visits, whenFormat } from './lib/page.js';
-import { PICTURES, countHidden, hiddenBySite } from './lib/pictures.js';
+import { PICTURES, WAITING, countHidden, hiddenBySite, waitingList } from './lib/pictures.js';
 import { UNLISTED } from './lib/suspects.js';
 import { WATCHING, normalize } from './lib/watching.js';
 
@@ -24,6 +24,7 @@ let watching = null; // when the extension was running, as stored (lib/watching.
 let pictures = []; // the pictures and videos hidden, as stored: oldest first (lib/pictures.js), for the file
 let events = []; // the locked-away password's record (lib/lockbox.js), which Every try shows among the tries
 let lock = []; // the Firefox lock's record (lib/lock.js), which Every try shows among the tries too, for the file
+let waiting = []; // the pictures that waited long for a verdict (lib/pictures.js WAITING), for the saved file
 
 function renderSummary() {
   if (attempts.length === 0) {
@@ -126,19 +127,20 @@ let offShown = '';
 const offPart = (state) => JSON.stringify({ since: state?.since, atLeast: state?.atLeast, kept: state?.periods?.[0]?.from, off: state?.off ?? [] });
 
 async function render() {
-  const stored = await api.storage.local.get([ATTEMPTS, HISTORY_SCAN, UNLISTED, PICTURES, WATCHING, LOCK_CHANGES]);
+  const stored = await api.storage.local.get([ATTEMPTS, HISTORY_SCAN, UNLISTED, PICTURES, WATCHING, LOCK_CHANGES, WAITING]);
   attempts = Array.isArray(stored[ATTEMPTS]) ? stored[ATTEMPTS] : [];
   watching = stored[WATCHING] ?? null;
   lock = lockChanges(stored[LOCK_CHANGES]);
+  waiting = waitingList(stored[WAITING]);
   ({ events } = await loadBox(api.storage.local));
   offShown = offPart(watching);
   renderSummary();
   renderWatching();
   renderHistoryScan(stored[HISTORY_SCAN]);
   $('save-file').hidden = attempts.length === 0;
-  // Every try holds the tries, the times the extension was off, the pictures hidden, the password's record
-  // and the Firefox lock's: its link shows whenever it has any of them, and the count is the tries.
-  $('every-try').hidden = !everyTryShows({ attempts, off: normalize(watching).off, events, pictures: Array.isArray(stored[PICTURES]) ? stored[PICTURES] : [], lock });
+  // Every try holds the tries, the times the extension was off, the pictures hidden, the password's record,
+  // the Firefox lock's and the pictures that waited for a verdict: its link shows whenever it has any of them, and the count is the tries.
+  $('every-try').hidden = !everyTryShows({ attempts, off: normalize(watching).off, events, pictures: Array.isArray(stored[PICTURES]) ? stored[PICTURES] : [], lock, waiting });
   $('every-try').textContent = everyTryWords(attempts.length);
   $('sites').hidden = attempts.length === 0;
   renderSites();
@@ -151,7 +153,7 @@ function saveFile() {
   const pad = (n) => String(n).padStart(2, '0');
   const name = `family-site-blocker-record-${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}.csv`;
   const link = document.createElement('a');
-  link.href = URL.createObjectURL(new Blob([toCsv(attempts, watching, pictures, lock)], { type: 'text/csv' }));
+  link.href = URL.createObjectURL(new Blob([toCsv(attempts, watching, pictures, lock, waiting)], { type: 'text/csv' }));
   link.download = name;
   document.body.append(link);
   link.click();
@@ -168,7 +170,7 @@ $('history-scan-now').addEventListener('click', () => {
 // Keep the record current while the page is open.
 api.storage.onChanged.addListener((changes, area) => {
   if (area !== 'local') return;
-  if (changes[ATTEMPTS] || changes[HISTORY_SCAN] || changes[UNLISTED] || changes[PICTURES] || changes[EVENTS] || changes[LOCK_CHANGES]) render();
+  if (changes[ATTEMPTS] || changes[HISTORY_SCAN] || changes[UNLISTED] || changes[PICTURES] || changes[EVENTS] || changes[LOCK_CHANGES] || changes[WAITING]) render();
   else if (changes[WATCHING] && offPart(changes[WATCHING].newValue) !== offShown) render();
 });
 
