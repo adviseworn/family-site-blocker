@@ -29,3 +29,5 @@ export const LATEST_URL = `${SITE_URL}${LATEST_NAME}`;
 /** The Firefox lock's profile, as mac/ holds it and the release and the site carry it. */
 export const PROFILE_NAME = 'family-site-blocker-firefox.mobileconfig';
 export const PROFILE_URL = `${SITE_URL}${PROFILE_NAME}`;
+export const ICON_NAME = 'icon.png'; // the add-on's icon, for the guide's heading and the browser tab
+export const ICON_URL = `${SITE_URL}${ICON_NAME}`;

@@ -9,8 +9,8 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { describeLock } from '../extension/lib/lock.js';
-import { anchor, renderGuide } from '../scripts/guide.mjs';
-import { GUIDE_URL, PROFILE_NAME, SITE_URL } from '../scripts/updates-site.mjs';
+import { ICON_SOURCE, anchor, renderGuide } from '../scripts/guide.mjs';
+import { GUIDE_URL, ICON_NAME, PROFILE_NAME, SITE_URL } from '../scripts/updates-site.mjs';
 
 const read = (path) => readFileSync(new URL(`../${path}`, import.meta.url), 'utf8');
 const readme = read('README.md').replace(/^```[^]*?^```/gm, ''); // not the headings of a code block, if ever there are any
@@ -64,6 +64,9 @@ test('the guide on the site has every heading under its anchor, so the links lan
   assert.match(html, /<title>Family Site Blocker<\/title>/);
   for (const a of anchors) assert.ok(html.includes(`id="${a}"`), `#${a} is in the guide`);
   assert.equal((html.match(/<h[1-6] id="/g) ?? []).length, headings.length, 'a heading each');
+  assert.match(html, new RegExp(`<link rel="icon" href="${escaped(ICON_NAME)}" type="image/png"`), "the add-on's icon in the browser's tab");
+  assert.match(html, new RegExp(`<h1 id="family-site-blocker"><img src="${escaped(ICON_NAME)}" alt="" width="128" height="128">Family Site Blocker</h1>`), 'and before the title, once');
+  assert.equal((html.match(/<img /g) ?? []).length, 1, 'the icon is the only picture the guide adds');
   assert.match(html, /<table>/, 'the files table');
   assert.match(html, /<code>exampleadultsite\.com<\/code>/);
   assert.doesNotMatch(html, /gitlab\.com\/adviseworn\/family-site-blocker\/-\//, 'no links into the private project');
@@ -72,8 +75,10 @@ test('the guide on the site has every heading under its anchor, so the links lan
     const file = (path) => fileURLToPath(new URL(`../${path}`, import.meta.url));
     const run = spawnSync(process.execPath, [file('scripts/guide.mjs'), file('README.md'), dir, file('mac/family-site-blocker-firefox.mobileconfig')], { encoding: 'utf8' });
     assert.equal(run.status, 0, run.stderr);
-    assert.match(run.stdout, new RegExp(`${headings.length} headings, and ${escaped(PROFILE_NAME)}`));
-    assert.deepEqual(readdirSync(dir).sort(), [PROFILE_NAME, 'index.html']);
+    assert.match(run.stdout, new RegExp(`${headings.length} headings, ${escaped(ICON_NAME)} and ${escaped(PROFILE_NAME)}`));
+    assert.deepEqual(readdirSync(dir).sort(), [PROFILE_NAME, ICON_NAME, 'index.html']);
+    assert.ok(readFileSync(join(dir, ICON_NAME)).equals(readFileSync(ICON_SOURCE)), "the site's icon is the add-on's 128-pixel one");
+    assert.ok(readFileSync(ICON_SOURCE).equals(readFileSync(file('extension/icons/icon128.png'))));
     assert.equal(readFileSync(join(dir, 'index.html'), 'utf8'), html);
     assert.ok(readFileSync(join(dir, PROFILE_NAME)).equals(readFileSync(file('mac/family-site-blocker-firefox.mobileconfig'))));
     assert.equal(spawnSync(process.execPath, [file('scripts/guide.mjs')], { encoding: 'utf8' }).status, 2);
