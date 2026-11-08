@@ -996,7 +996,7 @@ describe('Firefox', { skip: findFirefox() ? false : 'no Firefox found (set FIREF
       await browser.fx.send('WebDriver:SwitchToWindow', { handle: lockboxHandle });
 
       const started = Date.now();
-      await browser.run("document.getElementById('lockbox-why').value = 'to try it'; document.getElementById('lockbox-start').click()");
+      await browser.run("document.getElementById('lockbox-why').value = 'Trying it out'; document.getElementById('lockbox-start').click()"); // the menu's choice (1.28.0)
       await waitUntilShown('lockbox-open', 30_000);
       assert.ok(Date.now() - started >= 2500, 'not sooner than the wait allows');
       assert.equal(await browser.run("return document.getElementById('lockbox-revealed').value"), 'Firefox-Admin-Password');
@@ -1033,7 +1033,7 @@ describe('Firefox', { skip: findFirefox() ? false : 'no Firefox found (set FIREF
       assert.deepEqual(record.map(([site]) => site), Array(6).fill('Password'), JSON.stringify(record));
       assert.equal(record[0][1], 'Locked away again, with the same wait of 5 seconds.');
       assert.equal(record[1][1], 'The password was shown.', 'without the start and the reason, which the row for the start carries (1.21.0)');
-      assert.equal(record[2][1], 'Unlocking started: “to try it”.', 'with the reason asked for (1.13.2)');
+      assert.equal(record[2][1], 'Unlocking started: “Trying it out”.', 'with the reason asked for (1.13.2), chosen from the menu (1.28.0)');
       assert.equal(record[3][1], 'The wait was lengthened from 3 seconds to 5 seconds, without unlocking.');
       assert.equal(record[4][1], 'Locked away, with a wait of 3 seconds.');
       assert.equal(record[5][1], 'The record began.', 'the last row, from 1.13.1');

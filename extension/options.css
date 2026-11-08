@@ -733,6 +733,12 @@ code {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 
+/* The reason typed under Something else (1.28.0) is words, not a password: the page's own type, under the menu. */
+#lockbox #lockbox-why-other {
+  margin-top: 0.5rem;
+  font-family: inherit;
+}
+
 .button.secondary,
 button.secondary {
   border: 1px solid var(--gate);

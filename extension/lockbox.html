@@ -45,8 +45,17 @@
           <p id="lockbox-progress-text" aria-live="polite"></p>
         </div>
         <div id="lockbox-why-area">
-          <label for="lockbox-why">Why are you unlocking it? Your answer goes into the record.</label>
-          <input id="lockbox-why" type="text" maxlength="200" autocomplete="off">
+          <label id="lockbox-why-label" for="lockbox-why">Why are you unlocking it? Your answer goes into the record.</label>
+          <select id="lockbox-why">
+            <option value="">Choose a reason</option>
+            <option>Installing or updating software</option>
+            <option>Changing a system setting</option>
+            <option>Setting up a printer or another device</option>
+            <option>Fixing something that stopped working</option>
+            <option>Trying it out</option>
+            <option value="other">Something else</option>
+          </select>
+          <input id="lockbox-why-other" type="text" maxlength="200" autocomplete="off" placeholder="Say why" aria-labelledby="lockbox-why-label" hidden>
         </div>
         <div class="actions">
           <button id="lockbox-start" type="button">Start unlocking</button>

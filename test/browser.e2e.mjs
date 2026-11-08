@@ -120,9 +120,21 @@ async function lockAway(page, secret, seconds) {
   await page.locator('#lockbox-locked').waitFor({ state: 'visible', timeout: 15_000 });
 }
 
-/** Starts unlocking, with the reason the page asks for before it begins (1.13.2); carrying on paused work isn't asked. */
-async function startUnlocking(page, why = 'to try it') {
-  if (await page.locator('#lockbox-why').isVisible()) await page.fill('#lockbox-why', why);
+/** The reasons for unlocking that the page's menu offers (1.28.0), as they read; Something else, after them, takes one typed. */
+const REASONS = ['Installing or updating software', 'Changing a system setting', 'Setting up a printer or another device', 'Fixing something that stopped working', 'Trying it out'];
+
+/**
+ * Starts unlocking, with the reason the page asks for before it begins (1.13.2): one of the menu's, or any other
+ * typed under Something else (1.28.0); carrying on paused work isn't asked.
+ */
+async function startUnlocking(page, why = 'Trying it out') {
+  if (await page.locator('#lockbox-why').isVisible()) {
+    if (REASONS.includes(why)) await page.selectOption('#lockbox-why', { label: why });
+    else {
+      await page.selectOption('#lockbox-why', 'other');
+      await page.fill('#lockbox-why-other', why);
+    }
+  }
   await page.click('#lockbox-start');
 }
 
@@ -2340,10 +2352,25 @@ describe('real browser', () => {
         await lockAway(page, SECRET, 3);
         const before = (await storedLockbox(page)).lockbox;
 
-        // Since 1.13.2 the page asks why first, and won't start without an answer, which goes into the record.
+        // Since 1.13.2 the page asks why first, and won't start without an answer, which goes into the record;
+        // since 1.28.0 the answer is chosen from a menu, with Something else for one typed.
+        assert.deepEqual(await page.locator('#lockbox-why option').allInnerTexts(), ['Choose a reason', ...REASONS, 'Something else']);
+        assert.equal(await page.inputValue('#lockbox-why'), '', 'the menu starts on Choose a reason');
+        assert.equal(await page.locator('#lockbox-why-other').isVisible(), false, 'nothing to type into until Something else is chosen');
         await page.click('#lockbox-start');
         await page.waitForFunction(() => document.getElementById('lockbox-status').textContent === 'Say why you’re unlocking it first. Your answer goes into the record.');
+        assert.equal(await page.evaluate(() => document.activeElement.id), 'lockbox-why', 'the keyboard is on the menu');
         assert.equal(await page.locator('#lockbox-progress-area').isVisible(), false, 'nothing started');
+        assert.deepEqual(await recordedEvents(page), ['locked']);
+        // Something else opens a box to type in, with the keyboard in it, and the page won't start on an empty one either.
+        await page.selectOption('#lockbox-why', 'other');
+        await page.locator('#lockbox-why-other').waitFor({ state: 'visible' });
+        assert.equal(await page.evaluate(() => document.activeElement.id), 'lockbox-why-other', 'the keyboard is in the box');
+        await page.fill('#lockbox-why-other', '   ');
+        await page.evaluate(() => { document.getElementById('lockbox-status').textContent = ''; }); // so that the same words can be waited for again
+        await page.click('#lockbox-start');
+        await page.waitForFunction(() => document.getElementById('lockbox-status').textContent === 'Say why you’re unlocking it first. Your answer goes into the record.');
+        assert.equal(await page.evaluate(() => document.activeElement.id), 'lockbox-why-other', 'the keyboard is back in the box');
         assert.deepEqual(await recordedEvents(page), ['locked']);
         const started = Date.now();
         await startUnlocking(page, 'to set up the printer');
@@ -2399,6 +2426,10 @@ describe('real browser', () => {
         await page.click('#lockbox-hide');
         await page.locator('#lockbox-locked').waitFor({ state: 'visible' });
         assert.equal(await page.inputValue('#lockbox-revealed'), '');
+        // The question is asked afresh: the menu back on Choose a reason, the box for typing away.
+        assert.equal(await page.locator('#lockbox-why-area').isVisible(), true);
+        assert.equal(await page.inputValue('#lockbox-why'), '');
+        assert.equal(await page.locator('#lockbox-why-other').isVisible(), false);
         // Hiding it clears the copy on the clipboard, and says so.
         await page.waitForFunction(() => /^Hidden/.test(document.getElementById('lockbox-status').textContent));
         assert.equal(await lockboxStatus(page), 'Hidden. Cleared from the clipboard too.');
@@ -2420,10 +2451,10 @@ describe('real browser', () => {
       let page = await freshSettings();
       try {
         await lockAway(page, SECRET, 6);
-        await startUnlocking(page, 'to try it');
+        await startUnlocking(page, 'Trying it out');
         await progressSaved(page);
         const { lockboxProgress: saved } = await storedLockbox(page);
-        assert.equal(saved.why, 'to try it', 'the reason goes with the progress, for the page reopened');
+        assert.equal(saved.why, 'Trying it out', 'the reason, from the menu, goes with the progress, for the page reopened');
         assert.ok(Math.abs(Date.parse(saved.startedAt) - Date.now()) < 60_000, `started at ${saved.startedAt}`);
         assert.ok(Date.parse(saved.workedAt) >= Date.parse(saved.startedAt), 'last worked on, at or after the start');
         await page.close();
@@ -2449,7 +2480,7 @@ describe('real browser', () => {
         const { lockboxEvents: events } = await storedLockbox(page);
         assert.ok(events[2].done > 0 && events[2].done < events[2].steps, `carried on from ${events[2].done} of ${events[2].steps}`);
         assert.equal(events[3].startedAt, events[1].at);
-        assert.equal(events[3].why, 'to try it', 'and the reason, from the progress');
+        assert.equal(events[3].why, 'Trying it out', 'and the reason, from the progress');
         assert.match((await shownRecord())[2].what, /^Unlocking carried on, from \d+% done\.$/);
         assert.deepEqual(page.errors, []);
       } finally {

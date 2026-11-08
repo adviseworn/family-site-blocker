@@ -29,7 +29,7 @@ const STAYS = 'Hide and Lock it away again take it off this page and the clipboa
 let worker = null;
 let lastSaved = 0;
 let startedAt = null; // when the unlocking under way was started, for the progress record and the `shown` entry
-let why = null; // why it was started, as typed when it began: kept with the progress and given with the `shown` entry (1.13.2)
+let why = null; // why it was started, as chosen or typed when it began: kept with the progress and given with the `shown` entry (1.13.2)
 let latestDone = 0; // the squarings done so far by the worker, over every layer, which is ahead of the progress saved
 // Whether the password is on the clipboard from this page (Copy, or ⌘C/Ctrl+C on one of its boxes) and hasn't been
 // cleared from it since: what clearClipboard() goes by, since reading the clipboard would take a permission of its own.
@@ -46,6 +46,31 @@ const note = (box, details) =>
 
 function say(text) {
   $('lockbox-status').textContent = text;
+}
+
+// The last choice on the menu of reasons for unlocking, "Something else", which opens a box for the reason to be
+// typed in (lockbox.html). The others go into the record as they read; the menu starts on "Choose a reason", whose
+// value is empty.
+const OTHER = 'other';
+
+/** The reason given for unlocking: the menu's choice, or what was typed under Something else, trimmed; '' when none yet. */
+function reasonGiven() {
+  const choice = $('lockbox-why').value;
+  return choice === OTHER ? $('lockbox-why-other').value.trim() : choice;
+}
+
+/** Puts the question back as it was: the menu on "Choose a reason", the box for typing empty and away. */
+function clearReason() {
+  $('lockbox-why').value = '';
+  $('lockbox-why-other').value = '';
+  $('lockbox-why-other').hidden = true;
+}
+
+/** Shows the box for typing when Something else is chosen, and puts the keyboard in it; takes it away for any other choice. */
+function offerOther() {
+  const other = $('lockbox-why').value === OTHER;
+  $('lockbox-why-other').hidden = !other;
+  if (other) $('lockbox-why-other').focus();
 }
 
 /**
@@ -221,11 +246,12 @@ async function lengthenWait() {
 async function startUnlocking() {
   const { box, progress } = await load();
   if (!box || worker) return;
-  // Starting needs a reason, which goes into the record (1.13.2); carrying on paused work was given one when it began.
-  const reason = $('lockbox-why').value.trim();
+  // Starting needs a reason, which goes into the record (1.13.2): one chosen from the menu, or typed under Something
+  // else (1.28.0); carrying on paused work was given one when it began.
+  const reason = reasonGiven();
   if (!progress && !reason) {
     say('Say why you’re unlocking it first. Your answer goes into the record.');
-    $('lockbox-why').focus();
+    ($('lockbox-why').value === OTHER ? $('lockbox-why-other') : $('lockbox-why')).focus();
     return;
   }
   worker = startWorker();
@@ -240,7 +266,7 @@ async function startUnlocking() {
   } else {
     why = reason;
     startedAt = (await record('started', { why })).at;
-    $('lockbox-why').value = '';
+    clearReason();
   }
   say('');
   await render();
@@ -467,6 +493,7 @@ async function copy() {
 $('lockbox-lock').addEventListener('click', lock);
 $('lockbox-make').addEventListener('click', makeOne);
 $('lockbox-lengthen').addEventListener('click', lengthenWait);
+$('lockbox-why').addEventListener('change', offerOther);
 $('lockbox-start').addEventListener('click', startUnlocking);
 $('lockbox-stop').addEventListener('click', stopUnlocking);
 $('lockbox-delete').addEventListener('click', remove);
