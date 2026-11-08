@@ -7,8 +7,9 @@
 // deleted or replaced (#75): this page sums it up in a line, and its entries are rows among every try on
 // tries.html (tries.html#password shows them alone). The boxes that
 // have held each password are noted too (WAITS), with the wait last set for it, so that a backup file
-// saved before the wait was lengthened is lengthened to it as it is restored here (1.13.0).
-import { BOX, PROGRESS, describeBox, describeRecord, duration, fractionDone, layerUnderWork, loadBox, longerWaitFor, noteBox, recordEvent } from './lib/lockbox.js';
+// saved before the wait was lengthened is lengthened to it as it is restored here (1.13.0). A pause (the
+// page closed with unlocking under way) goes on the record as the work is carried on or stopped (recordPause).
+import { BOX, PROGRESS, describeBox, describeRecord, duration, fractionDone, isTime, layerUnderWork, loadBox, longerWaitFor, noteBox, recordEvent } from './lib/lockbox.js';
 import { element, showVersion } from './lib/page.js';
 import { START, isBox, lengthen, modulusOf, open, seal, secondsOf, stepsOf, waitOf } from './lib/timelock.js';
 
@@ -34,12 +35,28 @@ let latestDone = 0; // the squarings done so far by the worker, over every layer
 // Whether the password is on the clipboard from this page (Copy, or ⌘C/Ctrl+C on one of its boxes) and hasn't been
 // cleared from it since: what clearClipboard() goes by, since reading the clipboard would take a permission of its own.
 let onClipboard = false;
-// A failure to write the record must not stop what the person asked for; it is noted in the console.
-const record = (event, details) =>
-  recordEvent(store, event, details).catch((error) => {
+// A failure to write the record must not stop what the person asked for; it is noted in the console. `at` dates
+// the entry when it isn't now (a pause, lib/lockbox.js recordEvent).
+const record = (event, details, at = new Date().toISOString()) =>
+  recordEvent(store, event, details, at).catch((error) => {
     console.warn(`Family Site Blocker: couldn’t record "${event}" for the locked-away password: ${error.message}`);
-    return { at: new Date().toISOString(), event, ...details };
+    return { at, event, ...details };
   });
+
+/**
+ * Puts the pause on the record before what is done with the paused work (1.29.0): unlocking under way when this page
+ * was last closed (or the browser quit, or the add-on updated) paused where its progress was last saved, within
+ * SAVE_EVERY_MS of the pause, so the entry is dated then. It is written as the work is carried on or stopped, since
+ * a page closing can't be sure of writing anything. Nothing is written when the record already reaches that time: the
+ * page was closed again before any more progress was saved, so that pause is on the record already.
+ */
+async function recordPause({ box, progress, events }) {
+  const pausedAt = progress?.workedAt;
+  if (!isTime(pausedAt)) return;
+  const last = events.at(-1);
+  if (last && Date.parse(last.at) >= Date.parse(pausedAt)) return;
+  await record('paused', { done: progress.before + progress.done, steps: stepsOf(box) }, pausedAt);
+}
 // Likewise noting a box among those that have held its password (lib/lockbox.js noteBox).
 const note = (box, details) =>
   noteBox(store, box, details).catch((error) => console.warn(`Family Site Blocker: couldn’t note the locked-away password’s box: ${error.message}`));
@@ -244,7 +261,8 @@ async function lengthenWait() {
 }
 
 async function startUnlocking() {
-  const { box, progress } = await load();
+  const loaded = await load();
+  const { box, progress } = loaded;
   if (!box || worker) return;
   // Starting needs a reason, which goes into the record (1.13.2): one chosen from the menu, or typed under Something
   // else (1.28.0); carrying on paused work was given one when it began.
@@ -255,11 +273,12 @@ async function startUnlocking() {
     return;
   }
   worker = startWorker();
-  // The record says it was started, or carried on and from where. Work carried on keeps the time it was
-  // first started (progress saved before 1.9.0 has none: then the time it was carried on stands in) and the
+  // The record says it was started, or paused and carried on and from where. Work carried on keeps the time it
+  // was first started (progress saved before 1.9.0 has none: then the time it was carried on stands in) and the
   // reason it was started for (none before 1.13.2).
   latestDone = progress ? progress.before + progress.done : 0;
   if (progress) {
+    await recordPause(loaded);
     const resumed = await record('resumed', { done: latestDone, steps: stepsOf(box) });
     startedAt = typeof progress.startedAt === 'string' ? progress.startedAt : resumed.at;
     why = typeof progress.why === 'string' ? progress.why : null;
@@ -377,11 +396,15 @@ async function relock() {
 }
 
 async function stopUnlocking() {
-  const { box, progress } = await load();
+  const loaded = await load();
+  const { box, progress } = loaded;
   const sofar = progress || worker ? ' The work done so far will be lost.' : '';
   if (!confirm(`Stop unlocking?${sofar}`)) return;
+  // Paused work being stopped (no worker running): the record gets the pause first, as carrying on would.
+  const paused = worker === null && box !== null && progress !== null;
   stopWorker();
   await store.remove(PROGRESS);
+  if (paused) await recordPause(loaded);
   await record('stopped', { done: Math.max(progress ? progress.before + progress.done : 0, latestDone), steps: box ? stepsOf(box) : 0 });
   await render();
   say('Unlocking stopped. The password is still locked away.');

@@ -2474,14 +2474,50 @@ describe('real browser', () => {
         await startUnlocking(page);
         await page.locator('#lockbox-open').waitFor({ state: 'visible', timeout: 20_000 });
         assert.equal(await page.inputValue('#lockbox-revealed'), SECRET);
-        // Carrying on went into the record, with how far it had got, and the start the password was shown after is the first one.
+        // Carrying on went into the record, with how far it had got, after the pause it carried on from (1.29.0), dated
+        // when the progress was last saved before the page closed; and the start the password was shown after is the first one.
         await page.waitForFunction(() => document.getElementById('lockbox-status').textContent === '', null, { timeout: 15_000 });
-        assert.deepEqual(await recordedEvents(page), ['locked', 'started', 'resumed', 'shown', 'sealed']);
-        const { lockboxEvents: events } = await storedLockbox(page);
-        assert.ok(events[2].done > 0 && events[2].done < events[2].steps, `carried on from ${events[2].done} of ${events[2].steps}`);
-        assert.equal(events[3].startedAt, events[1].at);
-        assert.equal(events[3].why, 'Trying it out', 'and the reason, from the progress');
-        assert.match((await shownRecord())[2].what, /^Unlocking carried on, from \d+% done\.$/);
+        assert.deepEqual(await recordedEvents(page), ['locked', 'started', 'paused', 'resumed', 'shown', 'sealed']);
+        const [, started, paused, resumed, shown] = (await storedLockbox(page)).lockboxEvents;
+        assert.ok(resumed.done > 0 && resumed.done < resumed.steps, `carried on from ${resumed.done} of ${resumed.steps}`);
+        assert.deepEqual({ done: paused.done, steps: paused.steps }, { done: resumed.done, steps: resumed.steps }, 'paused where it carried on from');
+        assert.ok(Date.parse(paused.at) >= Date.parse(saved.workedAt) && Date.parse(paused.at) < Date.parse(resumed.at), `paused ${paused.at}: the progress was saved ${saved.workedAt}, the work carried on ${resumed.at}`);
+        assert.ok(Date.parse(paused.at) > Date.parse(started.at), 'after the start');
+        assert.equal(shown.startedAt, started.at);
+        assert.equal(shown.why, 'Trying it out', 'and the reason, from the progress');
+        const rows = await shownRecord();
+        assert.match(rows[2].what, /^Unlocking carried on, from \d+% done\.$/);
+        assert.match(rows[3].what, /^Unlocking paused at \d+% done\.$/);
+        assert.deepEqual(page.errors, []);
+      } finally {
+        await page.close();
+      }
+    });
+
+    test('stopping paused unlocking puts the pause on the record before the stop', async () => {
+      let page = await freshSettings();
+      try {
+        await lockAway(page, SECRET, 30);
+        await startUnlocking(page);
+        await progressSaved(page);
+        await page.close();
+
+        page = await browser.context.newPage();
+        page.errors = [];
+        page.on('pageerror', (error) => page.errors.push(error.message));
+        await page.goto(`chrome-extension://${browser.extensionId}/lockbox.html`);
+        await page.waitForFunction(() => document.getElementById('lockbox-start').textContent === 'Carry on unlocking');
+        const { lockboxProgress: saved } = await storedLockbox(page);
+        page.once('dialog', (dialog) => dialog.accept());
+        await page.click('#lockbox-stop');
+        await page.waitForFunction(() => /^Unlocking stopped/.test(document.getElementById('lockbox-status').textContent));
+        assert.deepEqual(await recordedEvents(page), ['locked', 'started', 'paused', 'stopped']);
+        const [, started, paused, stopped] = (await storedLockbox(page)).lockboxEvents;
+        assert.equal(paused.at, saved.workedAt, 'the pause is dated when the progress was last saved');
+        assert.ok(Date.parse(paused.at) > Date.parse(started.at) && Date.parse(paused.at) < Date.parse(stopped.at), `paused ${paused.at}, between ${started.at} and ${stopped.at}`);
+        assert.deepEqual({ done: paused.done, steps: paused.steps }, { done: stopped.done, steps: stopped.steps }, 'stopped where it had paused');
+        assert.equal((await storedLockbox(page)).lockboxProgress, undefined);
+        assert.deepEqual((await shownRecord()).slice(0, 2).map(({ what }) => what.replace(/\d+%/, 'N%')), ['Unlocking stopped at N% done; the work was thrown away.', 'Unlocking paused at N% done.']);
         assert.deepEqual(page.errors, []);
       } finally {
         await page.close();
@@ -2653,21 +2689,21 @@ describe('real browser', () => {
     test('a long record is summed up on the password page and shown in full among every try, newest first', async () => {
       const page = await freshSettings();
       try {
-        // A record of 14 entries, a minute apart, as the page would have written them.
+        // A record of 15 entries, a minute apart, as the page would have written them.
         await page.evaluate(() => {
-          const events = ['locked', 'started', 'stopped', 'started', 'resumed', 'shown', 'sealed', 'deleted', 'restored', 'started', 'shown', 'seal-failed', 'deleted', 'locked'].map((event, i) => ({
+          const events = ['locked', 'started', 'stopped', 'started', 'paused', 'resumed', 'shown', 'sealed', 'deleted', 'restored', 'started', 'shown', 'seal-failed', 'deleted', 'locked'].map((event, i) => ({
             at: new Date(Date.UTC(2026, 9, 11, 20, 40 + i)).toISOString(),
             event,
             ...(event === 'locked' || event === 'sealed' ? { delay: 172_800 } : {}),
-            ...(event === 'stopped' || event === 'resumed' ? { done: 25 * (i + 1), steps: 1000 } : {}),
+            ...(event === 'stopped' || event === 'paused' || event === 'resumed' ? { done: 25 * (i + 1), steps: 1000 } : {}),
           }));
           return chrome.storage.local.set({ lockboxEvents: events });
         });
         await page.reload();
         await page.locator('#lockbox-record').waitFor({ state: 'visible' });
-        assert.match(await page.locator('#lockbox-record-line').innerText(), /^14 entries since .+, the latest on .+: Locked away, with a wait of 2 days\. See them among every try\.$/);
+        assert.match(await page.locator('#lockbox-record-line').innerText(), /^15 entries since .+, the latest on .+: Locked away, with a wait of 2 days\. See them among every try\.$/);
         const rows = await shownRecord();
-        assert.equal(rows.length, 15, 'the 14 entries and the beginning');
+        assert.equal(rows.length, 16, 'the 15 entries and the beginning');
         assert.ok(rows.every(({ site }) => site === 'Password'), 'each marked in the site column');
         assert.deepEqual(rows.map(({ what }) => what).slice(0, 4), [
           'Locked away, with a wait of 2 days.',
@@ -2678,6 +2714,7 @@ describe('real browser', () => {
         assert.equal(rows.at(-2).what, 'Locked away, with a wait of 2 days.');
         assert.deepEqual([rows.at(-1).what, rows.at(-1).when], ['The record began.', rows.at(-2).when], 'a record from before 1.11.4 began at its oldest entry');
         assert.equal(rows.at(-4).what, 'Unlocking stopped at 7% done; the work was thrown away.');
+        assert.deepEqual([rows.at(-7).what, rows.at(-6).what], ['Unlocking carried on, from 15% done.', 'Unlocking paused at 12% done.'], 'the pause before the work was carried on (1.29.0), newest first');
         assert.notEqual(rows[0].when, rows.at(-2).when, 'each row has its own time');
         // The settings page's line reads the record too: the password now locked away is the last one.
         const settings = await openSettings();

@@ -32,14 +32,18 @@ export const WAITS_KEPT = 200;
 
 /**
  * The events the page records, and what each carries besides `at` (an ISO time) and `event`:
- * locked { delay }, lengthened { from, to }, started { why? }, resumed { done, steps }, stopped { done, steps },
- * shown { startedAt, why? }, sealed { delay, previous? }, seal-failed {}, restored { lockedAt, from?, to? }, deleted {}.
+ * locked { delay }, lengthened { from, to }, started { why? }, paused { done, steps }, resumed { done, steps },
+ * stopped { done, steps }, shown { startedAt, why? }, sealed { delay, previous? }, seal-failed {},
+ * restored { lockedAt, from?, to? }, deleted {}.
  * An unlock is a `started` … `shown` pair; `sealed` or `seal-failed` follows `shown` straight away, and
  * `sealed` with `previous` is the password locked away again with a wait of the person's choosing (#76).
  * `restored` with `from` and `to` is a backup file whose wait was lengthened to the one set here as it was
- * restored (1.13.0).
+ * restored (1.13.0). `paused` (1.29.0) is unlocking that stopped short because its page was closed (or the
+ * browser quit, or the add-on updated), dated when its progress was last saved, within a few seconds of the
+ * pause; the page writes it as the work is carried on or stopped, since it can't be sure of writing anything
+ * as it closes, so `paused` is always followed by `resumed` or `stopped`.
  */
-export const EVENT_NAMES = ['locked', 'lengthened', 'started', 'resumed', 'stopped', 'shown', 'sealed', 'seal-failed', 'restored', 'deleted'];
+export const EVENT_NAMES = ['locked', 'lengthened', 'started', 'paused', 'resumed', 'stopped', 'shown', 'sealed', 'seal-failed', 'restored', 'deleted'];
 
 const plural = (count, word) => `${count} ${word}${count === 1 ? '' : 's'}`;
 
@@ -58,7 +62,8 @@ export function duration(seconds) {
 /** "once", "twice", "3 times". */
 export const times = (count) => (count === 1 ? 'once' : count === 2 ? 'twice' : `${count} times`);
 
-const isTime = (value) => typeof value === 'string' && !Number.isNaN(Date.parse(value));
+/** Whether `value` is a time as the record writes them: an ISO string that parses. */
+export const isTime = (value) => typeof value === 'string' && !Number.isNaN(Date.parse(value));
 
 /** An entry of the record, as the page writes them. */
 export const isEvent = (value) => typeof value === 'object' && value !== null && isTime(value.at) && typeof value.event === 'string';
@@ -94,11 +99,15 @@ export const layerUnderWork = ({ box, progress }) => progress?.inner ?? box;
 /** How far unlocking has got, as a fraction of all the squarings the stored box takes. */
 export const fractionDone = ({ box, progress }) => (progress ? Math.min(1, ((progress.before ?? 0) + progress.done) / stepsOf(box)) : 0);
 
-/** Adds an entry to the record, with the time, and returns it. The oldest entries go once the record is long; when it began stays. */
-export async function recordEvent(store, event, details = {}) {
+/**
+ * Adds an entry to the record, with the time (now, unless `at` says when it happened: a pause, known only
+ * afterwards, is dated when the progress was last saved), and returns it. The oldest entries go once the
+ * record is long; when it began stays.
+ */
+export async function recordEvent(store, event, details = {}, at = new Date().toISOString()) {
   const { [EVENTS]: events, [EVENTS_SINCE]: since } = await store.get([EVENTS, EVENTS_SINCE]);
   const record = Array.isArray(events) ? events.filter(isEvent) : [];
-  const entry = { at: new Date().toISOString(), event, ...details };
+  const entry = { at, event, ...details };
   // The beginning is kept before the oldest entry can go: the time stored, else the oldest entry's, else this first entry's.
   await store.set({ [EVENTS]: [...record.slice(-(EVENTS_KEPT - 1)), entry], [EVENTS_SINCE]: recordBegan(record, since) ?? entry.at });
   return entry;
@@ -261,6 +270,8 @@ export function describeEvent(entry, { brief = false } = {}) {
         : 'The wait was lengthened, without unlocking.';
     case 'started':
       return `Unlocking started${whyOf(entry)}.`;
+    case 'paused':
+      return `Unlocking paused at ${percent(entry)}% done.`;
     case 'resumed':
       return `Unlocking carried on, from ${percent(entry)}% done.`;
     case 'stopped':
