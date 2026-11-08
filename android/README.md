@@ -41,7 +41,7 @@ cd android
 
 Without a release key the debug key signs the build: it installs on a phone but Google Play will not take
 it. For a real release, pass the key through Gradle properties (in GitLab: masked CI variables, the keystore
-as a file variable), never through the repository:
+as base64 text in `ANDROID_KEYSTORE_BASE64`, see `ci/android-job.yml`), never through the repository:
 
 ```sh
 ./gradlew assembleRelease -PfsbKeystore=/path/to/release.jks -PfsbKeystorePassword=... -PfsbKeyAlias=... -PfsbKeyPassword=...

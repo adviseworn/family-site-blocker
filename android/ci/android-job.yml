@@ -11,9 +11,11 @@
 #
 # The release key lives in CI/CD variables (Settings → CI/CD → Variables, masked and protected), entered there by the
 # project's owner and nowhere else:
-#   ANDROID_KEYSTORE           a file variable holding the release keystore (.jks)
+#   ANDROID_KEYSTORE_BASE64    the keystore file (.p12 or .jks) as base64 text, one line (base64 -i file | pbcopy)
 #   ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS, ANDROID_KEY_PASSWORD
-# Without them the job still builds, signed with a debug key: fine for installing by hand, not for Google Play.
+# Without them the job still builds, signed with a debug key: fine for installing by hand, not for Google Play. That
+# debug key is kept in the job's cache (ANDROID_USER_HOME), so builds without the release key share one key for as
+# long as the cache lives, and a newer build installs over the older one.
 
 android:
   stage: test
@@ -23,12 +25,14 @@ android:
   interruptible: false
   variables:
     ANDROID_HOME: $CI_PROJECT_DIR/.android-sdk
+    ANDROID_USER_HOME: $CI_PROJECT_DIR/.android-user
     GRADLE_USER_HOME: $CI_PROJECT_DIR/.gradle-home
     GRADLE_OPTS: -Dorg.gradle.daemon=false
   cache:
     key: android-sdk-and-gradle
     paths:
       - .android-sdk/
+      - .android-user/
       - .gradle-home/caches/modules-2/
       - .gradle-home/wrapper/
   rules:
@@ -39,6 +43,7 @@ android:
       when: manual
       allow_failure: true
   before_script:
+    - mkdir -p "$ANDROID_USER_HOME"
     - apt-get update -qq && apt-get install -y -qq unzip > /dev/null
     - |
       if [ ! -x "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" ]; then
@@ -53,13 +58,19 @@ android:
     - cd android
     - |
       SIGNING=""
-      if [ -n "$ANDROID_KEYSTORE" ]; then
-        SIGNING="-PfsbKeystore=$ANDROID_KEYSTORE -PfsbKeystorePassword=$ANDROID_KEYSTORE_PASSWORD -PfsbKeyAlias=$ANDROID_KEY_ALIAS -PfsbKeyPassword=$ANDROID_KEY_PASSWORD"
+      if [ -n "$ANDROID_KEYSTORE_BASE64" ]; then
+        echo "$ANDROID_KEYSTORE_BASE64" | tr -d ' \n' | base64 -d > "$CI_PROJECT_DIR/release-keystore"
+        SIGNING="-PfsbKeystore=$CI_PROJECT_DIR/release-keystore -PfsbKeystorePassword=$ANDROID_KEYSTORE_PASSWORD -PfsbKeyAlias=$ANDROID_KEY_ALIAS -PfsbKeyPassword=$ANDROID_KEY_PASSWORD"
+        echo "Signing with the release key"
+      else
+        echo "No release key (ANDROID_KEYSTORE_BASE64 unset): signing with the debug key"
       fi
       ./gradlew --no-daemon assembleRelease bundleRelease $SIGNING
     - cp app/build/outputs/apk/release/app-arm64-v8a-release.apk ../family-site-blocker.apk
     - cp app/build/outputs/bundle/release/app-release.aab ../family-site-blocker.aab
     - ls -l ../family-site-blocker.apk ../family-site-blocker.aab
+  after_script:
+    - rm -f "$CI_PROJECT_DIR/release-keystore"
   artifacts:
     name: family-site-blocker-android
     paths:
