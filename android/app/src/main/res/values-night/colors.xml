@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="fsb_toolbar">#1C1B1F</color>
+    <color name="fsb_toolbar_text">#E6E1E5</color>
+    <color name="fsb_toolbar_hint">#A8A8A8</color>
+    <color name="fsb_url_box">#2B2930</color>
+    <color name="fsb_menu_icon">#E6E1E5</color>
+    <color name="fsb_menu_icon_disabled">#6F6F6F</color>
+</resources>

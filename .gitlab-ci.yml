@@ -34,6 +34,10 @@
 #   mozilla-backup  saves every version Mozilla has signed, 1.1.1 on, in the project's package registry next to
 #                   the release files (scripts/amo-backup.mjs), so the project keeps its own copies. A pipeline
 #                   started by hand with BACKUP set to yes runs it at once.
+#   android         builds the Android browser, the app in android/ with the add-on built in: the APK for the phone
+#                   and the bundle for Google Play (android/ci/android-job.yml, included below, which also says where
+#                   the signing key lives). Gecko makes it a long job, so it runs only by hand: the play button next
+#                   to the android job on a pipeline's page, or a pipeline started by hand with ANDROID set to yes.
 #
 # The sign, mozilla-backup and lock-check jobs need two CI/CD variables (Settings → CI/CD → Variables, masked), the two parts of an API key
 # from https://addons.mozilla.org/developers/addon/api/key/ : AMO_JWT_ISSUER (the "JWT issuer") and
@@ -44,6 +48,9 @@
 # (scripts/mac-installer.mjs, which needs Apple's pkgbuild) and the Mac-only checks run only on a Mac by hand.
 
 stages: [test, sign, publish]
+
+include:
+  - local: android/ci/android-job.yml
 
 workflow:
   rules:
@@ -76,7 +83,7 @@ variables:
   stage: test
   interruptible: true
   rules:
-    - if: ($CI_PIPELINE_SOURCE == "web" || $CI_PIPELINE_SOURCE == "api") && ($SIGN == "yes" || $PUBLISH == "yes" || $BACKUP == "yes")
+    - if: ($CI_PIPELINE_SOURCE == "web" || $CI_PIPELINE_SOURCE == "api") && ($SIGN == "yes" || $PUBLISH == "yes" || $BACKUP == "yes" || $ANDROID == "yes")
       when: never
     - if: $CI_COMMIT_BRANCH
 
@@ -201,7 +208,7 @@ update-files:
   stage: test
   needs: []
   rules:
-    - if: ($CI_PIPELINE_SOURCE == "web" || $CI_PIPELINE_SOURCE == "api") && ($SIGN == "yes" || $PUBLISH == "yes" || $BACKUP == "yes")
+    - if: ($CI_PIPELINE_SOURCE == "web" || $CI_PIPELINE_SOURCE == "api") && ($SIGN == "yes" || $PUBLISH == "yes" || $BACKUP == "yes" || $ANDROID == "yes")
       when: never
     - if: ($CI_PIPELINE_SOURCE == "web" || $CI_PIPELINE_SOURCE == "api") || $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
       when: manual
@@ -230,7 +237,7 @@ mozilla-backup:
   timeout: 30 minutes
   rules:
     - if: ($CI_PIPELINE_SOURCE == "web" || $CI_PIPELINE_SOURCE == "api") && $BACKUP == "yes"
-    - if: ($CI_PIPELINE_SOURCE == "web" || $CI_PIPELINE_SOURCE == "api") && ($SIGN == "yes" || $PUBLISH == "yes")
+    - if: ($CI_PIPELINE_SOURCE == "web" || $CI_PIPELINE_SOURCE == "api") && ($SIGN == "yes" || $PUBLISH == "yes" || $ANDROID == "yes")
       when: never
     - if: ($CI_PIPELINE_SOURCE == "web" || $CI_PIPELINE_SOURCE == "api") || $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
       when: manual

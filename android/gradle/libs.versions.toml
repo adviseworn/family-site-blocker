@@ -1,0 +1,76 @@
+# Versions follow Mozilla's Firefox 159 release: Android Components 159.0.1 and the libraries it was built with
+# (gradle/libs.versions.toml at the FIREFOX_159_0_1_RELEASE tag). Bump android-components with each Firefox release.
+[versions]
+android-gradle-plugin = "9.4.1"
+android-components = "159.0.1"
+kotlin = "2.4.20"
+coroutines = "1.11.0"
+activity = "1.13.0"
+appcompat = "1.8.0"
+constraintlayout = "2.2.2"
+coordinatorlayout = "1.3.0"
+core = "1.19.1"
+fragment = "1.9.1"
+lifecycle = "2.11.0"
+recyclerview = "1.4.0"
+swiperefreshlayout = "1.2.0"
+material = "1.14.0"
+
+[libraries]
+kotlin-gradle-plugin = { module = "org.jetbrains.kotlin:kotlin-gradle-plugin", version.ref = "kotlin" }
+androidx-activity = { module = "androidx.activity:activity-ktx", version.ref = "activity" }
+androidx-appcompat = { module = "androidx.appcompat:appcompat", version.ref = "appcompat" }
+androidx-constraintlayout = { module = "androidx.constraintlayout:constraintlayout", version.ref = "constraintlayout" }
+androidx-coordinatorlayout = { module = "androidx.coordinatorlayout:coordinatorlayout", version.ref = "coordinatorlayout" }
+androidx-core-ktx = { module = "androidx.core:core-ktx", version.ref = "core" }
+androidx-fragment = { module = "androidx.fragment:fragment-ktx", version.ref = "fragment" }
+androidx-lifecycle-process = { module = "androidx.lifecycle:lifecycle-process", version.ref = "lifecycle" }
+androidx-recyclerview = { module = "androidx.recyclerview:recyclerview", version.ref = "recyclerview" }
+androidx-swiperefreshlayout = { module = "androidx.swiperefreshlayout:swiperefreshlayout", version.ref = "swiperefreshlayout" }
+google-material = { module = "com.google.android.material:material", version.ref = "material" }
+kotlinx-coroutines-android = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-android", version.ref = "coroutines" }
+
+mozilla-browser-domains = { module = "org.mozilla.components:browser-domains", version.ref = "android-components" }
+mozilla-browser-engine-gecko = { module = "org.mozilla.components:browser-engine-gecko", version.ref = "android-components" }
+mozilla-browser-errorpages = { module = "org.mozilla.components:browser-errorpages", version.ref = "android-components" }
+mozilla-browser-icons = { module = "org.mozilla.components:browser-icons", version.ref = "android-components" }
+mozilla-browser-menu = { module = "org.mozilla.components:browser-menu", version.ref = "android-components" }
+mozilla-browser-session-storage = { module = "org.mozilla.components:browser-session-storage", version.ref = "android-components" }
+mozilla-browser-state = { module = "org.mozilla.components:browser-state", version.ref = "android-components" }
+mozilla-browser-storage-sync = { module = "org.mozilla.components:browser-storage-sync", version.ref = "android-components" }
+mozilla-browser-tabstray = { module = "org.mozilla.components:browser-tabstray", version.ref = "android-components" }
+mozilla-browser-thumbnails = { module = "org.mozilla.components:browser-thumbnails", version.ref = "android-components" }
+mozilla-browser-toolbar = { module = "org.mozilla.components:browser-toolbar", version.ref = "android-components" }
+mozilla-concept-base = { module = "org.mozilla.components:concept-base", version.ref = "android-components" }
+mozilla-concept-engine = { module = "org.mozilla.components:concept-engine", version.ref = "android-components" }
+mozilla-concept-fetch = { module = "org.mozilla.components:concept-fetch", version.ref = "android-components" }
+mozilla-concept-menu = { module = "org.mozilla.components:concept-menu", version.ref = "android-components" }
+mozilla-concept-storage = { module = "org.mozilla.components:concept-storage", version.ref = "android-components" }
+mozilla-concept-tabstray = { module = "org.mozilla.components:concept-tabstray", version.ref = "android-components" }
+mozilla-concept-toolbar = { module = "org.mozilla.components:concept-toolbar", version.ref = "android-components" }
+mozilla-feature-contextmenu = { module = "org.mozilla.components:feature-contextmenu", version.ref = "android-components" }
+mozilla-feature-downloads = { module = "org.mozilla.components:feature-downloads", version.ref = "android-components" }
+mozilla-feature-findinpage = { module = "org.mozilla.components:feature-findinpage", version.ref = "android-components" }
+mozilla-feature-intent = { module = "org.mozilla.components:feature-intent", version.ref = "android-components" }
+mozilla-feature-prompts = { module = "org.mozilla.components:feature-prompts", version.ref = "android-components" }
+mozilla-feature-search = { module = "org.mozilla.components:feature-search", version.ref = "android-components" }
+mozilla-feature-session = { module = "org.mozilla.components:feature-session", version.ref = "android-components" }
+mozilla-feature-sitepermissions = { module = "org.mozilla.components:feature-sitepermissions", version.ref = "android-components" }
+mozilla-feature-tabs = { module = "org.mozilla.components:feature-tabs", version.ref = "android-components" }
+mozilla-feature-toolbar = { module = "org.mozilla.components:feature-toolbar", version.ref = "android-components" }
+mozilla-feature-webcompat = { module = "org.mozilla.components:feature-webcompat", version.ref = "android-components" }
+mozilla-lib-publicsuffixlist = { module = "org.mozilla.components:lib-publicsuffixlist", version.ref = "android-components" }
+mozilla-lib-state = { module = "org.mozilla.components:lib-state", version.ref = "android-components" }
+mozilla-service-location = { module = "org.mozilla.components:service-location", version.ref = "android-components" }
+mozilla-support-appservices = { module = "org.mozilla.components:support-appservices", version.ref = "android-components" }
+mozilla-support-base = { module = "org.mozilla.components:support-base", version.ref = "android-components" }
+mozilla-support-ktx = { module = "org.mozilla.components:support-ktx", version.ref = "android-components" }
+mozilla-support-utils = { module = "org.mozilla.components:support-utils", version.ref = "android-components" }
+mozilla-support-webextensions = { module = "org.mozilla.components:support-webextensions", version.ref = "android-components" }
+mozilla-ui-colors = { module = "org.mozilla.components:ui-colors", version.ref = "android-components" }
+mozilla-ui-icons = { module = "org.mozilla.components:ui-icons", version.ref = "android-components" }
+mozilla-ui-tabcounter = { module = "org.mozilla.components:ui-tabcounter", version.ref = "android-components" }
+mozilla-ui-widgets = { module = "org.mozilla.components:ui-widgets", version.ref = "android-components" }
+
+[plugins]
+android-application = { id = "com.android.application", version.ref = "android-gradle-plugin" }

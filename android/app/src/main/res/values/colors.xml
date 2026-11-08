@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- The add-on's icon green. -->
+    <color name="fsb_green">#2C5A4B</color>
+    <color name="fsb_icon_background">#2C5A4B</color>
+
+    <color name="fsb_toolbar">#FFFFFF</color>
+    <color name="fsb_toolbar_text">#1C1B1F</color>
+    <color name="fsb_toolbar_hint">#6F6F6F</color>
+    <color name="fsb_url_box">#F0F0F0</color>
+    <color name="fsb_menu_icon">#1C1B1F</color>
+    <color name="fsb_menu_icon_disabled">#A8A8A8</color>
+</resources>

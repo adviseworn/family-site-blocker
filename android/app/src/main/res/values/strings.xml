@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Family Site Blocker</string>
+    <string name="toolbar_hint">Search or type a web address</string>
+
+    <!-- Menu -->
+    <string name="menu_back">Back</string>
+    <string name="menu_forward">Forward</string>
+    <string name="menu_refresh">Reload</string>
+    <string name="menu_stop">Stop</string>
+    <string name="menu_new_tab">New tab</string>
+    <string name="menu_share">Share</string>
+    <string name="menu_find_in_page">Find in page</string>
+    <string name="menu_desktop_site">Desktop site</string>
+    <string name="menu_settings">Settings</string>
+    <string name="menu_every_try">Every try</string>
+    <string name="menu_is_it_working">Is it working?</string>
+    <string name="menu_default_browser">Make it the default browser</string>
+
+    <!-- Tabs -->
+    <string name="tabs_title">Tabs</string>
+    <string name="tab_closed">Tab closed</string>
+    <string name="undo">Undo</string>
+
+    <!-- Messages -->
+    <string name="add_on_still_starting">Family Site Blocker is still starting. Try again in a moment.</string>
+    <string name="default_browser_hint">To make it the default browser: Settings, Apps, Default apps, Browser app.</string>
+    <string name="default_browser_open_settings">Open settings</string>
+
+    <!-- Mozilla's tab counter button takes its color from this name. -->
+    <color name="mozac_ui_tabcounter_default_tint">@color/fsb_toolbar_text</color>
+</resources>
