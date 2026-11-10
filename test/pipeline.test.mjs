@@ -3,7 +3,7 @@
 import { after, before, describe, it, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -30,6 +30,65 @@ const runWhileServing = (name, args, env = {}) =>
 const PASSING = ['TAP version 13', 'ok 1 - one', 'ok 2 - two', '# tests 2', '# suites 0', '# pass 2', '# fail 0', '# cancelled 0', '# skipped 0', '# todo 0', '# duration_ms 5'].join('\n');
 const uploaded = new Map(); // what the stand-in registry was given with PUT, by path
 const MIXED = ['TAP version 13', 'ok 1 - one', 'not ok 2 - two', '  ---', '  ...', 'ok 3 - three # SKIP needs a Mac', '# tests 3', '# pass 1', '# fail 1', '# cancelled 0', '# skipped 1', '# todo 0'].join('\n');
+
+// GitLab's free plan gives 400 pipeline minutes a month, and November 2026's were all but gone by the 9th: 158
+// went to the sign job waiting 25 minutes for a reviewer who takes days, and a fifth to running the tests a
+// second time on main.
+describe('the pipeline spends few minutes', () => {
+  const pipeline = readFileSync(fileURLToPath(new URL('../.gitlab-ci.yml', import.meta.url)), 'utf8');
+  /** One job's text in .gitlab-ci.yml: from its name at the start of a line to the next job's. */
+  const job = (name) => pipeline.match(new RegExp(`\\n${name.replace('.', '\\.')}:\\n(?:(?![\\w.-]+:\\n)[^\\n]*\\n)*`))?.[0] ?? '';
+
+  it('runs the tests on a branch and not again for the push that merges it into main', () => {
+    const tests = job('.tests');
+    assert.match(tests, /\n {4}- if: \$CI_COMMIT_BRANCH == \$CI_DEFAULT_BRANCH && \$CI_PIPELINE_SOURCE == "push"\n {6}when: never[^\n]*\n {4}- if: \$CI_COMMIT_BRANCH\n/);
+    for (const name of ['checks', 'browsers']) assert.match(job(name), /\n {2}extends: \.tests\n/, `${name} follows that rule`);
+    // The sign job can't wait for jobs its pipeline doesn't have.
+    assert.match(job('sign'), /\n {2}needs: \[\]/);
+    assert.doesNotMatch(job('sign'), /needs: \[checks/);
+  });
+
+  it('runs the browser suites only for a branch that changes something they load or run, and whenever a pipeline is started by hand', () => {
+    const browsers = job('browsers');
+    // A job's own rules replace the ones it extends, so the browsers job repeats the two that keep the tests out.
+    const never = (text) => text.match(/\n {2}rules:\n((?: {4}- if: [^\n]+\n {6}when: never[^\n]*\n)+)/)?.[1];
+    assert.ok(never(browsers), 'the browsers job has rules of its own');
+    assert.equal(never(browsers), never(job('.tests')), 'out of the same pipelines as the checks job');
+    const rule = browsers.match(/when: never[^\n]*\n {4}- if: \$CI_COMMIT_BRANCH && \$CI_PIPELINE_SOURCE != "push"\n {4}- if: \$CI_COMMIT_BRANCH\n {6}changes:\n {8}compare_to: refs\/heads\/main\n {8}paths:\n((?: {10}- [^\n]+\n)+) {2}script:\n/);
+    assert.ok(rule, 'by hand always; for a push, only when the branch differs from main in a listed file');
+    const paths = rule[1].trim().split('\n').map((line) => line.trim().replace(/^- /, ''));
+    for (const path of paths) assert.match(path, /^[\w.-]+(\/\*\*\/\*)?$/, `${path}: a file at the top of the project, or a folder and all it holds`);
+    const listed = paths.map((path) => path.split('/')[0]);
+    // What the suites load or run: the add-on, themselves and their helpers, and the scripts they import.
+    for (const needed of ['extension', 'test', 'scripts', 'package.json', '.gitlab-ci.yml']) assert.ok(listed.includes(needed), `${needed} is listed`);
+    // What they never touch. Everything else at the top of the project has to be listed, so a new folder can't
+    // slip past the suites unnoticed: add it to the job's paths, or here if the suites don't load or run it.
+    const untouched = ['android', 'README.md', '.gitignore'];
+    for (const name of untouched) assert.ok(!listed.includes(name), `${name} is not listed`);
+    const root = fileURLToPath(new URL('..', import.meta.url));
+    const git = spawnSync('git', ['ls-files', '-z'], { cwd: root, encoding: 'utf8' });
+    const tracked = git.status === 0 ? [...new Set(git.stdout.split('\0').filter(Boolean).map((path) => path.split('/')[0]))] : [];
+    // Without git (the source unpacked from an archive), the folders there are, less the ones .gitignore names.
+    const ignored = readFileSync(join(root, '.gitignore'), 'utf8').split('\n').map((line) => line.trim().replace(/\/$/, ''));
+    const folders = readdirSync(root, { withFileTypes: true }).filter((entry) => entry.isDirectory() && entry.name !== '.git' && !ignored.includes(entry.name)).map((entry) => entry.name);
+    const top = tracked.length ? tracked : folders;
+    assert.ok(top.includes('extension') && top.includes('test'), 'found the top of the project');
+    for (const name of top) {
+      assert.ok(listed.includes(name) || untouched.includes(name), `${name} is new at the top of the project: add it to the browsers job's paths in .gitlab-ci.yml, or to the list here if the browser suites don't load or run it`);
+    }
+    for (const name of listed) assert.ok(existsSync(join(root, name)), `${name} exists`);
+  });
+
+  it("waits for Mozilla's approval a few minutes at most, and not at all before the add-on's first approval", () => {
+    const sign = job('sign');
+    assert.match(sign, /if curl -fs -o \/dev\/null "https:\/\/addons\.mozilla\.org\/api\/v5\/addons\/addon\/family-site-blocker\/"; then\n\s+export AMO_WAIT_MINUTES="\$\{APPROVAL_WAIT_MINUTES:-5\}"\n\s+else\n\s+export AMO_WAIT_MINUTES=0\n/);
+    assert.ok(PAGE_URL.endsWith('/addon/family-site-blocker/'), 'the address asked is the page of scripts/amo-metadata.mjs');
+    assert.match(sign, / sign --channel=listed [^\n]* --approval-timeout=\$\(\(AMO_WAIT_MINUTES \* 60000\)\) /, 'the upload waits that long');
+    assert.doesNotMatch(pipeline, /--approval-timeout=\d/, 'and no fixed time');
+    assert.match(sign, /elif \[ "\$found" = 4 \]; then\n[^\n]*Not signed yet[^\n]*\n\s+exit 1\n/, 'a version Mozilla holds ends the job, as scripts/amo-signed.mjs reports it');
+    assert.match(sign, /if ! ls web-ext-artifacts\/\*\.xpi > \/dev\/null 2>&1; then\n[^\n]*Uploaded, not signed yet[^\n]*\n\s+exit 1\n/, 'and so does an upload that was not waited for');
+  });
+});
 
 describe('the suite summary', () => {
   test('reads the totals and the failures from TAP output', () => {

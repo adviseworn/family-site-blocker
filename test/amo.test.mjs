@@ -8,7 +8,7 @@ import http from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { ADDON_ID, downloadSigned, token } from '../scripts/amo-signed.mjs';
+import { ADDON_ID, NOT_APPROVED, downloadSigned, token } from '../scripts/amo-signed.mjs';
 
 const SCRIPT = fileURLToPath(new URL('../scripts/amo-signed.mjs', import.meta.url));
 const KEY = { issuer: 'user:12345:67', secret: 'a-test-secret' };
@@ -91,6 +91,49 @@ test('a version Mozilla is still signing is waited for', async () => {
   } finally {
     await amo.close();
     rmSync(folder, { recursive: true, force: true });
+  }
+});
+
+test('a version Mozilla holds for a reviewer is waited for only as long as told, and not at all with no wait', async () => {
+  const amo = await fakeAmo(['1.1.2'], { status: 'unreviewed' });
+  try {
+    await assert.rejects(downloadSigned('1.1.2', tmpdir(), KEY, { api: amo.api, pollMs: 10, waitMs: 0 }), (error) => {
+      assert.equal(error.code, NOT_APPROVED);
+      assert.match(error.message, /Mozilla hasn't approved and signed 1\.1\.2 yet \(file status: unreviewed\)/);
+      return true;
+    });
+    assert.equal(amo.requests.filter(({ url }) => url.includes('/versions/')).length, 1, 'one look, no waiting');
+    const asked = amo.requests.length;
+    await assert.rejects(downloadSigned('1.1.2', tmpdir(), KEY, { api: amo.api, pollMs: 10, waitMs: 80 }), { code: NOT_APPROVED });
+    assert.ok(amo.requests.length - asked > 2, 'asked again and again while it waited');
+  } finally {
+    await amo.close();
+  }
+});
+
+/** Runs the command against a stand-in, with more of the environment set. */
+const command = (amo, args, env = {}) =>
+  new Promise((done) => {
+    const child = spawn(process.execPath, [SCRIPT, ...args], {
+      env: { ...process.env, AMO_API: amo.api, AMO_JWT_ISSUER: KEY.issuer, AMO_JWT_SECRET: KEY.secret, ...env },
+    });
+    let stderr = '';
+    child.stderr.on('data', (chunk) => (stderr += chunk));
+    child.on('close', (code) => done({ code, stderr }));
+  });
+
+test('the command exits with 4 when Mozilla has the version and has not approved it, after waiting AMO_WAIT_MINUTES', async () => {
+  const amo = await fakeAmo(['1.1.2'], { status: 'unreviewed' });
+  try {
+    const none = await command(amo, ['1.1.2', tmpdir()], { AMO_WAIT_MINUTES: '0' });
+    assert.equal(none.code, 4, none.stderr);
+    assert.match(none.stderr, /Mozilla hasn't approved and signed 1\.1\.2 yet/);
+    assert.equal(amo.requests.filter(({ url }) => url.includes('/versions/')).length, 1, 'with 0, one look');
+    const wrong = await command(amo, ['1.1.2', tmpdir()], { AMO_WAIT_MINUTES: 'a while' });
+    assert.equal(wrong.code, 1);
+    assert.match(wrong.stderr, /AMO_WAIT_MINUTES must be a whole number of minutes, not "a while"/);
+  } finally {
+    await amo.close();
   }
 });
 

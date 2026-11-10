@@ -7,7 +7,9 @@
 //
 // usage: node scripts/amo-signed.mjs <version> <folder to save it in>
 // Needs AMO_JWT_ISSUER and AMO_JWT_SECRET, an API key from https://addons.mozilla.org/developers/addon/api/key/
-// Prints the saved file's path. Exits with 3 when Mozilla has no such version, 1 on any other problem.
+// Prints the saved file's path. Exits with 3 when Mozilla has no such version, with 4 when it has the version
+// and hasn't approved it within AMO_WAIT_MINUTES (25 unless set; the sign job sets it, to 0 while the add-on
+// waits for its first reviewer: a pipeline's minutes are few), and with 1 on any other problem.
 import { createHmac, randomUUID } from 'node:crypto';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
@@ -53,9 +55,13 @@ async function findVersion(version, key, api) {
   return null;
 }
 
+/** What downloadSigned() throws when Mozilla has the version and hasn't approved it in the time allowed. */
+export const NOT_APPROVED = 'NOT_APPROVED';
+
 /**
- * Saves the signed file of `version` in `folder` and returns its path, waiting while Mozilla is still
- * signing it. Returns null when Mozilla has no such version.
+ * Saves the signed file of `version` in `folder` and returns its path, waiting up to `waitMs` while Mozilla
+ * hasn't approved and signed it (not at all with 0: one look), and then throwing an error whose code is
+ * NOT_APPROVED. Returns null when Mozilla has no such version.
  */
 export async function downloadSigned(version, folder, key, { api = 'https://addons.mozilla.org/api/v5/', pollMs = 15_000, waitMs = 25 * 60_000 } = {}) {
   const deadline = Date.now() + waitMs;
@@ -70,7 +76,9 @@ export async function downloadSigned(version, folder, key, { api = 'https://addo
       writeFileSync(path, data);
       return path;
     }
-    if (Date.now() > deadline) throw new Error(`Mozilla hasn't approved and signed ${version} yet (file status: ${found.file?.status ?? 'none'}); a public version can wait for a reviewer.`)
+    if (Date.now() >= deadline) {
+      throw Object.assign(new Error(`Mozilla hasn't approved and signed ${version} yet (file status: ${found.file?.status ?? 'none'}); a public version can wait for a reviewer.`), { code: NOT_APPROVED });
+    }
     await new Promise((done) => setTimeout(done, pollMs));
   }
 }
@@ -84,6 +92,10 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   }
   try {
     const options = process.env.AMO_API ? { api: process.env.AMO_API, pollMs: 50, waitMs: 5_000 } : {};
+    // How long to wait for a version Mozilla holds: whole minutes, 0 for one look.
+    const minutes = (process.env.AMO_WAIT_MINUTES ?? '').trim();
+    if (/^\d+$/.test(minutes)) options.waitMs = Number(minutes) * 60_000;
+    else if (minutes) throw new Error(`AMO_WAIT_MINUTES must be a whole number of minutes, not "${minutes}".`);
     const path = await downloadSigned(version, folder, key, options);
     if (!path) {
       console.error(`Mozilla has no version ${version} of this add-on yet.`);
@@ -92,6 +104,6 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     console.log(path);
   } catch (error) {
     console.error(error.message);
-    process.exit(1);
+    process.exit(error.code === NOT_APPROVED ? 4 : 1);
   }
 }

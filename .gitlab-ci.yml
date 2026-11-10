@@ -1,22 +1,34 @@
 # Family Site Blocker's pipelines on GitLab, in place of the GitHub Actions workflows it had until 1.24.0.
 #
-# On every push, on a Linux machine:
+# On every push to a branch, on a Linux machine:
 #   checks    the fast checks (npm test), then the Firefox zip (npm run package:firefox) checked with Mozilla's
 #             add-on linter, the same check addons.mozilla.org runs before it publishes a version.
 #   browsers  the extension in Chromium (npm run test:browser) and in Firefox (npm run test:firefox, with
 #             Mozilla's own Firefox build). The image is Playwright's, which holds the Chromium that the
 #             playwright version in package.json expects, and Firefox's libraries: when package.json's
-#             playwright changes, change the image's tag to match.
-# When a version lands on main (a push that changes extension/manifest.json), once those have passed:
+#             playwright changes, change the image's tag to match. It runs only for a branch that changes
+#             something the suites load or run (the add-on, the tests, the scripts, the lists, package.json
+#             or this file, compared with main): a branch that changes only the Android app or the guide
+#             skips it, and its pipeline is the checks job alone, under 2 minutes in place of 7.
+# They don't run again for a push to main: merges are fast-forward and need a passed pipeline, so the commit
+# that lands on main is the very one that passed them on its branch. (GitLab's free plan gives 400 pipeline
+# minutes a month; the second run took a fifth of November 2026's, which were all but gone by the 9th.) A
+# pipeline started by hand on main still runs them: start one for a commit pushed straight to main, with no
+# merge request, which nothing has tested.
+# When a version lands on main (a push that changes extension/manifest.json):
 #   sign          gets the version published on addons.mozilla.org and signed, checks the signed file, and
 #                 publishes the release: the signed .xpi, the zip that gives it the add-on's icon on a Mac and
 #                 the Firefox lock's profile go in the project's package registry, and the release links to them.
 #                 If Mozilla already has the version, it downloads that signed file instead of uploading again.
 #                 Mozilla publishes a version once its automatic check passes, but holds some for a reviewer,
-#                 the first public version among them, which can take days: the job then gives up after 25
-#                 minutes, and once Mozilla's email says the version is approved, a pipeline started by hand
-#                 (Build → Pipelines → New pipeline, on main, with the variable SIGN set to yes) signs at once,
-#                 without waiting for the tests, and finishes the job.
+#                 the first public version among them, which can take days. The job waits for the approval
+#                 only a little: 5 minutes (the CI/CD variable APPROVAL_WAIT_MINUTES changes that, in whole
+#                 minutes), and not at all while the add-on has no public version on Mozilla's site yet. Until
+#                 1.29.0 it waited 25 minutes for every version, which took 158 of November 2026's 400 free
+#                 pipeline minutes. A version still held then stays at Mozilla, uploaded: once Mozilla's email
+#                 says it is approved, a pipeline started by hand (Build → Pipelines → New pipeline, on main,
+#                 with the variable SIGN set to yes, and PUBLISH set to yes too to publish the update files in
+#                 the same pipeline) downloads the signed file and finishes the job.
 #   update-files  builds the update manifest and the newest signed .xpi files from the project's releases and
 #                 publishes them on the project's GitLab Pages site (scripts/updates-site.mjs says where), which
 #                 the Firefox lock installs from and copies from before 1.24.0 update from, with the guide (the
@@ -77,7 +89,8 @@ variables:
     - npm install
 
 # The two test jobs stop when a newer push to the same branch starts its own pipeline, and stay out of a
-# pipeline started by hand just to sign or publish.
+# pipeline started by hand just to sign or publish, and out of the pipeline of a push to main, whose commit
+# passed them on its branch before the merge (see the top of this file).
 .tests:
   extends: .node
   stage: test
@@ -85,6 +98,8 @@ variables:
   rules:
     - if: ($CI_PIPELINE_SOURCE == "web" || $CI_PIPELINE_SOURCE == "api") && ($SIGN == "yes" || $PUBLISH == "yes" || $BACKUP == "yes" || $ANDROID == "yes")
       when: never
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_PIPELINE_SOURCE == "push"
+      when: never # tested on its branch already
     - if: $CI_COMMIT_BRANCH
 
 checks:
@@ -103,6 +118,29 @@ checks:
 browsers:
   extends: .tests
   image: mcr.microsoft.com/playwright:v1.56.0-noble
+  # Out of the same pipelines as the checks job (.tests' first two rules, repeated here: a job's rules replace
+  # the ones it extends). Then: a pipeline started by hand runs the suites whatever changed, and a push runs
+  # them only when its branch differs from main in a file the suites load or run. The Android app (android/)
+  # and the guide (README.md) aren't among those; test/pipeline.test.mjs checks that every file and folder at
+  # the top of the project is either listed here or known not to matter.
+  rules:
+    - if: ($CI_PIPELINE_SOURCE == "web" || $CI_PIPELINE_SOURCE == "api") && ($SIGN == "yes" || $PUBLISH == "yes" || $BACKUP == "yes" || $ANDROID == "yes")
+      when: never
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_PIPELINE_SOURCE == "push"
+      when: never # tested on its branch already
+    - if: $CI_COMMIT_BRANCH && $CI_PIPELINE_SOURCE != "push"
+    - if: $CI_COMMIT_BRANCH
+      changes:
+        compare_to: refs/heads/main
+        paths:
+          - extension/**/*
+          - test/**/*
+          - scripts/**/*
+          - blocklists/**/*
+          - mac/**/*
+          - assets/**/*
+          - package.json
+          - .gitlab-ci.yml
   script:
     # Firefox for Linux comes as a .tar.xz; the job's image may have no xz to open it with (Playwright's hasn't).
     - command -v xz > /dev/null || (apt-get update -qq && apt-get install -y -qq xz-utils > /dev/null)
@@ -118,11 +156,10 @@ sign:
   stage: sign
   interruptible: false
   resource_group: sign-with-mozilla # one signing at a time
-  timeout: 45 minutes # Mozilla's signing can take 25
-  needs: [checks, browsers]
+  timeout: 45 minutes # room for a long APPROVAL_WAIT_MINUTES
+  needs: [] # starts at once: the commit's tests passed on its branch, before the merge
   rules:
     - if: ($CI_PIPELINE_SOURCE == "web" || $CI_PIPELINE_SOURCE == "api") && $SIGN == "yes"
-      needs: [] # signs at once, without waiting for the tests
     - if: ($CI_PIPELINE_SOURCE == "web" || $CI_PIPELINE_SOURCE == "api")
       when: never # a pipeline started by hand signs only when asked to (changes: is always true for one)
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
@@ -150,18 +187,38 @@ sign:
         echo "Version $VERSION is already signed and released. Raise version in extension/manifest.json first."
         exit 1
       fi
-    # Mozilla won't take the same version twice. If it already has this one (uploaded by hand, or by a run
-    # that stopped later on, or gave up waiting for a reviewer), download its signed file; otherwise upload it
-    # with the page's words (scripts/amo-metadata.mjs) and wait for Mozilla to approve and sign it.
+    # How long to wait for Mozilla's approval, in minutes. Mozilla holds the first public version for a
+    # reviewer, which takes days, so while the add-on's page isn't public (its address in Mozilla's API answers
+    # only once a version is approved) the job doesn't wait at all; after that, APPROVAL_WAIT_MINUTES or 5.
     - |
+      if curl -fs -o /dev/null "https://addons.mozilla.org/api/v5/addons/addon/family-site-blocker/"; then
+        export AMO_WAIT_MINUTES="${APPROVAL_WAIT_MINUTES:-5}"
+      else
+        export AMO_WAIT_MINUTES=0
+        echo "The add-on has no public version on addons.mozilla.org yet, so its versions wait for a reviewer."
+      fi
+      echo "Waiting up to $AMO_WAIT_MINUTES minutes for Mozilla's approval."
+    # Mozilla won't take the same version twice. If it already has this one (uploaded by hand, or by a run
+    # that stopped later on, or didn't wait for a reviewer), download its signed file; otherwise upload it
+    # with the page's words (scripts/amo-metadata.mjs) and wait that long for Mozilla to approve and sign it.
+    - |
+      later="Mozilla's email says when it's approved: start a pipeline on main by hand then, with the variable SIGN set to yes (and PUBLISH set to yes too, to publish the update files in the same pipeline), and it downloads the signed file and publishes the release."
       found=0
       node scripts/amo-signed.mjs "$VERSION" web-ext-artifacts || found=$?
       if [ "$found" = 3 ]; then
         node scripts/amo-metadata.mjs "$VERSION" "$CI_COMMIT_SHA" "$CI_COMMIT_TITLE" > dist/amo-metadata.json
-        npx --yes web-ext@10.7.0 sign --channel=listed --amo-metadata=dist/amo-metadata.json --source-dir=dist/firefox --artifacts-dir=web-ext-artifacts --approval-timeout=1500000 || {
-          echo "Not signed yet: Mozilla hasn't approved and signed $VERSION in this run (see above). If the upload went through and the version is waiting for a reviewer, which the first public version does, Mozilla's email says when it's approved: start a pipeline on main by hand then, with the variable SIGN set to yes, and it downloads the signed file and publishes the release."
+        npx --yes web-ext@10.7.0 sign --channel=listed --amo-metadata=dist/amo-metadata.json --source-dir=dist/firefox --artifacts-dir=web-ext-artifacts --approval-timeout=$((AMO_WAIT_MINUTES * 60000)) || {
+          echo "Not signed yet: Mozilla hasn't approved and signed $VERSION in this run (see above). If the upload went through and the version is waiting for a reviewer, which the first public version does, $later"
           exit 1
         }
+        # With no wait at all, web-ext stops once Mozilla's automatic check has passed, and leaves no file.
+        if ! ls web-ext-artifacts/*.xpi > /dev/null 2>&1; then
+          echo "Uploaded, not signed yet: $VERSION is at Mozilla, waiting for its approval. $later"
+          exit 1
+        fi
+      elif [ "$found" = 4 ]; then
+        echo "Not signed yet: Mozilla has $VERSION and hasn't approved it. $later"
+        exit 1
       elif [ "$found" != 0 ]; then
         exit "$found"
       fi
