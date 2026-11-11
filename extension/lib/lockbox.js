@@ -47,14 +47,17 @@ export const EVENT_NAMES = ['locked', 'lengthened', 'started', 'paused', 'resume
 
 const plural = (count, word) => `${count} ${word}${count === 1 ? '' : 's'}`;
 
-/** "45 seconds", "12 minutes", "3 hours 20 minutes", "2 days": a wait in words. */
+/**
+ * "45 seconds", "12 minutes", "3 hours 20 minutes", "1 day", "2 days": a wait in words. A whole number of days
+ * reads in days, as the menus of waits put it (1.30.0: a wait of 1 day used to read "24 hours" everywhere else).
+ */
 export function duration(seconds) {
   seconds = Math.max(1, Math.round(seconds));
   if (seconds < 60) return plural(seconds, 'second');
   const minutes = Math.round(seconds / 60);
   if (minutes < 60) return plural(minutes, 'minute');
   const hours = Math.floor(minutes / 60);
-  if (hours < 48) return [plural(hours, 'hour'), minutes % 60 ? plural(minutes % 60, 'minute') : ''].filter(Boolean).join(' ');
+  if (hours < 48 && minutes % 1440 !== 0) return [plural(hours, 'hour'), minutes % 60 ? plural(minutes % 60, 'minute') : ''].filter(Boolean).join(' ');
   const days = Math.floor(hours / 24);
   return [plural(days, 'day'), hours % 24 ? plural(hours % 24, 'hour') : ''].filter(Boolean).join(' ');
 }
@@ -206,6 +209,12 @@ function unlocksOf(events) {
   if (shown.length) return `, unlocked ${times(shown.length)}, last on ${day(shown.at(-1).at)}`;
   return whole ? ', never unlocked' : '';
 }
+
+/**
+ * Where the password locked away stands, for its own page, which shows the wait on a line of its own above this
+ * (1.30.0): "Locked away since Oct 11, 2026, never unlocked."
+ */
+export const describeLocked = ({ box, events = [] }) => `Locked away ${sinceText({ box, events })}${unlocksOf(events)}.`;
 
 /** One line on where things stand, for the settings page. */
 export function describeBox({ box, progress, events = [] }) {

@@ -9,8 +9,8 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { describeLock } from '../extension/lib/lock.js';
-import { ICON_SOURCE, anchor, renderGuide } from '../scripts/guide.mjs';
-import { GUIDE_URL, ICON_NAME, PROFILE_NAME, SITE_URL } from '../scripts/updates-site.mjs';
+import { ICON_SOURCE, anchor, profileLink, renderGuide } from '../scripts/guide.mjs';
+import { GUIDE_URL, ICON_NAME, PROFILE_NAME, PROFILE_URL, SITE_URL } from '../scripts/updates-site.mjs';
 
 const read = (path) => readFileSync(new URL(`../${path}`, import.meta.url), 'utf8');
 const readme = read('README.md').replace(/^```[^]*?^```/gm, ''); // not the headings of a code block, if ever there are any
@@ -70,6 +70,13 @@ test('the guide on the site has every heading under its anchor, so the links lan
   assert.match(html, /<table>/, 'the files table');
   assert.match(html, /<code>exampleadultsite\.com<\/code>/);
   assert.doesNotMatch(html, /href="https?:\/\/git(hub|lab)\.com\/adviseworn\//, 'no links into the repository, which may be private');
+  // A site may serve the profile as text, which a browser shows as a page of text when a link is merely followed.
+  assert.equal(readme.split(`](${PROFILE_URL})`).length - 1, 1, 'the README links to the profile on the site, once');
+  assert.equal(html.split(`<a href="${PROFILE_NAME}" download>`).length - 1, 1, "in the guide that link downloads the copy beside it");
+  assert.ok(!html.includes(PROFILE_URL), 'and nothing in the guide leads to the profile any other way');
+  const other = '<a href="https://example.com/" title="t">text</a>';
+  assert.equal(profileLink('https://example.com/', other), other, 'other links stay as they are');
+  assert.equal(profileLink(PROFILE_URL, `<a href="${PROFILE_URL}" title="t">text</a>`), `<a href="${PROFILE_NAME}" download title="t">text</a>`);
   const dir = mkdtempSync(join(tmpdir(), 'family-site-blocker-guide-'));
   try {
     const file = (path) => fileURLToPath(new URL(`../${path}`, import.meta.url));

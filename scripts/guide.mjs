@@ -4,14 +4,15 @@
 // GitHub, which only the repository's members can read when the repository is private; the anchors are the
 // ones GitHub gives headings (anchor), so the links land. The update-files job of
 // .github/workflows/pipeline.yml writes it after each release, next to the update files, and puts the Firefox
-// lock's profile beside it, with the add-on's icon (ICON_NAME) for the heading and the browser's tab.
+// lock's profile beside it, with the add-on's icon (ICON_NAME) for the heading and the browser's tab. The
+// guide's link to that profile is a download link (profileLink).
 //
 // usage: node scripts/guide.mjs <README.md> <site folder> [the lock's profile to copy there]
 import { copyFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { Marked } from 'marked';
-import { ICON_NAME, PROFILE_NAME } from './updates-site.mjs';
+import { Marked, Renderer } from 'marked';
+import { ICON_NAME, PROFILE_NAME, PROFILE_URL } from './updates-site.mjs';
 
 /** The add-on's own icon, the biggest one it ships. */
 export const ICON_SOURCE = join(dirname(fileURLToPath(import.meta.url)), '..', 'extension', 'icons', 'icon128.png');
@@ -41,6 +42,16 @@ th, td { border: 1px solid rgba(127, 127, 127, 0.4); padding: 0.3em 0.6em; verti
 blockquote { margin: 0; padding-left: 1em; border-left: 3px solid rgba(127, 127, 127, 0.4); }
 `;
 
+/**
+ * A link to the lock's profile on the site, as a download link to the copy beside the guide. A site may serve the
+ * profile as text (GitLab Pages, the site's home from 1.25.0 to 1.29.0, served it as text/xml), and a browser that
+ * just follows a link to such a file shows its text as a page, which Firefox saves as .mobileconfig.xml, which
+ * macOS doesn't take for a profile. With the download attribute the browser hands it over as the file it is.
+ * Browsers honour the attribute only for a file on the page's own site, hence the relative address. Other links
+ * stay as they are.
+ */
+export const profileLink = (href, html) => (href === PROFILE_URL ? html.replace(/^<a href="[^"]*"/, `<a href="${PROFILE_NAME}" download`) : html);
+
 /** The page: the README's HTML, each heading with its anchor as its id, on a plain readable page. */
 export function renderGuide(markdown) {
   const marked = new Marked({ gfm: true });
@@ -49,6 +60,9 @@ export function renderGuide(markdown) {
       heading({ tokens, depth, text }) {
         const icon = depth === 1 ? `<img src="${ICON_NAME}" alt="" width="128" height="128">` : '';
         return `<h${depth} id="${anchor(text)}">${icon}${this.parser.parseInline(tokens)}</h${depth}>\n`;
+      },
+      link(token) {
+        return profileLink(token.href, Renderer.prototype.link.call(this, token));
       },
     },
   });

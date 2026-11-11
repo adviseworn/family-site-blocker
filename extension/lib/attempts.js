@@ -10,6 +10,7 @@
 // when the extension was running, and outcome() says. Nothing on the settings page removes entries; only
 // the oldest go, once there are more than MAX_ATTEMPTS. HISTORY_SCAN holds when the history was last
 // looked through, and what that found.
+import { BEDTIME_NAME, bedtimeEvents, eventWords } from './bedtime.js';
 import { LOCK_NAME, lockChangeWords, lockChanges } from './lock.js';
 import { describeWaiting, isVideo, waitingList } from './pictures.js';
 import { kindOfVisit, normalize } from './watching.js';
@@ -261,9 +262,10 @@ function midnightAfter(day) {
  * Firefox lock's record (lib/lock.js) is rows among them too, "Firefox lock" in the site column and
  * whether it was found in force in the result column, as on Every try; and from 1.27.0 the pictures that
  * waited for a verdict (lib/pictures.js WAITING), with the row's words in the result column and the address
- * in its own.
+ * in its own; and from 1.30.0 the bedtime's record (lib/bedtime.js), "Bedtime" in the site column and the
+ * row's words in the result column.
  */
-export function toCsv(attempts, watching, pictures = [], lock = [], waiting = []) {
+export function toCsv(attempts, watching, pictures = [], lock = [], waiting = [], bedtime = []) {
   const cell = (text) => (/[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text);
   const row = (fields) => fields.map((field) => cell(String(field ?? ''))).join(',');
   const score = (entry, name) => Math.max(0, Number(entry?.scores?.[name]) || 0);
@@ -282,7 +284,8 @@ export function toCsv(attempts, watching, pictures = [], lock = [], waiting = []
   }));
   const changes = lockChanges(lock).map((entry) => ({ at: entry.at, fields: [localIso(entry.at), LOCK_NAME, lockChangeWords(entry), '', '', '', ''] }));
   const waited = waitingList(waiting).map((entry) => ({ at: entry.at, fields: [localIso(entry.at), entry.site, describeWaiting(entry), entry.url, '', '', ''] }));
-  const lines = ['when,site,result,address,nudity,suggestive,mark', ...[...tries, ...hidden, ...changes, ...waited].sort((a, b) => a.at - b.at).map((item) => row(item.fields))];
+  const bedtimes = bedtimeEvents(bedtime).map((entry) => ({ at: entry.at, fields: [localIso(entry.at), BEDTIME_NAME, eventWords(entry), '', '', '', ''] }));
+  const lines = ['when,site,result,address,nudity,suggestive,mark', ...[...tries, ...hidden, ...changes, ...waited, ...bedtimes].sort((a, b) => a.at - b.at).map((item) => row(item.fields))];
   return `${lines.join('\n')}\n`;
 }
 

@@ -1,7 +1,8 @@
 // The settings page: a board that says whether everything is working and what still needs switching on,
-// the two settings (the person's own sites, the pictures setting), the record in a few lines, and where
-// the locked-away password stands. The record and the password have pages of their own.
+// the three settings (the person's own sites, the pictures setting, the bedtime), the record in a few lines,
+// and where the locked-away password stands. The record and the password have pages of their own.
 import { ATTEMPTS, LABELS, outcome, summarize } from './lib/attempts.js';
+import { BEDTIME, BEDTIME_EVENTS, WAIT_MS, bedtimeEvents, blockedAt, describeBedtime, endOf, isTimes, loosens, minutesAt, parseTime, settingOf, settle, timeValue, timeWords, within } from './lib/bedtime.js';
 import { parseDomainList } from './lib/domains.js';
 import { LOCK_CHANGES, describeLock, lockChanges, lockInForce, managedStamp, ownStamp, profileFile } from './lib/lock.js';
 import { BOX, EVENTS, PROGRESS, describeBox, loadBox } from './lib/lockbox.js';
@@ -59,6 +60,17 @@ async function runChecks() {
   const note = $('check-note');
   list.replaceChildren();
   note.textContent = '';
+
+  // During a bedtime the browser's rule matcher answers "blocked" for every address, the three that
+  // should open included, so there is nothing to tell from it: the checks wait until the bedtime is over
+  // (renderBedtime runs them again then).
+  const until = await bedtimeUntil();
+  if (until !== null) {
+    $('check-details').hidden = true;
+    note.textContent = `It’s bedtime until ${clockTime.format(until)}, so every site shows the bedtime page instead.`;
+    markLine('check', 'ok');
+    return;
+  }
 
   const outcomes = [];
   try {
@@ -242,6 +254,7 @@ async function checkPrivateWindows() {
 // Nothing here can clear the record.
 const SHOWN = 3;
 const when = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+const clockTime = new Intl.DateTimeFormat(undefined, { timeStyle: 'short' });
 const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
 
 // Sites the history scan found that aren't listed but look adult from their names (lib/suspects.js): a
@@ -266,7 +279,7 @@ let offShown = '';
 const offPart = (state) => JSON.stringify(normalize(state).off);
 
 async function renderAttempts() {
-  const [stored, { events }] = await Promise.all([api.storage.local.get([ATTEMPTS, UNLISTED, PICTURES, WATCHING, LOCK_CHANGES, WAITING]), loadBox(api.storage.local)]);
+  const [stored, { events }] = await Promise.all([api.storage.local.get([ATTEMPTS, UNLISTED, PICTURES, WATCHING, LOCK_CHANGES, WAITING, BEDTIME_EVENTS]), loadBox(api.storage.local)]);
   const attempts = Array.isArray(stored[ATTEMPTS]) ? [...stored[ATTEMPTS]].reverse() : [];
   const watching = stored[WATCHING] ?? null; // places the visits from the history (lib/watching.js)
   offShown = offPart(watching);
@@ -277,8 +290,8 @@ async function renderAttempts() {
   rows.replaceChildren();
 
   // Every try holds the tries, the times the extension was off, the pictures hidden, the password's record,
-  // the Firefox lock's and the pictures that waited for a verdict: the links to it and to the record page show whenever it has any of them, and the count is the tries.
-  $('record-links').hidden = !everyTryShows({ attempts, off: normalize(watching).off, events, pictures: Array.isArray(stored[PICTURES]) ? stored[PICTURES] : [], lock: lockChanges(stored[LOCK_CHANGES]), waiting: waitingList(stored[WAITING]) });
+  // the Firefox lock's, the pictures that waited for a verdict and the bedtime's record: the links to it and to the record page show whenever it has any of them, and the count is the tries.
+  $('record-links').hidden = !everyTryShows({ attempts, off: normalize(watching).off, events, pictures: Array.isArray(stored[PICTURES]) ? stored[PICTURES] : [], lock: lockChanges(stored[LOCK_CHANGES]), waiting: waitingList(stored[WAITING]), bedtime: bedtimeEvents(stored[BEDTIME_EVENTS]) });
   $('every-try').textContent = everyTryWords(attempts.length);
 
   if (attempts.length === 0) {
@@ -312,11 +325,148 @@ async function renderAttempts() {
 // page adds to it (unless the box holds unsaved edits, which must not be thrown away).
 api.storage.onChanged.addListener((changes, area) => {
   if (area !== 'local') return;
-  if (changes[ATTEMPTS] || changes[UNLISTED] || changes[PICTURES] || changes[EVENTS] || changes[LOCK_CHANGES] || changes[WAITING]) renderAttempts();
+  if (changes[ATTEMPTS] || changes[UNLISTED] || changes[PICTURES] || changes[EVENTS] || changes[LOCK_CHANGES] || changes[WAITING] || changes[BEDTIME_EVENTS]) renderAttempts();
   else if (changes[WATCHING] && offPart(changes[WATCHING].newValue) !== offShown) renderAttempts();
   if (changes[BOX] || changes[PROGRESS] || changes[EVENTS]) renderLockbox();
+  if (changes[BEDTIME]) renderBedtime().catch(() => {});
   if (changes[MY_LIST_CHANGED] && $('custom').value === loaded) refresh().catch(() => {});
 });
+
+// --- Bedtime ---------------------------------------------------------------------------------------------
+// Every site blocked between two times of day (lib/bedtime.js, 1.30.0): a line on where it stands, a tick
+// and the two times, and Save. The background script is the one that changes it (changeBedtime there), so
+// that the setting and its record are written in turn. A change that blocks at least what the bedtime in
+// force blocks holds at once, and can be undone for a few minutes; any other is asked for with a reason,
+// from a menu as on the locked-away password's page, and waits a day, during which it can be taken back.
+// Before Save is pressed a line says which of the two it will be, and when saving would start a bedtime
+// at once.
+const OTHER = 'other'; // the last choice on the menu of reasons, which opens a box to type one in
+let bedtime = settingOf(null); // the setting as last read
+let bedtimeShown = null; // the bedtime as last put into the form, { on, from, to }: to tell an edit from what is saved
+let bedtimeBlocked = null; // whether it was bedtime at the last look, so that the checks above run again when that changes
+
+/** When the bedtime in force ends, or null when it isn't bedtime now. */
+async function bedtimeUntil() {
+  const stored = await api.storage.local.get(BEDTIME).catch(() => ({}));
+  return endOf(stored[BEDTIME], Date.now());
+}
+
+/** What the form asks for: { on, from, to }, the times minutes after midnight, or null for one left empty. */
+const bedtimeWanted = () => ({ on: $('bedtime-on').checked, from: parseTime($('bedtime-from').value), to: parseTime($('bedtime-to').value) });
+
+function bedtimeEdited() {
+  const wanted = bedtimeWanted();
+  return bedtimeShown !== null && (wanted.on !== bedtimeShown.on || wanted.from !== bedtimeShown.from || wanted.to !== bedtimeShown.to);
+}
+
+/**
+ * Whether what the form asks for would let through something the bedtime in force blocks, and so waits a
+ * day and needs a reason. While the last change can still be undone, the bedtime from before it is what
+ * counts (lib/bedtime.js ask).
+ */
+function bedtimeLoosens() {
+  const wanted = bedtimeWanted();
+  const baseline = bedtime.undo ? bedtime.undo.before : bedtime;
+  if (!wanted.on) return baseline.on;
+  return isTimes(wanted) && loosens(baseline, wanted);
+}
+
+/**
+ * The line under the times, as they are edited: that the change waits a day, with the question why; or that
+ * saving starts a bedtime at once and until when; or nothing.
+ */
+function bedtimeHint() {
+  const wanted = bedtimeWanted();
+  const now = Date.now();
+  const looser = bedtimeLoosens();
+  $('bedtime-why-area').hidden = !looser;
+  let hint = '';
+  if (looser) hint = `This change waits a day: it holds from ${when.format(now + WAIT_MS)}.`;
+  else if (wanted.on && isTimes(wanted) && !blockedAt(bedtime, now) && within(wanted, minutesAt(now))) hint = `Saving starts bedtime at once, until ${timeWords(wanted.to)}.`;
+  $('bedtime-hint').textContent = hint;
+}
+
+/** The reason given: the menu's choice, or what was typed under Something else, trimmed; '' when none yet. */
+function bedtimeReason() {
+  const choice = $('bedtime-why').value;
+  return choice === OTHER ? $('bedtime-why-other').value.trim() : choice;
+}
+
+function clearBedtimeReason() {
+  $('bedtime-why').value = '';
+  $('bedtime-why-other').value = '';
+  $('bedtime-why-other').hidden = true;
+}
+
+/** Shows where the bedtime stands; the form too, unless it holds an edit not yet saved (`fill` puts the saved setting back all the same). */
+async function renderBedtime({ fill = false } = {}) {
+  const stored = await api.storage.local.get(BEDTIME);
+  const now = Date.now();
+  bedtime = settle(stored[BEDTIME], now).setting;
+  $('bedtime-line').textContent = describeBedtime(bedtime, now);
+  $('bedtime-waiting').hidden = !bedtime.next;
+  $('bedtime-undo-line').hidden = !bedtime.undo;
+  $('bedtime-undo-until').textContent = bedtime.undo ? `, until ${clockTime.format(bedtime.undo.until)}` : '';
+  if (fill || !bedtimeEdited()) {
+    bedtimeShown = { on: bedtime.on, from: bedtime.from, to: bedtime.to };
+    $('bedtime-on').checked = bedtime.on;
+    $('bedtime-from').value = timeValue(bedtime.from);
+    $('bedtime-to').value = timeValue(bedtime.to);
+  }
+  bedtimeHint();
+  const blocked = blockedAt(bedtime, now);
+  if (bedtimeBlocked !== null && blocked !== bedtimeBlocked) runChecks().catch(() => {});
+  bedtimeBlocked = blocked;
+}
+
+/** Sends a change to the background script and says what came of it. */
+async function changeBedtime(message, said) {
+  const status = $('bedtime-status');
+  let answer;
+  try {
+    answer = await api.runtime.sendMessage(message);
+  } catch (error) {
+    answer = { error: `Couldn’t save: ${error.message}` };
+  }
+  if (!answer || answer.error) {
+    status.textContent = answer?.error ?? 'Couldn’t save: the add-on gave no answer.';
+    return false;
+  }
+  status.textContent = answer.unchanged ? (answer.waiting ? 'That change is waiting already.' : 'Bedtime is as it was.') : (said[answer.event] ?? 'Saved.');
+  clearBedtimeReason();
+  await renderBedtime({ fill: true });
+  return true;
+}
+
+async function saveBedtime(event) {
+  event.preventDefault();
+  const wanted = bedtimeWanted();
+  if (wanted.on && (wanted.from === null || wanted.to === null)) {
+    $('bedtime-status').textContent = 'Choose a start and an end.';
+    return;
+  }
+  const looser = bedtimeLoosens();
+  const why = looser ? bedtimeReason() : '';
+  if (looser && !why) {
+    $('bedtime-status').textContent = 'Say why first. Your answer goes into the record.';
+    ($('bedtime-why').value === OTHER ? $('bedtime-why-other') : $('bedtime-why')).focus();
+    return;
+  }
+  await changeBedtime({ type: 'bedtime-save', ...wanted, why }, { set: 'Saved.', asked: 'Saved. The change waits a day.', kept: 'Bedtime stays as it is.', undone: 'Undone.' });
+}
+
+$('bedtime-form').addEventListener('submit', saveBedtime);
+$('bedtime-form').addEventListener('input', () => {
+  $('bedtime-status').textContent = ''; // what the last Save said is no longer about what the form holds
+  bedtimeHint();
+});
+$('bedtime-why').addEventListener('change', () => {
+  const other = $('bedtime-why').value === OTHER;
+  $('bedtime-why-other').hidden = !other;
+  if (other) $('bedtime-why-other').focus();
+});
+$('bedtime-keep').addEventListener('click', () => changeBedtime({ type: 'bedtime-keep' }, { kept: 'Bedtime stays as it is.' }));
+$('bedtime-undo').addEventListener('click', () => changeBedtime({ type: 'bedtime-undo' }, { undone: 'Undone.' }));
 
 // --- Locked-away password ---------------------------------------------------------------------------------
 // One line on where it stands, and what its record says (#75); everything else is on lockbox.html.
@@ -376,13 +526,22 @@ renderPictureSetting().catch(() => {});
 renderPictureStatus();
 renderLockbox();
 checkLock();
-// The counts move while pages are open elsewhere: keep the line current while this page is in view.
+renderBedtime({ fill: true }).catch((error) => {
+  $('bedtime-line').textContent = `Couldn’t read the bedtime: ${error.message}`;
+});
+// The counts move while pages are open elsewhere, and a bedtime begins and ends by the clock: keep both lines current while this page is in view.
 document.addEventListener('visibilitychange', () => {
-  if (!document.hidden) renderPictureStatus();
+  if (!document.hidden) {
+    renderPictureStatus();
+    renderBedtime().catch(() => {});
+  }
 });
 setInterval(() => {
   if (!document.hidden) renderPictureStatus();
 }, 5000);
+setInterval(() => {
+  if (!document.hidden) renderBedtime().catch(() => {});
+}, 20_000);
 $('engines').textContent = `${ENGINES.slice(0, -1).map(({ name }) => name).join(', ')} and ${ENGINES.at(-1).name}`;
 checkAccess();
 checkPrivateWindows();

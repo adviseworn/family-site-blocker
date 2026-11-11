@@ -981,7 +981,8 @@ describe('Firefox', { skip: findFirefox() ? false : 'no Firefox found (set FIREF
         status = await browser.run("return document.getElementById('lockbox-status').textContent");
       }
       assert.match(status, /^The wait is now [4-6] seconds\. Save a new backup file/);
-      assert.match(await browser.run("return document.getElementById('lockbox-summary').textContent"), /^A password is locked away \(since .+, wait lengthened .+\), never unlocked; getting it back takes about [4-6] seconds\.$/);
+      assert.match(await browser.run("return document.getElementById('lockbox-wait').textContent"), /^Wait: [4-6] seconds$/);
+      assert.match(await browser.run("return document.getElementById('lockbox-summary').textContent"), /^Locked away since .+, wait lengthened .+, never unlocked\.$/);
       const stored = await storedBox();
       assert.equal(stored.version, 2);
       assert.equal(stored.holds, 'box');
@@ -1415,6 +1416,291 @@ describe('Firefox', { skip: findFirefox() ? false : 'no Firefox found (set FIREF
       assert.equal(await rulesUntil((count) => count === 0), 0, 'the page-blocking rules came off');
       await browser.newTab();
       await assertBlocked(BLOCKED_URL);
+    });
+  });
+
+  describe('bedtime (1.30.0)', () => {
+    // Every site blocked between two times of day (extension/lib/bedtime.js). A Firefox of its own: a bedtime
+    // in force blocks every site, which no other test should meet. The hours are set around this moment, so
+    // that it is bedtime at once, whatever the time of day the tests run at.
+    let night;
+    let settings; // the settings page's tab, which Firefox opened after the install
+    let host; // the add-on's own address in this Firefox
+    const DAY_MS = 24 * 60 * 60 * 1000;
+    const BEDTIME_WORDS = /^Every site is blocked until .+\.$/;
+    const minutesNow = () => new Date().getHours() * 60 + new Date().getMinutes();
+    const wrap = (minutes) => ((minutes % 1440) + 1440) % 1440;
+    /** Hours that began an hour ago and end in an hour, as the setting holds them. */
+    const around = () => ({ from: wrap(minutesNow() - 60), to: wrap(minutesNow() + 60) });
+    /** A time as a time field holds it, "21:05". */
+    const field = (minutes) => `${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`;
+    const bedtimePage = (url) => `moz-extension://${host}/bedtime.html#${url}`;
+    const switchTo = (handle) => night.fx.send('WebDriver:SwitchToWindow', { handle });
+
+    before(async () => {
+      night = await launchFirefox(stub);
+      const tab = (await night.tabs()).find(({ url }) => url.endsWith('/options.html'));
+      assert.ok(tab, 'the settings page opened after the install');
+      settings = tab.handle;
+      host = new URL(tab.url).host;
+    });
+
+    after(() => night?.close());
+
+    /** Runs a script on the settings page; the script calls done(result) when it has finished. */
+    async function onSettings(script, ...args) {
+      await switchTo(settings);
+      return night.fx.send('WebDriver:ExecuteAsyncScript', { script: `const done = arguments[arguments.length - 1]; ${script}`, args });
+    }
+    /** Looks again and again until what it sees passes, for ten seconds at most; what it saw last. */
+    async function until(look, passes, ms = 10_000) {
+      const end = Date.now() + ms;
+      let seen = await look();
+      while (!passes(seen) && Date.now() < end) {
+        await sleep(150);
+        seen = await look();
+      }
+      return seen;
+    }
+    const words = (id) => onSettings('done(document.getElementById(arguments[0]).innerText);', id);
+    const shown = (id) => onSettings('done(document.getElementById(arguments[0]).getClientRects().length > 0);', id);
+    const press = (id) => onSettings('document.getElementById(arguments[0]).click(); done(true);', id);
+    const said = (expected) => until(() => onSettings("done(document.getElementById('bedtime-status').textContent);"), (text) => text === expected);
+    const stored = () => onSettings("browser.storage.local.get(['bedtime', 'bedtimeEvents']).then(done, (error) => done({ error: String(error) }));");
+    const events = async () => ((await stored()).bedtimeEvents ?? []).map((entry) => entry.event);
+    const ruleIds = () =>
+      onSettings('browser.declarativeNetRequest.getDynamicRules().then((rules) => done(rules.map((rule) => rule.id).filter((id) => id >= 900001 && id <= 1000000).sort()), (error) => done([String(error)]));');
+    const rulesInPlace = (want) => until(ruleIds, (ids) => ids.length > 0 === want);
+    /** Changes fields of the bedtime form as a person does: each tells the page, as typing in it or choosing from it would. */
+    const fill = (fields) =>
+      onSettings(
+        `for (const [id, value] of Object.entries(arguments[0])) {
+           const field = document.getElementById(id);
+           if (field.type === 'checkbox') field.checked = value;
+           else field.value = value;
+           field.dispatchEvent(new Event('input', { bubbles: true }));
+           field.dispatchEvent(new Event('change', { bubbles: true }));
+         }
+         done(true);`,
+        fields,
+      );
+    /** The settings page afresh, as someone who opens it finds it. */
+    async function openSettings() {
+      await switchTo(settings);
+      await night.visit(`moz-extension://${host}/options.html`);
+      await until(() => words('bedtime-line'), (text) => text !== '' && !text.startsWith('Loading'));
+    }
+    /** Puts a setting straight into storage, as one set a while ago (nothing left to undo), and waits for the background script to act on it. */
+    async function seed(bedtime, { blocked }) {
+      assert.equal(await onSettings('browser.storage.local.set({ bedtime: arguments[0] }).then(() => done(true), (error) => done(String(error)));', bedtime), true);
+      assert.equal((await rulesInPlace(blocked)).length > 0, blocked, blocked ? 'the bedtime’s rules are in place' : 'the bedtime’s rules are off');
+    }
+    /** Back to no bedtime and no record of one, with the sites open again and no tab left but the settings page's. */
+    async function reset() {
+      await onSettings("browser.storage.local.remove(['bedtime', 'bedtimeEvents']).then(() => done(true), (error) => done(String(error)));");
+      assert.deepEqual(await rulesInPlace(false), []);
+      for (const { handle } of await night.tabs()) {
+        if (handle === settings) continue;
+        await switchTo(handle);
+        await night.fx.send('WebDriver:CloseWindow');
+      }
+      await switchTo(settings);
+    }
+    /** The words of the bedtime page in the tab being looked at, once it has asked how long the bedtime lasts. */
+    const bedtimeWords = () => until(() => night.run("return document.getElementById('words')?.textContent ?? ''").catch(() => ''), (text) => BEDTIME_WORDS.test(text));
+
+    test('turned on inside its hours it blocks every site at once: a page being opened lands on the bedtime page with nothing fetched, the tabs open are sent there, and Undo that change brings them back', async () => {
+      await openSettings();
+      const open = await night.newTab();
+      assert.equal((await night.visit('http://allowed.test/reading?page=2#notes')).outcome, 'site loaded');
+      const other = await night.newTab();
+      try {
+        assert.equal(await words('bedtime-line'), 'Bedtime is off.');
+        assert.deepEqual(await ruleIds(), []);
+        const hours = around();
+        await fill({ 'bedtime-on': true, 'bedtime-from': field(hours.from), 'bedtime-to': field(hours.to) });
+        assert.match(await words('bedtime-hint'), /^Saving starts bedtime at once, until .+\.$/, 'said before Save is pressed');
+        assert.equal(await shown('bedtime-why-area'), false, 'no reason is asked for blocking more');
+        await press('bedtime-save');
+        assert.equal(await said('Saved.'), 'Saved.');
+        assert.match(await words('bedtime-line'), /^It’s bedtime until .+\. Every site is blocked from .+ to .+, every day\.$/);
+        assert.match(await words('bedtime-undo-line'), /^Undo that change, until .+$/);
+        assert.deepEqual(await ruleIds(), [900_001, 900_002]);
+        assert.deepEqual(await events(), ['set']);
+
+        // The tab that was open shows the bedtime page in place of its page, and keeps the page's address.
+        await switchTo(open);
+        assert.equal(await night.waitForUrl((at) => at.includes('/bedtime.html#')), bedtimePage('http://allowed.test/reading?page=2#notes'));
+        assert.match(await bedtimeWords(), BEDTIME_WORDS);
+        assert.equal(await night.run("return document.getElementById('heading').textContent"), 'It’s bedtime');
+        assert.equal(await night.run('return document.title'), 'Bedtime');
+
+        // A page being opened lands there too, by http or https, listed or not, and nothing is asked of its site.
+        await switchTo(other);
+        for (const url of ['http://allowed.test/new?a=1&b=2', 'https://www.google.com/search?q=cats', BLOCKED_URL]) {
+          stub.clear();
+          const result = await night.visit(url);
+          assert.equal(result.finalUrl, bedtimePage(url), `${url}${result.error ? ` (${result.error})` : ''}`);
+          assert.match(result.text, /It’s bedtime/, url);
+          assert.equal(stub.reached(new URL(url).hostname.replace(/^www\./, '')), false, `${url}: a request went out`);
+        }
+        // Everything else a page could ask for is blocked outright.
+        stub.clear();
+        assert.match(await onSettings("fetch('http://allowed.test/pixel.gif').then((answer) => done('fetched ' + answer.status), (error) => done(String(error)));"), /NetworkError/);
+        assert.equal(stub.reached('allowed.test'), false);
+        // The settings page's board says why the test site shows something else.
+        await openSettings();
+        assert.match(await until(() => words('check-note'), (text) => /bedtime/.test(text)), /^It’s bedtime until .+, so every site shows the bedtime page instead\.$/);
+
+        // Undone within its ten minutes, the sites open again: a listed site's tab goes to the block page, and
+        // the other tab back to its page when it is looked at (a tab in the background waits until then).
+        await press('bedtime-undo');
+        assert.equal(await said('Undone.'), 'Undone.');
+        assert.equal(await words('bedtime-line'), 'Bedtime is off.');
+        assert.equal(await shown('bedtime-undo-line'), false);
+        assert.deepEqual(await rulesInPlace(false), []);
+        assert.deepEqual(await events(), ['set', 'undone']);
+        await switchTo(other);
+        await waitForBlockPage(night);
+        await switchTo(open);
+        assert.equal(await night.waitForUrl((at) => at.startsWith('http://')), 'http://allowed.test/reading?page=2#notes');
+        assert.equal((await night.visit('http://allowed.test/again')).outcome, 'site loaded');
+      } finally {
+        await reset();
+      }
+    });
+
+    test('turning it off takes a reason and a day: until then it stays as it was, Keep bedtime as it is takes the change back, and each step is a row on Every try', async () => {
+      try {
+        await seed({ on: true, ...around() }, { blocked: true });
+        await openSettings();
+        assert.equal(await onSettings("done(document.getElementById('bedtime-on').checked);"), true);
+        assert.equal(await shown('bedtime-undo-line'), false, 'set a while ago: nothing to undo');
+
+        // Turning it off: the page says it waits a day and asks why, and Save won't go without a reason.
+        await fill({ 'bedtime-on': false });
+        assert.match(await words('bedtime-hint'), /^This change waits a day: it holds from .+\.$/);
+        assert.equal(await shown('bedtime-why-area'), true);
+        await press('bedtime-save');
+        assert.equal(await said('Say why first. Your answer goes into the record.'), 'Say why first. Your answer goes into the record.');
+        assert.deepEqual(await events(), []);
+        await fill({ 'bedtime-why': 'Travelling' });
+        const asked = Date.now();
+        await press('bedtime-save');
+        assert.equal(await said('Saved. The change waits a day.'), 'Saved. The change waits a day.');
+        assert.match(await words('bedtime-line'), /^It’s bedtime until .+\. Every site is blocked from .+ to .+, every day\. On .+ it turns off\.$/);
+        const { bedtime } = await stored();
+        assert.equal(bedtime.on, true, 'the bedtime itself is as it was');
+        assert.ok(bedtime.next.at >= asked + DAY_MS && bedtime.next.at <= Date.now() + DAY_MS, 'the change takes effect a day after it was asked for');
+        assert.deepEqual({ on: bedtime.next.on, why: bedtime.next.why }, { on: false, why: 'Travelling' });
+        assert.deepEqual(await ruleIds(), [900_001, 900_002]);
+        await night.newTab();
+        assert.equal((await night.visit('http://allowed.test/still')).finalUrl, bedtimePage('http://allowed.test/still'), 'still blocked');
+
+        // Taken back, the bedtime stays as it is.
+        assert.equal(await shown('bedtime-waiting'), true);
+        await press('bedtime-keep');
+        assert.equal(await said('Bedtime stays as it is.'), 'Bedtime stays as it is.');
+        assert.match(await words('bedtime-line'), /^It’s bedtime until .+\. Every site is blocked from .+ to .+, every day\.$/);
+        assert.equal(await shown('bedtime-waiting'), false);
+        assert.equal((await stored()).bedtime.next, undefined);
+        assert.deepEqual(await events(), ['asked', 'kept']);
+
+        // Both steps are rows on Every try, newest first, the one that would let more through marked.
+        await night.newTab();
+        await night.visit(`moz-extension://${host}/tries.html`);
+        const rows = await until(
+          () => night.run("return [...document.querySelectorAll('tr.bedtime')].map((row) => ({ looser: row.classList.contains('looser'), site: row.cells[1].textContent, what: row.cells[2].textContent }))"),
+          (list) => list.length === 2,
+        );
+        assert.deepEqual(rows, [
+          { looser: false, site: 'Bedtime', what: 'The change asked for was taken back.' },
+          { looser: true, site: 'Bedtime', what: 'Asked to turn it off after a day’s wait: “Travelling”.' },
+        ]);
+        assert.equal(await night.run("return document.getElementById('bedtime-intro').innerText"), 'Bedtime rows say when the bedtime was set and when a change to it was asked for, with the reason. Show them alone.');
+      } finally {
+        await reset();
+      }
+    });
+
+    test('by the clock: the pages open are told before every site closes, the bedtime begins on time, and when it ends the tab being looked at comes back by itself', async () => {
+      await openSettings();
+      const open = await night.newTab();
+      assert.equal((await night.visit('http://allowed.test/writing')).outcome, 'site loaded');
+      const told = () => night.run("return document.querySelector('#family-site-blocker-bedtime-line span')?.textContent ?? ''").catch(() => '');
+      try {
+        const hours = around();
+        // A bedtime's start and end fall on the minute, which a test can't wait for; a change asked for a day
+        // ago that takes effect in a few seconds, inside its own hours, closes every site by the same clock.
+        const begins = Date.now() + 8000;
+        await onSettings('browser.storage.local.set({ bedtime: arguments[0] }).then(() => done(true), (error) => done(String(error)));', {
+          on: false,
+          ...hours,
+          next: { on: true, ...hours, asked: begins - DAY_MS, at: begins, why: 'Trying it out' },
+        });
+        await switchTo(open);
+        assert.match(await until(told, (text) => text !== '', 6000), /^Bedtime in 1 minute: every site closes at .+\.$/);
+
+        // At its time every site closes: the tab shows the bedtime page, and the record says the change took effect then.
+        assert.equal(await night.waitForUrl((at) => at.includes('/bedtime.html#'), 15_000), bedtimePage('http://allowed.test/writing'));
+        assert.ok(Date.now() >= begins, 'not before its time');
+        const { bedtime, bedtimeEvents } = await stored();
+        assert.deepEqual(bedtime, { on: true, ...hours });
+        assert.deepEqual(bedtimeEvents, [{ at: begins, event: 'changed', on: true, ...hours }]);
+        assert.deepEqual(await ruleIds(), [900_001, 900_002]);
+
+        // And it ends by the clock: the bedtime page says until when, and goes back to its page at that time.
+        const ends = Date.now() + 6000;
+        await onSettings('browser.storage.local.set({ bedtime: arguments[0] }).then(() => done(true), (error) => done(String(error)));', {
+          on: true,
+          ...hours,
+          next: { on: false, ...hours, asked: ends - DAY_MS, at: ends, why: 'Trying it out' },
+        });
+        await switchTo(open);
+        assert.match(await bedtimeWords(), BEDTIME_WORDS);
+        assert.equal(await night.waitForUrl((at) => at.startsWith('http://'), 15_000), 'http://allowed.test/writing');
+        assert.ok(Date.now() >= ends, 'not before its time');
+        assert.deepEqual(await rulesInPlace(false), []);
+        assert.equal((await stored()).bedtime.on, false);
+        await switchTo(open);
+        assert.equal((await night.visit('http://allowed.test/morning')).outcome, 'site loaded');
+      } finally {
+        await reset();
+      }
+    });
+
+    test('without access to websites, as Firefox for Android can leave it, a page being opened during a bedtime is stopped and its tab sent to the bedtime page, a listed site’s to the block page', async () => {
+      // Firefox drops a redirect rule on a site the add-on has no access to (see the tests of that above), so
+      // the bedtime's rules stop the page there, and the background script sends the tab to the bedtime page.
+      const changeAccess = (way) =>
+        night.inFirefox(
+          `const done = arguments[arguments.length - 1];
+           const { ExtensionPermissions } = ChromeUtils.importESModule('resource://gre/modules/ExtensionPermissions.sys.mjs');
+           const policy = WebExtensionPolicy.getByID(arguments[0]);
+           ExtensionPermissions[arguments[1]](arguments[0], { permissions: [], origins: ['<all_urls>'] }, policy.extension).then(() => done('ok'), (error) => done('error: ' + error));`,
+          night.addonId,
+          way,
+        );
+      try {
+        assert.equal(await changeAccess('remove'), 'ok');
+        assert.equal((await night.grants()).origins.includes('<all_urls>'), false, 'the access is gone');
+        await seed({ on: true, ...around() }, { blocked: true });
+        assert.deepEqual(await until(ruleIds, (ids) => ids.length === 3), [900_001, 900_002, 900_003], 'with the rule that stops a page where the redirect is dropped');
+        stub.clear();
+        await night.newTab();
+        await night.run('location.assign(arguments[0])', 'http://allowed.test/on-a-phone?x=1'); // the request is stopped, and the tab then sent to the bedtime page
+        assert.equal(await night.waitForUrl((at) => at.includes('/bedtime.html#')), bedtimePage('http://allowed.test/on-a-phone?x=1'));
+        assert.match(await bedtimeWords(), BEDTIME_WORDS);
+        assert.equal(stub.reached('allowed.test'), false, 'a request reached the site');
+        await night.newTab();
+        await night.run('location.assign(arguments[0])', BLOCKED_URL);
+        await waitForBlockPage(night);
+        assert.equal(stub.reached(SITE), false, 'a request reached the listed site');
+      } finally {
+        assert.equal(await changeAccess('add'), 'ok');
+        await reset();
+      }
+      assert.equal((await night.grants()).origins.includes('<all_urls>'), true, 'the access is back');
     });
   });
 

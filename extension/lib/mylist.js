@@ -1,7 +1,9 @@
 // The person's own list of blocked sites ("Your blocked sites" on the settings page). It is kept as the
 // extension's dynamic rules and nowhere else: reading the rules back gives the list, and saving the list
 // replaces the rules. The settings page and the record page both change it through these two functions.
-import { buildRules, domainsOf } from './rules.js';
+// Bedtime's rules are dynamic rules too while a bedtime lasts (lib/rules.js bedtimeRules, 1.30.0): they are
+// no part of the list, and saving the list leaves them in place.
+import { buildRules, domainsOf, isBedtimeRule } from './rules.js';
 
 // Set in storage (to the time) whenever the list is changed from the record page, so an open settings
 // page knows to show the new list. The rules themselves give no event.
@@ -16,7 +18,7 @@ export async function myList(dnr) {
 export async function saveMyList(dnr, domains) {
   const existing = await dnr.getDynamicRules();
   await dnr.updateDynamicRules({
-    removeRuleIds: existing.map((rule) => rule.id),
+    removeRuleIds: existing.filter((rule) => !isBedtimeRule(rule)).map((rule) => rule.id),
     addRules: buildRules(domains),
   });
 }

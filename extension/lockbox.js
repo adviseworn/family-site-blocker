@@ -9,7 +9,7 @@
 // have held each password are noted too (WAITS), with the wait last set for it, so that a backup file
 // saved before the wait was lengthened is lengthened to it as it is restored here (1.13.0). A pause (the
 // page closed with unlocking under way) goes on the record as the work is carried on or stopped (recordPause).
-import { BOX, PROGRESS, describeBox, describeRecord, duration, fractionDone, isTime, layerUnderWork, loadBox, longerWaitFor, noteBox, recordEvent } from './lib/lockbox.js';
+import { BOX, PROGRESS, describeLocked, describeRecord, duration, fractionDone, isTime, layerUnderWork, loadBox, longerWaitFor, noteBox, recordEvent } from './lib/lockbox.js';
 import { element, showVersion } from './lib/page.js';
 import { START, isBox, lengthen, modulusOf, open, seal, secondsOf, stepsOf, waitOf } from './lib/timelock.js';
 
@@ -189,7 +189,9 @@ async function render() {
     return;
   }
   showOnly('lockbox-locked');
-  $('lockbox-summary').textContent = describeBox({ box, progress: null, events });
+  // The wait first, on a line of its own, so its length is found at a glance (1.30.0); then where things stand.
+  $('lockbox-wait-length').textContent = duration(waitOf(box));
+  $('lockbox-summary').textContent = describeLocked({ box, events });
 
   const running = worker !== null;
   $('lockbox-start').hidden = running;
