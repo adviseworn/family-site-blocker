@@ -1,0 +1,61 @@
+# Runs every test suite on a GitHub-hosted Mac: the fast checks, with the one that needs a Mac (the Finder icon
+# on the .xpi), the extension in Chromium, the extension in Firefox, and the installer package for the launch
+# agent that closes Firefox's Option key, which is built here, installed on this Mac with sudo, checked and
+# taken away again (npm run test:mac-installer; like the lock tests, it only runs on a Mac in CI, because
+# installing changes every account).
+# Start it from the Actions tab with "Run workflow": it never runs on its own, since the Linux machines of
+# "Tests and release" run the same suites on every push, and a private repository's minutes on a Mac count ten
+# times.
+name: Tests on macOS
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  npm_config_fund: 'false'
+  npm_config_audit: 'false'
+  npm_config_update_notifier: 'false'
+
+jobs:
+  macos:
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+
+      - name: Make sure Firefox is installed
+        run: test -d /Applications/Firefox.app || brew install --cask firefox
+
+      - name: Install Playwright and its Chromium
+        run: |
+          npm install
+          npx playwright install chromium
+
+      - name: Show the Mac and browser versions
+        run: |
+          sw_vers
+          node -e "import('playwright').then(async ({ chromium }) => { const b = await chromium.launch(); console.log('Chromium', b.version()); await b.close(); })"
+          /Applications/Firefox.app/Contents/MacOS/firefox --version
+
+      - name: Fast checks
+        run: npm test 2>&1 | tee fast.tap || true
+
+      - name: Chromium tests
+        run: npm run test:browser 2>&1 | tee chromium.tap || true
+
+      - name: Firefox tests
+        run: npm run test:firefox 2>&1 | tee firefox.tap || true
+
+      - name: Installer package tests
+        run: (npm run mac-installer && npm run test:mac-installer) 2>&1 | tee installer.tap || true
+
+      # On a Mac nothing is skipped: every test of every suite has to run and pass.
+      - name: Every test ran and passed
+        run: node scripts/ci-summary.mjs fast=fast.tap chromium=chromium.tap firefox=firefox.tap installer=installer.tap

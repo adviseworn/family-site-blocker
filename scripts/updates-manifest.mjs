@@ -8,10 +8,11 @@
 // Firefox lock installs from it (scripts/firefox-lock.mjs), so a profile the lock sets up starts from the
 // newest version, and so does an account whose copy predates the update address.
 //
-// Firefox has to fetch these without signing in, so they live on the project's public GitLab Pages site
-// (scripts/updates-site.mjs), beside the guide and the lock's profile (scripts/guide.mjs). The update-files
-// job of .gitlab-ci.yml builds them with this script from the newest signed versions released on GitLab
-// (scripts/release-files.mjs fetches those) after each release, and publishes them there.
+// Firefox has to fetch these without signing in, so they live on the project's public site, the GitHub Pages
+// site of a repository of its own (scripts/updates-site.mjs), beside the guide and the lock's profile
+// (scripts/guide.mjs). The update-files job of .github/workflows/pipeline.yml builds them with this script
+// from the newest signed versions released on GitHub (scripts/release-files.mjs fetches those) after each
+// release, and pushes them there.
 //
 // usage: node scripts/updates-manifest.mjs <folder with the signed .xpi files> <folder to write the site to>
 import { createHash } from 'node:crypto';
@@ -24,6 +25,9 @@ import { readZip } from './read-zip.mjs';
 import { LATEST_NAME, LATEST_URL, SITE_URL, UPDATES_URL } from './updates-site.mjs';
 
 export { LATEST_NAME, LATEST_URL, SITE_URL, UPDATES_URL };
+
+/** What the site's repository shows on its own page on GitHub: the site is the thing to read, not the files. */
+export const SITE_README = `# Family Site Blocker\n\nThe public site of Family Site Blocker, at ${SITE_URL}: its guide, the files Firefox reads to keep the add-on up to date, the newest signed version under one name, which the Firefox lock installs from, and the lock's profile. The workflow that releases a version writes everything here; nothing is edited by hand.\n`;
 
 const XPI_NAME = /^family-site-blocker-(\d+(?:\.\d+)*)\.xpi$/;
 
@@ -79,7 +83,9 @@ export function updatesManifest(xpis, siteUrl = SITE_URL) {
 
 /**
  * Builds the site: copies the signed .xpi files from `xpiDir` to `outDir`, writes updates.json for them,
- * and copies the newest once more as family-site-blocker.xpi. Returns the versions it listed, oldest first.
+ * copies the newest once more as family-site-blocker.xpi, and adds the README the site's repository shows
+ * and .nojekyll, so GitHub Pages serves the files exactly as they are. Returns the versions it listed, oldest
+ * first.
  */
 export function buildSite(xpiDir, outDir, siteUrl = SITE_URL) {
   const names = readdirSync(xpiDir).filter((name) => XPI_NAME.test(name)).sort();
@@ -92,6 +98,8 @@ export function buildSite(xpiDir, outDir, siteUrl = SITE_URL) {
   for (const name of names) copyFileSync(join(xpiDir, name), join(outDir, name));
   copyFileSync(join(xpiDir, newest), join(outDir, LATEST_NAME));
   writeFileSync(join(outDir, 'updates.json'), `${JSON.stringify(manifest, null, 2)}\n`);
+  writeFileSync(join(outDir, 'README.md'), SITE_README);
+  writeFileSync(join(outDir, '.nojekyll'), '');
   return updates.map((update) => update.version);
 }
 

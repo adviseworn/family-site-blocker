@@ -167,7 +167,7 @@ async function checkLock() {
   }
   const readme = ({ anchor, text }) => {
     const link = document.createElement('a');
-    link.href = `https://adviseworn.gitlab.io/family-site-blocker/#${anchor}`;
+    link.href = `https://adviseworn.github.io/family-site-blocker-updates/#${anchor}`;
     link.target = '_blank';
     link.rel = 'noopener';
     link.textContent = text;

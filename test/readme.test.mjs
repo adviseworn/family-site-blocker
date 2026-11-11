@@ -15,7 +15,7 @@ import { GUIDE_URL, ICON_NAME, PROFILE_NAME, SITE_URL } from '../scripts/updates
 const read = (path) => readFileSync(new URL(`../${path}`, import.meta.url), 'utf8');
 const readme = read('README.md').replace(/^```[^]*?^```/gm, ''); // not the headings of a code block, if ever there are any
 
-// The anchors are GitLab's and GitHub's for these headings (scripts/guide.mjs gives the rendered guide the same ones).
+// The anchors are GitHub's and GitLab's for these headings (scripts/guide.mjs gives the rendered guide the same ones).
 const headings = [...readme.matchAll(/^#{1,6} (.+)$/gm)].map((m) => m[1]);
 const anchors = new Set(headings.map(anchor));
 
@@ -47,14 +47,14 @@ test('every link into the guide from the settings pages, and within the README, 
   for (const a of [...fromPages, ...within]) assert.ok(anchors.has(a), `#${a} is not a heading in the README`);
 });
 
-test('the settings pages link into the guide on the public site, not into the private project', () => {
+test('the settings pages link into the guide on the public site, not into the repository', () => {
   assert.equal(GUIDE_URL, SITE_URL, 'the guide is the site\'s front page');
-  assert.match(GUIDE_URL, /^https:\/\/adviseworn\.gitlab\.io\/family-site-blocker\/$/);
+  assert.match(GUIDE_URL, /^https:\/\/adviseworn\.github\.io\/family-site-blocker-updates\/$/);
   for (const path of ['extension/options.html', 'extension/lockbox.html', 'extension/options.js']) {
-    const links = [...read(path).matchAll(/https?:\/\/adviseworn\.gitlab\.io\/[^\s"'`)#]*/g)].map((m) => m[0]);
+    const links = [...read(path).matchAll(/https?:\/\/adviseworn\.git(?:hub|lab)\.io\/[^\s"'`)#]*/g)].map((m) => m[0]);
     assert.ok(links.length >= 1, `${path} links to the guide`);
     for (const link of links) assert.equal(link, GUIDE_URL, path);
-    assert.doesNotMatch(read(path), /git(hub|lab)\.com\/adviseworn/, `${path} doesn't point at the repository, which is private`);
+    assert.doesNotMatch(read(path), /git(hub|lab)\.com\/adviseworn/, `${path} doesn't point at the repository, which may be private`);
   }
 });
 
@@ -69,7 +69,7 @@ test('the guide on the site has every heading under its anchor, so the links lan
   assert.equal((html.match(/<img /g) ?? []).length, 1, 'the icon is the only picture the guide adds');
   assert.match(html, /<table>/, 'the files table');
   assert.match(html, /<code>exampleadultsite\.com<\/code>/);
-  assert.doesNotMatch(html, /gitlab\.com\/adviseworn\/family-site-blocker\/-\//, 'no links into the private project');
+  assert.doesNotMatch(html, /href="https?:\/\/git(hub|lab)\.com\/adviseworn\//, 'no links into the repository, which may be private');
   const dir = mkdtempSync(join(tmpdir(), 'family-site-blocker-guide-'));
   try {
     const file = (path) => fileURLToPath(new URL(`../${path}`, import.meta.url));

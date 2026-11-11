@@ -1,10 +1,10 @@
 #!/usr/bin/env node
-// The guide: README.md rendered as the front page of the project's public GitLab Pages site (GUIDE_URL in
-// scripts/updates-site.mjs). The project is private, so the README on GitLab can only be read by its members;
-// the settings pages link into this copy instead, by heading, with the anchors GitLab and GitHub give
-// headings (anchor), so the links land. The update-files job of .gitlab-ci.yml writes it after each release,
-// next to the update files, and puts the Firefox lock's profile beside it, with the add-on's icon (ICON_NAME) for
-// the heading and the browser's tab.
+// The guide: README.md rendered as the front page of the project's public site (GUIDE_URL in
+// scripts/updates-site.mjs). The settings pages link into this copy, by heading, and not into the README on
+// GitHub, which only the repository's members can read when the repository is private; the anchors are the
+// ones GitHub gives headings (anchor), so the links land. The update-files job of
+// .github/workflows/pipeline.yml writes it after each release, next to the update files, and puts the Firefox
+// lock's profile beside it, with the add-on's icon (ICON_NAME) for the heading and the browser's tab.
 //
 // usage: node scripts/guide.mjs <README.md> <site folder> [the lock's profile to copy there]
 import { copyFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -17,7 +17,7 @@ import { ICON_NAME, PROFILE_NAME } from './updates-site.mjs';
 export const ICON_SOURCE = join(dirname(fileURLToPath(import.meta.url)), '..', 'extension', 'icons', 'icon128.png');
 
 /**
- * The anchor GitLab (and GitHub) gives a heading: lower case, everything but letters, numbers, spaces, hyphens
+ * The anchor GitHub (and GitLab) gives a heading: lower case, everything but letters, numbers, spaces, hyphens
  * and underscores dropped, spaces to hyphens. (GitLab also folds runs of hyphens into one, which no heading
  * here has; test/readme.test.mjs checks that the anchors are distinct.)
  */

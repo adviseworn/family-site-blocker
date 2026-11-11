@@ -1,11 +1,12 @@
 #!/usr/bin/env node
-// The add-on's page on addons.mozilla.org, in words, which Sign with Mozilla sends with each version (web-ext
+// The add-on's page on addons.mozilla.org, in words, which the sign job sends with each version (web-ext
 // sign --amo-metadata): the public summary, description, category and links, the version's license and
 // release notes, and the notes only Mozilla's reviewers see. From 1.24.0 the add-on is listed there, so
 // Firefox on a computer or an Android phone installs it from PAGE_URL with one click and keeps it up to date
 // from there. The name and icon come from the manifest; the author shown is the Mozilla account's display
 // name, set on the account, not here. Nothing here names anyone. The page's homepage is the project's public
-// site, the guide (scripts/updates-site.mjs); the project itself is private, so it isn't linked.
+// site, the guide (scripts/updates-site.mjs); the repository isn't linked: the guide is what a reader wants,
+// and the repository may be private.
 //
 // usage: node scripts/amo-metadata.mjs <version> <commit> [the commit's title]   prints the JSON
 import { pathToFileURL } from 'node:url';
@@ -41,7 +42,7 @@ export const LISTING = {
 
 /**
  * The release notes shown on the version: the sentence the version's commit on main carries as its title
- * (a merge request's title, less the version and the request's number), or just the version.
+ * (a pull request's title, less the version and the request's number), or just the version.
  */
 export function releaseNotes(title = '', version) {
   const sentence = title
@@ -60,7 +61,7 @@ export function approvalNotes({ version, commit }) {
     '- extension/vendor/tf-backend-wasm.min.js: dist/tf-backend-wasm.es2017.min.js of @tensorflow/tfjs-backend-wasm 4.22.0 on npm, under a shorter name; extension/vendor/tfjs-backend-wasm.wasm and tfjs-backend-wasm-simd.wasm: dist/tfjs-backend-wasm.wasm and dist/tfjs-backend-wasm-simd.wasm of the same package.',
     '- extension/models/: the MobileNetV2 and InceptionV3 model weights of NSFWJS 4.4.0 (data, not code; extension/vendor/LICENSES.md has the details).',
     'extension/rules/*.json are data too: declarativeNetRequest rules built from the plain lists in blocklists/ by scripts/build-rules.mjs.',
-    `The project's repository on GitLab is private; its guide is public at ${HOME_URL}. This upload was made from the repository at commit ${commit} (tagged v${version} once this version is published) by \`npm run package:firefox\` (scripts/package-firefox.mjs copies the extension folder and drops background.service_worker, which only Chromium reads, from manifest.json).`,
+    `The project's guide is public at ${HOME_URL}. This upload was made from its repository on GitHub at commit ${commit} (tagged v${version} once this version is published) by \`npm run package:firefox\` (scripts/package-firefox.mjs copies the extension folder and drops background.service_worker, which only Chromium reads, from manifest.json).`,
     'The add-on sends nothing anywhere: the record it keeps stays in the browser’s storage for the extension (data_collection_permissions: none). The content script on every page keeps pictures hidden until the background script has judged them with the models, on the device; the wasm-unsafe-eval entry in the CSP is for TensorFlow.js’s WebAssembly backend.',
   ].join('\n');
 }

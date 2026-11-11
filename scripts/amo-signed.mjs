@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Downloads the signed .xpi of one version of this add-on from addons.mozilla.org, when Mozilla already has
-// that version: uploaded by hand, or by an earlier run of Sign with Mozilla that stopped after the upload,
-// or gave up waiting for a reviewer. Mozilla won't take the same version twice, so the workflow tries this
+// that version: uploaded by hand, or by an earlier run of the sign job that stopped after the upload,
+// or gave up waiting for a reviewer. Mozilla won't take the same version twice, so the sign job tries this
 // before uploading. A listed version (from 1.24.0) is signed once Mozilla has approved it: at once after its
 // automatic check, or after a reviewer has looked at it, which can take days.
 //
@@ -9,7 +9,7 @@
 // Needs AMO_JWT_ISSUER and AMO_JWT_SECRET, an API key from https://addons.mozilla.org/developers/addon/api/key/
 // Prints the saved file's path. Exits with 3 when Mozilla has no such version, with 4 when it has the version
 // and hasn't approved it within AMO_WAIT_MINUTES (25 unless set; the sign job sets it, to 0 while the add-on
-// waits for its first reviewer: a pipeline's minutes are few), and with 1 on any other problem.
+// waits for its first reviewer: a run's minutes are counted), and with 1 on any other problem.
 import { createHmac, randomUUID } from 'node:crypto';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
