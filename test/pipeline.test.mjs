@@ -395,6 +395,10 @@ describe('the suite summary', () => {
     assert.match(job('checks'), /npm test 2>&1 \| tee fast\.tap \|\| true\n[^]*node scripts\/ci-summary\.mjs --allow-skips=1 fast=fast\.tap\n/);
     assert.match(job('browsers'), /npm run test:browser 2>&1 \| tee chromium\.tap \|\| true\n[^]*npm run test:firefox 2>&1 \| tee firefox\.tap \|\| true\n[^]*node scripts\/ci-summary\.mjs chromium=chromium\.tap firefox=firefox\.tap\n/);
     assert.match(workflow('macos.yml'), /node scripts\/ci-summary\.mjs fast=fast\.tap chromium=chromium\.tap firefox=firefox\.tap installer=installer\.tap\n/, 'on a Mac nothing is skipped');
+    // The .tap files are written at the top of the project while the fast checks list what is there (the test above on BROWSER_PATHS).
+    assert.ok(readFileSync(join(ROOT, '.gitignore'), 'utf8').split('\n').includes('*.tap'), '.gitignore names them, so that test does not take them for something new');
+    // Playwright 1.56.0 has no Chromium for Ubuntu 26.04, which ubuntu-latest has become: the jobs that run a browser name the Ubuntu they were tried on.
+    for (const text of [job('browsers'), workflow('lock-check.yml'), workflow('pictures-check.yml')]) assert.match(text, /\n {4}runs-on: ubuntu-24\.04\n/);
   });
 });
 

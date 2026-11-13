@@ -3,3 +3,5 @@ dist/
 package-lock.json
 .DS_Store
 extension/_metadata/
+# What a run of the tests writes at the top of the project (npm test 2>&1 | tee fast.tap)
+*.tap

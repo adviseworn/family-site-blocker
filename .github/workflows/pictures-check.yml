@@ -23,7 +23,8 @@ env:
 
 jobs:
   pictures-check:
-    runs-on: ubuntu-latest
+    # Ubuntu 24.04 by name: Playwright 1.56.0 has no Chromium for Ubuntu 26.04, which ubuntu-latest has become.
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v5
