@@ -1,5 +1,6 @@
 import groovy.json.JsonOutput
 import groovy.json.JsonSlurper
+import java.security.MessageDigest
 
 plugins {
     alias(libs.plugins.android.application)
@@ -87,6 +88,13 @@ android {
         abortOnError = false
     }
 
+    // Android's packager leaves out every folder of the assets whose name starts with an underscore, and
+    // uBlock Origin keeps its words in one, _locales, without which Gecko does not install it. This is the
+    // packager's own list of what to leave out, less that one rule.
+    androidResources {
+        ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
+    }
+
     sourceSets {
         main {
             assets.srcDir(layout.buildDirectory.dir('generated/extension').get().asFile)
@@ -115,7 +123,52 @@ def copyExtension = tasks.register('copyExtension', Sync) {
         manifestFile.text = JsonOutput.prettyPrint(JsonOutput.toJson(manifest)) + '\n'
     }
 }
-tasks.named('preBuild') { dependsOn(copyExtension) }
+// uBlock Origin blocks the ads (README.md, "Ad blocking"). It is not in this repository: the build fetches
+// the file Mozilla's add-on site hands to Firefox, the one named in gradle.properties, checks it against the
+// checksum there and unpacks it, every file as it is, beside the add-on in the APK's assets
+// (resource://android/assets/extensions/ublock-origin/). Fetched once: a later build finds the file in
+// build/ublock-origin, so `--offline` works from then on.
+def uBlockOriginVersion = providers.gradleProperty('fsbUBlockOriginVersion').get()
+def uBlockOriginUrl = providers.gradleProperty('fsbUBlockOriginUrl').get()
+def uBlockOriginSha256 = providers.gradleProperty('fsbUBlockOriginSha256').get()
+def uBlockOriginFile = layout.buildDirectory.file("ublock-origin/ublock_origin-${uBlockOriginVersion}.xpi")
+
+def fetchUBlockOrigin = tasks.register('fetchUBlockOrigin') {
+    description = "Fetches uBlock Origin's file from Mozilla's add-on site and checks its SHA-256."
+    inputs.property('url', uBlockOriginUrl)
+    inputs.property('sha256', uBlockOriginSha256)
+    outputs.file(uBlockOriginFile)
+    doLast {
+        def sha256 = { File file ->
+            def digest = MessageDigest.getInstance('SHA-256')
+            file.eachByte(1 << 16) { bytes, read -> digest.update(bytes, 0, read) }
+            digest.digest().encodeHex().toString()
+        }
+        def file = uBlockOriginFile.get().asFile
+        if (!file.exists() || sha256(file) != uBlockOriginSha256) {
+            file.parentFile.mkdirs()
+            def part = new File(file.parentFile, file.name + '.part')
+            def connection = new URI(uBlockOriginUrl).toURL().openConnection()
+            connection.connectTimeout = 30_000
+            connection.readTimeout = 120_000
+            connection.inputStream.withStream { input -> part.withOutputStream { output -> output << input } }
+            def got = sha256(part)
+            if (got != uBlockOriginSha256) {
+                part.delete()
+                throw new GradleException("uBlock Origin ${uBlockOriginVersion} from ${uBlockOriginUrl} has SHA-256 ${got}; gradle.properties says ${uBlockOriginSha256}")
+            }
+            if (!part.renameTo(file)) throw new GradleException("Could not write ${file}")
+        }
+    }
+}
+
+def copyUBlockOrigin = tasks.register('copyUBlockOrigin', Sync) {
+    description = "Unpacks uBlock Origin into the app's assets, unchanged."
+    dependsOn(fetchUBlockOrigin)
+    from(zipTree(uBlockOriginFile))
+    into layout.buildDirectory.dir('generated/extension/extensions/ublock-origin')
+}
+tasks.named('preBuild') { dependsOn(copyExtension, copyUBlockOrigin) }
 
 // GeckoView (geckoview-omni) ships Glean's native code; the Glean library Android Components pull in
 // ships it too. Pick GeckoView's copy, as Mozilla's Reference Browser does.
