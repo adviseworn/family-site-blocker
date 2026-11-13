@@ -50,15 +50,15 @@ async function assertBlocked(url, domain = SITE) {
 /**
  * Opens an address that is a road to a site rather than the site's own (a web proxy's, say: lib/proxies.js)
  * and checks that the tab ends at the block page, with nothing asked of the hosts in `unreached`. Such a
- * load is stopped twice over, by a rule and by the background script sending the tab on, so the browser
- * may report the load itself as interrupted: where the tab ends up is what counts.
+ * load is stopped twice over, by a rule and by the background script sending the tab on: where the tab ends
+ * up is what counts.
  */
 async function assertStopped(url, unreached = [], context = browser.context) {
   stub.clear();
   const page = await context.newPage();
   try {
-    await page.goto(url, { waitUntil: 'commit', timeout: 15_000 }).catch(() => {});
-    assert.equal(await endsAt(page, BLOCK_PAGE), true, `${url} ended at ${page.url()}`);
+    startLoad(page, url);
+    assert.equal(await endsAt(page, BLOCK_PAGE), true, `${url} ended at ${await whereIs(page)}`);
     await page.waitForFunction(() => document.querySelector('h1')?.textContent === 'This site is blocked', null, { timeout: 10_000 });
     for (const host of unreached) assert.equal(stub.reached(host), false, `${url}: a request reached ${host}: ${JSON.stringify(stub.requests.map(({ scheme, host: name, path, search }) => `${scheme}://${name}${path}${search ?? ''}`))}`);
   } finally {
@@ -67,16 +67,44 @@ async function assertStopped(url, unreached = [], context = browser.context) {
 }
 
 /**
+ * Starts a load that the extension is expected to stop, and doesn't wait to hear how the load went, because
+ * Chromium doesn't always say. When a load's answer has already arrived (from a proxy's own worker, or from
+ * a server no rule knows) and the background script sends the tab on before that page is put in place, the
+ * browser's remote-control protocol sometimes reports neither the end of that load nor the page that took
+ * its place: Page.navigate has answered without an error, no Network.loadingFailed follows, and no
+ * Page.frameNavigated for the block page. Playwright then waits out its time limit for news that never
+ * comes, and goes on giving the dropped address as the tab's, while the tab shows the block page. Seen in
+ * 3 of 139 such loads on a busy machine, and once on GitHub's, where it used up a test's whole time. So
+ * the load is only started here, and the tab itself is asked where it is (endsAt).
+ */
+function startLoad(page, url) {
+  page.goto(url, { waitUntil: 'commit' }).catch(() => {});
+}
+
+/** For a click that starts such a load: Playwright is told not to wait for the load the click starts. */
+const STARTED = { noWaitAfter: true };
+
+/** The address a tab's page gives for itself, or none when it gives none within a second (between two pages, say). */
+async function whereIs(page) {
+  let timer;
+  const late = new Promise((done) => {
+    timer = setTimeout(done, 1000, '');
+  });
+  try {
+    return await Promise.race([page.evaluate(() => location.href).catch(() => ''), late]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
  * Waits until a tab's address fits `pattern`, whatever loads were started and dropped on the way there;
- * resolves to whether it came to. The page itself is asked where it is: after one load is dropped for
- * another, the address Playwright keeps for the tab can stay the dropped one's while the tab shows the
- * block page (seen about one run in five).
+ * resolves to whether it came to. The page itself is asked where it is, not Playwright (see startLoad).
  */
 async function endsAt(page, pattern, timeout = 10_000) {
   const until = Date.now() + timeout;
   for (;;) {
-    const address = await page.evaluate(() => location.href).catch(() => '');
-    if (pattern.test(address)) return true;
+    if (pattern.test(await whereIs(page))) return true;
     if (Date.now() >= until) return false;
     await new Promise((done) => setTimeout(done, 50));
   }
@@ -554,8 +582,16 @@ describe('real browser', () => {
         assert.match(await page.locator('#lock-status').innerText(), /^Anyone who can open the extensions page can switch the add-on off or remove it; the lock covers Firefox only\. What to do about that\.$/);
         assert.ok(await page.evaluate(() => document.getElementById('lock').classList.contains('todo')), 'marked as something to do');
         assert.equal(await page.locator('#lock-status a').getAttribute('href'), 'https://adviseworn.github.io/family-site-blocker-updates/#limits');
-        // The page is short again (#70): the explanations live in the README, linked from each section.
-        const words = await page.evaluate(() => document.body.innerText.split(/\s+/).filter(Boolean).length);
+        // The page is short again (#70): the explanations live in the README, linked from each section. The
+        // words counted are the page's own: the caption of the record's table, "The latest 3", is left out,
+        // because it shows only once the record holds more than three tries, and how many the tests before
+        // this one have left there depends on the machine's speed (tries at one site within two seconds are
+        // one try). With three tries the page has 447 words; with four, on a busy machine, the caption made
+        // them 450 and this test failed, with nothing on the page changed.
+        const words = await page.evaluate(() => {
+          const count = (text) => text.split(/\s+/).filter(Boolean).length;
+          return count(document.body.innerText) - count(document.querySelector('#attempts-table caption').innerText);
+        });
         assert.ok(words < 450, `${words} words on the settings page`);
         assert.ok((await page.locator('a[href^="https://adviseworn.github.io/family-site-blocker-updates/#"]').count()) >= 4, 'links to the README');
         assert.equal(await page.locator('#lockbox-page').getAttribute('href'), 'lockbox.html');
@@ -1443,13 +1479,13 @@ describe('real browser', () => {
         const page = await browser.context.newPage();
         try {
           await page.goto('http://allowed.test/proxy-link');
-          await page.click('#go');
+          await page.click('#go', STARTED); // the click only: how the load it starts ends is asked of the tab (see startLoad)
           assert.equal(await endsAt(page, BLOCK_PAGE), true, 'the link ends at the block page');
           assert.equal(stub.reached(PROXY), false, 'a request reached the proxy');
           await pause(500); // the background script sends the tab to the block page as well: let that settle
           await page.waitForFunction(() => document.getElementById('back')?.hidden === false);
           await page.click('#back');
-          assert.equal(await endsAt(page, /^http:\/\/allowed\.test\/proxy-link$/), true, `Go back led to ${await page.evaluate(() => location.href).catch(() => page.url())}`);
+          assert.equal(await endsAt(page, /^http:\/\/allowed\.test\/proxy-link$/), true, `Go back led to ${await whereIs(page)}`);
         } finally {
           await page.close();
         }
@@ -1529,7 +1565,7 @@ describe('real browser', () => {
           await page.goto('http://allowed.test/embeds-proxied', { waitUntil: 'load' });
           assert.deepEqual(await probe(page), { image: 'blocked', script: 'blocked', fetch: 'blocked' });
           assert.deepEqual(proxied(), [], 'a request with __cpo in it went out');
-          assert.equal(page.url(), 'http://allowed.test/embeds-proxied', 'the page itself stays');
+          assert.equal(await whereIs(page), 'http://allowed.test/embeds-proxied', 'the page itself stays');
         } finally {
           await page.close();
         }
@@ -1602,9 +1638,9 @@ describe('real browser', () => {
             await page.goto('http://allowed.test/app');
             await page.click('#other');
             await pause(500);
-            assert.match(page.url(), /^http:\/\/allowed\.test\/app\/view\?url=/, 'an address for a site on no list stays');
-            await page.click(`#${button}`);
-            assert.equal(await endsAt(page, BLOCK_PAGE), true, `${button}: the tab shows ${page.url()}`);
+            assert.match(await whereIs(page), /^http:\/\/allowed\.test\/app\/view\?url=/, 'an address for a site on no list stays');
+            await page.click(`#${button}`, STARTED);
+            assert.equal(await endsAt(page, BLOCK_PAGE), true, `${button}: the tab shows ${await whereIs(page)}`);
             assert.equal(stub.reached(SITE), false);
           } finally {
             await page.close();
@@ -1621,7 +1657,7 @@ describe('real browser', () => {
           const until = Date.now() + 10_000;
           while (frames().some((url) => url.includes(SITE)) && Date.now() < until) await pause(100);
           assert.deepEqual(frames().sort(), ['about:blank', `http://cdn.allowed.test/view?url=${encodeURIComponent(UNLISTED)}`].sort());
-          assert.equal(page.url(), 'http://allowed.test/frames-proxied');
+          assert.equal(await whereIs(page), 'http://allowed.test/frames-proxied');
           assert.match(await page.locator('h1').innerText(), /SITE LOADED/);
           await pause(500);
           assert.deepEqual(await stored(settings), [], 'only a page opened in a tab is a try');
@@ -1651,8 +1687,8 @@ describe('real browser', () => {
         try {
           for (const url of [shaped, naming]) {
             await page.goto(`http://${WORKER_HOST}/`);
-            await page.goto(url, { waitUntil: 'commit' }).catch(() => {});
-            assert.equal(await endsAt(page, BLOCK_PAGE), true, `${url} ended at ${page.url()}`);
+            startLoad(page, url);
+            assert.equal(await endsAt(page, BLOCK_PAGE), true, `${url} ended at ${await whereIs(page)}`);
           }
           // In a frame: the page around it stays, and the frame ends up empty.
           await page.goto(`http://${WORKER_HOST}/framed`, { waitUntil: 'load' });
@@ -1660,7 +1696,7 @@ describe('real browser', () => {
           const until = Date.now() + 10_000;
           while (frame().some((url) => url.includes('/service/')) && Date.now() < until) await pause(100);
           assert.equal(frame().some((url) => url.includes('/service/')), false, `the frame shows ${frame()}`);
-          assert.equal(page.url(), `http://${WORKER_HOST}/framed`);
+          assert.equal(await whereIs(page), `http://${WORKER_HOST}/framed`);
           assert.doesNotMatch(await page.frames()[1].locator('body').innerText(), new RegExp(WORKER_SERVED));
         } finally {
           await page.close();
@@ -1674,8 +1710,8 @@ describe('real browser', () => {
         try {
           assert.equal(open.outcome, 'site loaded', 'not listed yet');
           await saveList(settings, 'added-later.test');
-          assert.equal(await endsAt(open.page, BLOCK_PAGE), true, `the tab shows ${open.page.url()}`);
-          assert.match(other.page.url(), /^http:\/\/allowed\.test\/fetch/, 'a tab showing another site through the same proxy stays');
+          assert.equal(await endsAt(open.page, BLOCK_PAGE), true, `the tab shows ${await whereIs(open.page)}`);
+          assert.match(await whereIs(other.page), /^http:\/\/allowed\.test\/fetch/, 'a tab showing another site through the same proxy stays');
         } finally {
           await saveList(settings, '').catch(() => {});
           await open.page.close();

@@ -297,7 +297,8 @@ describe('Firefox', { skip: findFirefox() ? false : 'no Firefox found (set FIREF
           lockLink: document.querySelector('#lock-status a')?.getAttribute('href'),
           lockSaveShown: !document.getElementById('lock-save').hidden,
           lockboxLine: document.getElementById('lockbox-line').textContent,
-          words: document.body.innerText.split(/\s+/).filter(Boolean).length,
+          text: document.body.innerText,
+          caption: document.querySelector('#attempts-table caption').innerText,
         }`);
         if (state.note && state.privateStatus !== 'Checking…' && state.lockShown && !state.lockboxLine.startsWith('Loading')) break;
         await sleep(200);
@@ -318,7 +319,14 @@ describe('Firefox', { skip: findFirefox() ? false : 'no Firefox found (set FIREF
       assert.equal(state.lockLink, 'https://adviseworn.github.io/family-site-blocker-updates/#keep-it-installed-after-firefox-quits');
       assert.equal(state.lockSaveShown, false, 'no "Save the lock’s profile" button for a temporary add-on: keeping it installed comes first');
       assert.equal(state.lockboxLine, 'No password is locked away.');
-      assert.ok(state.words < 450, `${state.words} words on the settings page`);
+      // The page stays short (#70). Its own words, as in the Chromium suite: without the caption of the
+      // record's table, which shows only once the record holds more than three tries. They are counted
+      // here and not in the page, because the script above is a string: in it, "\s" reached Firefox as a
+      // plain "s", so until 1.31.0 the pieces between the letter s were counted (158 of them) and not
+      // the words (438).
+      const count = (text) => text.split(/\s+/).filter(Boolean).length;
+      const words = count(state.text) - count(state.caption);
+      assert.ok(words > 300 && words < 450, `${words} words on the settings page`);
       // What that line rests on (#69): Firefox reports a temporary add-on as "development", with a switch, through management.getSelf, which needs no permission.
       const self = await browser.fx.send('WebDriver:ExecuteAsyncScript', {
         script: `const done = arguments[arguments.length - 1]; browser.management.getSelf().then((info) => done({ installType: info.installType, mayDisable: info.mayDisable }), (e) => done('error: ' + e));`,
