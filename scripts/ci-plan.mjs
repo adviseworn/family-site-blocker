@@ -13,6 +13,10 @@
 // merges: the same tree, and a run of this workflow that succeeded on that head, which is what merging a pull
 // request that was up to date with main gives. Anything else pushed to main is tested first, and the sign job
 // waits for that.
+// A push to main whose change can't be told signs nothing by itself, though everything is tested: that is a
+// forced push, which replaces main's history so that what main was is no longer there to compare with, or a
+// main that is new. Otherwise such a push would send whatever version main holds to Mozilla, one that was kept
+// back on purpose included. A version goes out because a push changed it, or by hand.
 // Started by hand (Actions → Tests and release → Run workflow): every suite, whatever changed; or, on main with
 // "sign" or "publish" ticked, those jobs alone, without the tests.
 //
@@ -45,9 +49,9 @@ const yes = (value) => (value ? 'yes' : 'no');
 
 /**
  * Which jobs run. `changed` is the list of files the push changes (against main for a branch, against what main
- * was for a push to main), or null when that can't be told, which counts as everything; `tested` says the pushed
- * commit's files already passed the tests on their branch; `sign` and `publish` are the boxes of a run started
- * by hand.
+ * was for a push to main), or null when that can't be told, which counts as everything for the tests and as no
+ * new version for signing; `tested` says the pushed commit's files already passed the tests on their branch;
+ * `sign` and `publish` are the boxes of a run started by hand.
  */
 export function plan({ event, branch, defaultBranch = 'main', changed = null, tested = false, sign = false, publish = false }) {
   const touches = (paths) => changed === null || changed.some((file) => paths.some((path) => (path.endsWith('/') ? file.startsWith(path) : file === path)));
@@ -57,7 +61,8 @@ export function plan({ event, branch, defaultBranch = 'main', changed = null, te
     return { checks: 'no', browsers: 'no', sign: yes(sign), site: yes(publish) };
   }
   if (branch === defaultBranch) {
-    const version = touches([MANIFEST]);
+    // Never because the change can't be told: a forced push of main must not send the version it holds.
+    const version = changed !== null && touches([MANIFEST]);
     return { checks: yes(!tested), browsers: yes(!tested && touches(BROWSER_PATHS)), sign: yes(version), site: yes(version) };
   }
   return { checks: yes(changed === null || changed.length > 0), browsers: yes(touches(BROWSER_PATHS)), sign: 'no', site: 'no' };
@@ -66,14 +71,15 @@ export function plan({ event, branch, defaultBranch = 'main', changed = null, te
 /** The plan in words, for the job's log. `testedAs` is what alreadyTested() found, if anything. */
 export function explain({ event, branch, defaultBranch = 'main', changed = null, testedAs = null }, jobs) {
   const lines = [];
-  const files = changed === null ? "what it changes can't be told, so it counts as everything" : `it changes ${changed.length} file${changed.length === 1 ? '' : 's'}`;
+  const files = changed === null ? "what it changes can't be told, so it counts as everything for the tests" : `it changes ${changed.length} file${changed.length === 1 ? '' : 's'}`;
   if (event === 'workflow_dispatch') {
     lines.push(jobs.checks === 'yes' ? `Started by hand on ${branch}: every suite runs, whatever changed.` : `Started by hand on ${branch} to ${[jobs.sign === 'yes' && 'sign', jobs.site === 'yes' && 'publish'].filter(Boolean).join(' and ')}: the tests stay out.`);
   } else if (branch === defaultBranch) {
     lines.push(`A push to ${branch}: ${files}.`);
     if (testedAs) lines.push(`The tests don't run again: the commit holds the same files as ${testedAs.head.slice(0, 7)}, the head of pull request #${testedAs.pull}, which passed them.`);
     else lines.push(`Nothing says these very files passed the tests as the head of a pull request, so they run now${jobs.browsers === 'yes' ? '' : ' (the fast checks only: no file the browser suites load or run changed)'}.`);
-    lines.push(jobs.sign === 'yes' ? `The version's file changed (${MANIFEST}): the sign job runs, then update-files.` : `The version's file (${MANIFEST}) didn't change: nothing to sign or publish.`);
+    if (changed === null) lines.push(`Nothing is signed or published by itself when the change can't be told, as after a forced push: to release the version ${branch} holds, start this workflow by hand on ${branch} with sign and publish ticked.`);
+    else lines.push(jobs.sign === 'yes' ? `The version's file changed (${MANIFEST}): the sign job runs, then update-files.` : `The version's file (${MANIFEST}) didn't change: nothing to sign or publish.`);
   } else {
     lines.push(`A push to the branch ${branch}: against ${defaultBranch}, ${files}.`);
     if (jobs.checks === 'no') lines.push(`The branch holds nothing ${defaultBranch} doesn't: nothing to test.`);

@@ -29,6 +29,8 @@
 #                 to the project's public site (scripts/updates-site.mjs says where: the GitHub Pages site of
 #                 a repository of its own, which anyone can fetch without signing in). The Firefox lock
 #                 installs from there, and copies from before 1.24.0 update from there.
+# A forced push of main never signs or publishes by itself, whatever version it holds: what main was is then
+# no longer there to compare with, so the push can't be said to change the version. It is tested in full.
 # Started by hand (the Actions tab → Tests and release → Run workflow): every suite, whatever changed; or, on
 # main with "sign" or "publish" ticked, those jobs alone, without the tests.
 #

@@ -92,7 +92,10 @@ describe('a run does only what its push needs', () => {
     assert.deepEqual(merged(['extension/options.js', MANIFEST], false), { checks: 'yes', browsers: 'yes', sign: 'yes', site: 'yes' }, 'anything else that reaches main is tested there');
     assert.deepEqual(merged(['README.md'], false), { checks: 'yes', browsers: 'no', sign: 'no', site: 'no' });
     assert.deepEqual(merged(['android/README.md'], true), { checks: 'no', browsers: 'no', sign: 'no', site: 'no' });
-    assert.deepEqual(merged(null, false), { checks: 'yes', browsers: 'yes', sign: 'yes', site: 'yes' });
+    // A forced push replaces main's history, and what main was is then not there to compare with. Everything is tested, and nothing is
+    // signed by itself: otherwise the push would send whatever version main holds to Mozilla, one kept back on purpose included.
+    assert.deepEqual(merged(null, false), { checks: 'yes', browsers: 'yes', sign: 'no', site: 'no' }, "a push whose change can't be told never signs by itself");
+    assert.deepEqual(merged(null, true), { checks: 'no', browsers: 'no', sign: 'no', site: 'no' });
     assert.deepEqual(plan({ event: 'push', branch: 'trunk', defaultBranch: 'trunk', changed: [MANIFEST], tested: true }).sign, 'yes', 'whatever the main branch is called');
   });
 
@@ -282,9 +285,18 @@ describe('the plan, run in a checkout', { skip: !hasGit && 'no git' }, () => {
     assert.deepEqual(cli.outputs, { checks: 'yes', browsers: 'yes', sign: 'yes', site: 'yes' });
     assert.match(cli.stdout, /Nothing says these very files passed the tests/);
 
-    // A new main, which the event gives no earlier commit for: everything.
+    // A new main, which the event gives no earlier commit for: everything is tested, and nothing is signed by itself.
     cli = await planIn({ GITHUB_EVENT_NAME: 'push', GITHUB_REF_NAME: 'main', GITHUB_SHA: version, GITHUB_EVENT_PATH: event({ before: '0'.repeat(40) }) });
-    assert.deepEqual(cli.outputs, { checks: 'yes', browsers: 'yes', sign: 'yes', site: 'yes' });
+    assert.deepEqual(cli.outputs, { checks: 'yes', browsers: 'yes', sign: 'no', site: 'no' });
+
+    // A forced push of main: the event names what main was, a commit the checkout no longer has. The pushed commit holds a version, and
+    // it must not go to Mozilla because main's history was replaced: such a version may be one that is kept back on purpose.
+    cli = await planIn({ GITHUB_EVENT_NAME: 'push', GITHUB_REF_NAME: 'main', GITHUB_SHA: version, GITHUB_EVENT_PATH: event({ before: '0123456789012345678901234567890123456789' }) });
+    assert.equal(cli.status, 0, cli.stderr);
+    assert.deepEqual(cli.outputs, { checks: 'yes', browsers: 'yes', sign: 'no', site: 'no' });
+    assert.match(cli.stdout, /A push to main: what it changes can't be told, so it counts as everything for the tests\./);
+    assert.match(cli.stdout, /Nothing is signed or published by itself when the change can't be told, as after a forced push: to release the version main holds, start this workflow by hand on main with sign and publish ticked\./);
+    assert.match(cli.stdout, /\nchecks: yes, browsers: yes, sign: no, update-files: no\n/);
   });
 
   it('skips the tests on main for a merge of files that passed on their pull request, as GitHub tells it', async () => {
