@@ -27,33 +27,198 @@ Is it working? items open the add-on's own pages.
 ## The lock
 
 The app can hold itself on, with nothing outside it (no Family Link, no second person holding a key). The
-menu's Lock page (`lock/LockFragment`) asks for two things the phone grants and a wait:
+menu's Lock page (`lock/LockFragment`) asks for three things the phone grants and a wait:
 
-- an **accessibility service** (`lock/LockAccessibilityService`) that is told which app comes to the front.
-  While the lock is on, another browser (every app that takes web links in general, found at runtime by
-  `lock/Browsers`) and any Settings screen that names Family Site Blocker alongside a way to turn it off
-  (uninstall, force stop, clear storage, the accessibility or administrator switch) are covered by a lock
-  screen (`lock/LockScreenActivity`) that offers this browser and the home screen. It reads window text only
-  on those Settings screens, and only to match the app's name;
+- an **accessibility service** (`lock/LockAccessibilityService`), the lock's watch, which Android tells which
+  window has come to the front and when something on it changes. While the lock is on it turns three things
+  away. Another browser (every app that takes web links in general, found at runtime by `lock/Browsers`) is
+  covered by a lock screen (`lock/LockScreenActivity`) that offers this browser and the home screen. The
+  lock screen hides a browser that fills the screen. A window of one that it does not hide gets a cover of
+  the watch's own where it lies, for as long as it is there: in the other half when two apps are side by
+  side, in a bubble (from Android 17 the home screen's menu opens any app as one), in a free window on a
+  second screen, or floating over the other apps. Each look goes through the windows on every screen for
+  that (`Guard.showing`), and Home follows when the lock screen has not hidden the window
+  (`Guard.againstWhatShows`). A cover leaves the navigation bar free (`Guard.coverArea`). Android lists a
+  window, with where it lies, only when its opening has come to rest, and a bubble's page was on show for
+  that long on the test phone. So a plain cover goes over the whole screen at a window's first sign: its
+  own word that it is there, Android's record of app use naming it, or a look that finds it in front. The
+  watch draws that cover before it does anything else, and the list then takes it to where the window lies
+  or takes it off because the lock screen has hidden the window (`Guard.unlistedCoverStays`). The watch
+  cannot close a window that an app floats over the others: its cover stays until the app takes the window
+  away. From Android 12 on such a window does not show at all while the lock is on (see the switch that lets
+  another browser display over other apps, below). A screen of Settings or the installer that names Family
+  Site Blocker alongside a way to undo the lock (uninstall, force stop, clear storage, the accessibility or
+  administrator switch, its usage access) is closed and then covered, so that Settings itself opens as usual
+  the next time. And Security & privacy is closed (see below). The watch reads the words on a screen only in
+  Settings, the installer and the permission controller, and only to tell the screens named here: one with
+  the app's name and one of those actions, Security & privacy and the screens that lead round the lock by
+  their titles, and the switch that lets another browser display over other apps by that browser's name. Of
+  a tap it reads the row tapped, in those apps, in Settings' search and on the home screen, to tell one that
+  opens Security & privacy. Of every other window it asks only which app it belongs to and where it lies;
 - the **device administrator** role (`lock/LockAdminReceiver`, no policies), which makes Android send an
-  uninstall through a screen the accessibility service then covers.
+  uninstall through a screen the watch then turns away. Android lists no operations for it, and it keeps an
+  administrator's own description off that screen (the text has no height in Settings' layout; it shows
+  only in the list of device admin apps). So the Lock page says what the role is for, and the same sentence
+  goes along as the explanation Android does show on the screen that activates it;
+- **usage access**, on Android 14 and later (`lock/Front`): Android's record of which screen was brought to
+  the front last, which is how the watch knows of a screen Android hides from it. Android 16 and later call
+  it "App usage data"; the Lock page and the record use the phone's name for it (`Words.usageAccessName`),
+  and the watch knows its screen by both.
+
+The rules the watch goes by are in `lock/Guard`. They need no phone, so `GuardTest` pins them on the words of
+the screens themselves.
+
+**A screen is not always heard from.** Settings' newer pages (the list of all apps, each app's App info, the
+pages under Special app access: one window, `SpaActivity`) tell a service of their changes only if it was
+running when the page was made. A page that was open while the watch started again, as it does when the app
+is updated, then goes from page to page without a word: seen on the Android 15 test phone, where the app's
+own App info opened unread. So while a guarded app's screen is in front, the watch looks at it steadily,
+whatever it says (`lookSteadily`, `Guard.steadyLookIn`: four times a second, a phone whose looks are slow less
+often). The same pages show two at once while one changes into the other, the app's row in the list beside
+another app's Force stop, and a phone that draws the change shows them together for longer than a test phone
+does. The rules tell the app's row from its own page (`Guard.names`): the watch notes which texts stand in
+a row of those lists, something that can be tapped and is drawn by Compose (`Guard.isRow`), and a name there
+leads to a page and is not the page's heading. Settings' older pages are each a window of their own, and
+what can be tapped there is not always a row: the heading of the page that clears an app's storage leads to
+its App info. The rules also tell the word "Disabled" under an app in the list from a Disable button, and
+the browser a switch is for from one that the list only names (`Guard.letsDisplayOver`).
+
+**The page that clears the app's storage is told by what it lists.** Settings, Storage, Apps leads to it
+without passing App info, and Android 17 keeps its two buttons from the watch, so "Clear storage" is not
+there to go by. A screen that names the app and has both "App size" and "User data" on it is that page
+(`Guard.storagePage`). Android greys Clear storage out while the app is a device administrator, and not
+before.
+
+**Security & privacy stays closed while the lock is on.** Android's Safety Center shows an alert, "Review app
+with full device access", for every accessibility service that is not declared a tool for people with
+disabilities, and the alert's Remove access button switches the service off at one tap, with no question
+asked. Where the alert is drawn depends on the Android:
+
+- Android 14, 15 and the first Android 16 draw the Safety Center in the permission controller and hide it
+  from such a service: its screens guard themselves against taps passed through an overlay, and Android
+  treats what they show as sensitive, so the watch gets no event from them and reads nothing on them. There
+  the watch goes by the record of app use and closes the Safety Center by its class, whichever of its pages
+  is opened (`Guard.isSecurityAndPrivacy`).
+- Later releases of Android 16 and Android 17 draw it in Settings itself (`safetycenter/ui` in AOSP's
+  Settings) and show the watch what is on it. Opened from Settings' first page or from its search it is a
+  plain `SubSettings`, so the watch tells it by its title (`Guard.isSecurityAndPrivacyScreen`): "Security &
+  privacy" and "Privacy controls", the two pages that show the alert, are closed on sight, before the alert
+  has been drawn. A tap on what opens one of them (the row in Settings, a result of its search or of the
+  home screen's) puts the shield up at once, so that the page comes up under it and is never there to tap.
+  The other pages under Security & privacy can still be found through Settings' search. One of them, More
+  security & privacy, has a row "Accessibility usage" that opens the permission controller's list of the
+  apps with full access, Remove access and all: that list is closed by its class, and a tap on the row puts
+  the shield up too. Opened another way (a notification, quick settings, another app) Security & privacy
+  has a class of its own and is closed by that. Should the alert ever be on a screen that was not told by
+  its title, the screen is turned away for what the alert says.
+
+A plain shield is held over the screen for the moment the closing takes. A screen is closed with Back and
+then covered by the lock screen, so that Settings opens as usual the next time. The record of app use names
+a screen as soon as Android starts to bring it forward, when the focus is still on the window it was
+opened from; Back sent then would close that one and leave the hidden screen on top of Settings. So for a
+screen told by the record, Back waits until the focus has passed to the screen's own window
+(`Guard.waitsForItsWindow`), and the lock screen waits until the record shows that the screen has closed
+(`Guard.coverFollows`). The titles are English, like the other words the watch goes by. Declaring the
+service a tool for people with disabilities (`isAccessibilityTool`) would make the alert go away, but it
+would not be true, and Google Play checks it.
+
+Android 17 keeps more than Security & privacy from such a service: the rows of the list of device admin
+apps, and the buttons of the administrator's own screen. The list is left open, since nothing on it can be
+told; the administrator's screen is closed as it opens, told by the app's sentence or by Android's "This
+admin app is active".
+
+The accessibility shortcut (both volume keys, or the accessibility button) switches a service off as well
+once it has been set to it. The Lock page then shows Not yet, and says how to clear the shortcut.
+
+**Screens that lead round the lock stay closed too** (`Guard.wayRound`). None of them undoes the lock; each
+opens a way past it:
+
+- **Developer options**, where USB debugging is switched on. Through it a computer can stop the app
+  (`adb shell am force-stop`), and Android then switches the watch off.
+- **Users**, where a guest or another user is added and switched to. The watch and the administrator belong
+  to the user who set them up, so the lock is not there for anyone else.
+- **The setting up of a Private space.** The watch is told which app comes to the front in there, but Android
+  shows an app only the apps of its own part of the phone, so a browser installed only in a Private space is
+  not among those the lock knows. Browsers known by the name of their package are turned away there all the
+  same (`Browsers.knownByName`); one that is not on that list is out of reach. Only the setting up is closed
+  (`PrivateSpaceSetupActivity`). The screen that asks for the phone's PIN before it is left alone: closed, it
+  stayed on top of Settings with the PIN's answer still to come, and Settings then opened to the lock screen
+  once more. The page of a Private space that is there already is left alone too: it is where the space is
+  deleted.
+- **The setting up of a work profile**, which is such a part of the phone too, and which an app from the
+  store can ask Android for. It is an app of its own (`Browsers.setUpOfAWorkProfile`) with nothing of
+  Settings under it, so it is covered whenever it comes to the front, as another browser is, and not closed.
+- **The switch that lets another browser display over other apps** (`Guard.letsDisplayOver`). An app with
+  that leave floats a window over every other app, and one it makes take no touches is a window Android
+  never lists, so it gets no cover. The page of the switch is closed for a browser that does not have the
+  leave, and left open for one that has, which is where it is taken away. The page is on show for the
+  moment it takes the watch to read it, and on the test phone a fast tap got the leave given in two tries
+  of four. So the watch does not rest on the page: for as long as any other browser holds the leave, it has
+  Android keep every app's floating windows off the screens (`keepFloatingWindowsOff`: a window of the
+  watch's own with `Window.setHideOverlayWindows`, Android 12 and later, told of a change by
+  `AppOpsManager.startWatchingMode`). The Lock page names the browser, and says how to take the leave away.
+
+A screen with a class of its own is told by Android's record of app use and closed once its window has the
+focus, like Security & privacy; a page that Settings draws under a class that tells nothing is told by its
+title. The watch does not act on Android's word that such a screen has come to the front: that word can come
+before the screen takes keys, and the Back sent then went to whatever was in front before, seen on a slow test
+phone. A way that is open already stays reachable, so that it can be closed: Developer options while USB or
+wireless debugging is on, and Users while the phone lets its user be switched. The Lock page says so for as
+long as either lasts. On Android itself, Force stop, Clear storage and the Stop button of "Active apps" are
+greyed out or missing for an app that is a device administrator, and Uninstall leads to the administrator's
+screen, which the watch closes: tried on Android 17.
+
+**The lock does not shut out its own setting up.** While it still lacks something, the screen that gives it
+stays open: the screen that makes the app a device administrator while it is not one, its usage access while
+it has none, the accessibility service's own screen while the shortcut is set to it, and, on Android 13 and
+later, the app's App info while the administrator or usage access is missing. Android holds those settings
+back from an app installed from a file until "Allow restricted settings" is tapped in App info's menu, and a
+lock that closed App info then could never be completed. Force stop is on App info too, so for that long its
+question is turned away, whichever app it is about. None of these states can be brought about with the lock
+whole: each screen that would take something away is one the watch closes.
+
+What the watch sees and does can be read on a phone with a cable: `adb shell setprop log.tag.FsbLock DEBUG`,
+then `adb logcat -s FsbLock`. An emulator without hardware acceleration is many times slower than a phone,
+and the watch's waits are then too short to show anything: `adb shell setprop log.tag.FsbLockSlow DEBUG`
+makes them eight times as long. (`adb shell uiautomator dump` switches every accessibility service off while
+it runs, so it shows in the lock's record as the service going off and on.) A phone driven over a cable has
+USB debugging on, which keeps Developer options open: `adb shell setprop log.tag.FsbLockNoCable DEBUG` makes
+the watch act as on a phone without it.
 
 The only way off is to start unlocking and wait. The wait is a time-lock puzzle (`lock/Puzzle`, after Rivest,
 Shamir and Wagner 1996): a 2048-bit modulus and a number of repeated squarings that nothing but doing them one
 after another can shorten. The app seals the puzzle with a shortcut (the modulus's factors) and throws the
 shortcut away, so the phone has to grind through the squarings; a foreground service (`lock/UnlockService`)
-does that under a wake lock, saving its place every two seconds so a restart does not lose the work. The waits
-run from one minute to two days, and a wait can only be lengthened while the lock is on. Once open, the lock
-goes off for thirty minutes and then turns itself back on. The Lock page keeps a record of every turn-on,
-unlock, opening, relock and screen turned away (`lock/LockState`, the last 500 events).
+does that under a wake lock, saving its place every two seconds. Once open, the lock goes off for thirty
+minutes and then turns itself back on.
 
-The lock cannot reach Safe mode, a factory reset, a second user profile, or pages opened inside other apps'
-own in-app browsers; Family Link cannot either.
+The Lock page follows the add-on's locked-away password page on a computer (`../extension/lockbox.html`), so
+that someone who uses both learns one set of words (`lock/Words`, pinned by `WordsTest`, which reads the
+computer's menu of waits):
+
+- the same seven waits under the same names, one minute to two days, and the wait on a line of its own at the
+  top of the page, "Wait: 1 hour";
+- **Start unlocking** asks why. The notification's **Pause unlocking** keeps the work, as do a restart of the
+  phone and Android stopping the app, and **Carry on unlocking** picks it up. **Stop unlocking** asks first
+  and throws the work away;
+- **Lengthen the wait** needs no wait: the sealed box goes inside a fresh puzzle for the difference. It offers
+  only waits longer than the present one, and throws away any unlocking under way, whose work was done on the
+  box as it was. Saved work names the box it was done on and counts for no other;
+- the record of every turn-on, unlock, pause, opening, relock and screen turned away (`lock/LockState`, the
+  last 500 events).
+
+The lock cannot reach Safe mode, a factory reset, a second user, a Private space or a work profile that was
+set up before the lock was on, or pages opened inside other apps' own in-app browsers; Family Link cannot
+either.
 
 ## Versions
 
-The app takes its version from the add-on's `manifest.json`: 1.23.0 becomes versionName `1.23.0` and
-versionCode `1023000`. Bumping the add-on's version bumps the app.
+The app takes its version name from the add-on's `manifest.json`: bumping the add-on's version bumps the app.
+The number Android compares, versionCode, is that version followed by two digits for the app's own build,
+`fsbAppBuild` in `gradle.properties`: 1.29.0 with app build 2 is versionCode `102900002`. Raise `fsbAppBuild`
+for a change to the app that goes to a phone without a new add-on version, so that it installs over the build
+before it. The Lock page shows both at its foot. The first build to reach a phone (1.29.0, November 2026) had
+versionCode `1029000`, below every number made this way.
 
 ## Building
 
@@ -75,7 +240,10 @@ show as a runtime crash, so a shrunk build is worth a run before release.
 
 Without a release key the debug key signs the build: it installs on a phone but Google Play will not take
 it. For a real release, pass the key through Gradle properties (on GitHub: repository secrets, the keystore
-as base64 text in `ANDROID_KEYSTORE_BASE64`, see `.github/workflows/android.yml`), never through the repository:
+as base64 text in `ANDROID_KEYSTORE_BASE64`, see `.github/workflows/android.yml`), never through the repository.
+Android installs a build over an older one only when the same key signed both, and with another key the app
+has to be uninstalled first, which the lock is there to prevent. So a key that has signed a build on
+someone's phone has to be kept, a debug key too. Passing a key by hand:
 
 ```sh
 ./gradlew assembleRelease -PfsbKeystore=/path/to/release.jks -PfsbKeystorePassword=... -PfsbKeyAlias=... -PfsbKeyPassword=...
@@ -91,9 +259,19 @@ install over the app on a phone.
 
 Copy the `arm64-v8a` APK to the phone and open it; Android asks to allow installs from that source. On a
 phone under Family Link, the parent approves the install. On the first start the app shows the Lock page once;
-turning the lock on (after granting the accessibility service and the device administrator) is what holds the
-app on, so blocking the other browsers in Family Link is no longer needed, only a help. On the first start the
-app also asks to become the default browser; the menu has the same item.
+turning the lock on (after granting the device administrator, on Android 14 and later usage access, which
+Android 16 calls "App usage data", and the accessibility service last) is what holds the app on, so blocking
+the other browsers in Family Link is no longer needed, only a help. On the first start the app also asks to
+become the default browser; the menu has the same item.
+
+Android 13 and later refuse the accessibility switch to an app installed from a file ("App was denied
+access"), and the link that dialog offers opens a web page in another browser. The way through is the app's
+own page in Settings: App info, the three dots, Allow restricted settings. The Lock page says so and has a
+button to App info.
+
+A newer build opens the same way and installs over the older one. The lock stays as it was: on, with its wait,
+its record, the accessibility service and the device administrator. Something a newer build asks for that the
+older one did not (usage access came with 1.30.0) shows as Not yet on the Lock page until it is given.
 
 ## Upkeep
 

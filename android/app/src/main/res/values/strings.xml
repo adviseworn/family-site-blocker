@@ -33,28 +33,54 @@
     <string name="lock_title">Lock</string>
     <string name="lock_intro">The lock keeps this phone browsing with Family Site Blocker: another browser is turned away, and the app cannot be removed or switched off. Turning the lock off takes a wait you choose, worked through by the phone itself, so nothing skips it.</string>
     <string name="lock_setup_heading">What the phone lets the lock do</string>
-    <string name="lock_setup_note">Both are needed before the lock can hold. Each button opens the right Settings screen; come back here afterwards.</string>
+    <string name="lock_setup_note">All of these are needed before the lock can hold. Each button opens the right Settings screen; come back here afterwards.</string>
     <string name="lock_permission_accessibility">Accessibility: how the lock sees which app is in front and which Settings screen is open. It reads nothing else.</string>
     <string name="lock_permission_accessibility_button">Open accessibility settings</string>
-    <string name="lock_permission_admin">Device administrator: makes uninstalling go through a screen the lock watches.</string>
+    <string name="lock_shortcut_hint">The accessibility shortcut is set to Family Site Blocker, and using it switches this off. On the same Settings screen, turn off Family Site Blocker shortcut.</string>
+    <string name="lock_debugging_hint">USB debugging is on, and through it a computer can stop this app. Switch it off under Developer options in Settings.</string>
+    <string name="lock_users_hint">This phone lets its user be switched, and the lock does not reach another user or a guest. Switch that off in Settings, under System.</string>
+    <string name="lock_display_over_hint">Allowed to display over other apps: %1$s. For as long as that lasts, the lock keeps every app\'s floating windows off the screen. Switch it off in Settings, under Apps, Special app access.</string>
+    <string name="lock_display_over_hint_before_12">Allowed to display over other apps: %1$s. The lock cannot cover every window shown that way. Switch it off in Settings, under Apps, Special app access.</string>
+    <string name="lock_restricted_hint">If Android says the app was denied access: open App info, tap the three dots, then Allow restricted settings, and try again.</string>
+    <string name="lock_app_info_button">Open App info</string>
+    <string name="lock_permission_admin">Device administrator: Android does not uninstall the app while this is on. The app asks for no powers, so Android lists no operations for it.</string>
     <string name="lock_permission_admin_button">Make it a device administrator</string>
+    <string name="lock_permission_usage">%1$s: how the lock knows that Security &amp; privacy has been opened. One tap on that screen switches the lock off, and some phones hide it from the lock.</string>
+    <string name="lock_permission_usage_button">Open %1$s settings</string>
     <string name="lock_permission_done">✓ Done</string>
     <string name="lock_permission_missing">Not yet</string>
     <string name="lock_heading">The lock</string>
-    <string name="lock_status_never_on">Off. Choose the wait for turning it off later, then turn it on.</string>
-    <string name="lock_status_on">On. Turning it off takes %1$s.</string>
-    <string name="lock_status_on_paused">On. Turning it off takes %1$s; the unlocking under way is paused at %2$s.</string>
-    <string name="lock_status_unlocking">Unlocking: %1$s done, about %2$s left. The phone works on it in the background, screen off too.</string>
+    <string name="lock_status_never_on">Off. Choose a wait, then turn the lock on.</string>
+    <!-- The wait on a line of its own, its length after it in bold: "Wait: 1 hour", as on the computer's locked-away password page. -->
+    <string name="lock_wait_line">Wait:</string>
+    <!-- Shown when the record no longer says when the lock was turned on; otherwise "On since Oct 11, 2026, never unlocked." (Words.standing). -->
+    <string name="lock_status_on">The lock is on.</string>
+    <string name="lock_status_on_paused">%1$s Unlocking is paused at %2$s done.</string>
+    <string name="lock_status_unlocking">Unlocking: %1$s done, about %2$s to go. The phone works on it with the screen off too.</string>
     <string name="lock_status_off_until">Off until %1$s, then on again by itself with the same wait.</string>
-    <string name="lock_other_browsers">Other browsers on this phone, turned away while the lock is on: %1$s.</string>
-    <string name="lock_no_other_browsers">No other browser is on this phone.</string>
-    <string name="lock_wait_label">Wait</string>
+    <string name="lock_other_browsers">Other apps that open web links, turned away while the lock is on: %1$s.</string>
+    <string name="lock_no_other_browsers">No other app on this phone opens web links.</string>
+    <string name="lock_wait_label">Wait before it can be turned off</string>
+    <!-- The waits offered, in the order of Words.waits and in the words of the computer's menu (extension/lockbox.html, lockbox-delay); a unit test compares the two. -->
+    <string-array name="lock_waits">
+        <item>1 minute, to try it out</item>
+        <item>10 minutes</item>
+        <item>1 hour</item>
+        <item>4 hours</item>
+        <item>12 hours</item>
+        <item>1 day</item>
+        <item>2 days</item>
+    </string-array>
     <string name="lock_turn_on">Turn the lock on</string>
     <string name="lock_start_unlocking">Start unlocking</string>
-    <string name="lock_resume_unlocking">Resume unlocking</string>
+    <string name="lock_carry_on_unlocking">Carry on unlocking</string>
     <string name="lock_stop_unlocking">Stop unlocking</string>
+    <string name="lock_stop_confirm">Stop unlocking? The work done so far will be lost.</string>
+    <string name="lock_pause_unlocking">Pause unlocking</string>
+    <string name="lock_go_back">Go back</string>
     <string name="lock_lengthen">Lengthen the wait</string>
     <string name="lock_lengthen_to">Lengthen the wait to</string>
+    <string name="lock_lengthen_confirm">Lengthening the wait throws away the unlocking done so far.</string>
     <string name="lock_already_longest">The wait is already the longest offered.</string>
     <string name="lock_lock_again">Lock again now</string>
     <string name="lock_turn_off">Turn the lock off for good</string>
@@ -70,23 +96,28 @@
     </string-array>
     <string name="lock_record_heading">What has happened</string>
     <string name="lock_record_empty">Nothing yet.</string>
-    <string name="lock_limits">Out of the lock\'s reach: safe mode, a factory reset, another user on the phone, and web pages shown inside other apps. The record shows when the phone stopped the lock\'s watch.</string>
+    <string name="lock_limits">Out of the lock\'s reach: safe mode, a factory reset, another user, a Private space or a work profile set up before the lock was on, and web pages shown inside other apps. The record shows when the accessibility service went off.</string>
+    <string name="lock_version">Family Site Blocker %1$s, app build %2$d</string>
 
     <string name="lock_screen_browser_title">This phone browses with Family Site Blocker</string>
     <string name="lock_screen_browser_body">%1$s was turned away. Open the page in Family Site Blocker instead.</string>
     <string name="lock_screen_settings_title">The lock holds this setting</string>
     <string name="lock_screen_settings_body">Removing or switching off Family Site Blocker, or changing what the phone lets it do, waits until the lock is off. The Lock page in the menu says how.</string>
+    <string name="lock_screen_security_title">The lock holds Security &amp; privacy</string>
+    <string name="lock_screen_security_body">One tap on that screen switches the lock off. So it stays closed until the lock is off. The Lock page in the menu says how.</string>
+    <string name="lock_screen_way_round_body">Developer options, Users, and setting up a Private space or a work profile each open a way round the lock. They stay closed until the lock is off. The Lock page in the menu says how.</string>
+    <string name="lock_screen_display_over_body">A browser allowed to display over other apps can float a page over everything else on the screen. So that setting stays closed for other browsers until the lock is off. The Lock page in the menu says how.</string>
     <string name="lock_screen_open">Open Family Site Blocker</string>
     <string name="lock_screen_home">Home</string>
     <string name="lock_screen_footnote">To turn the lock off: the menu, Lock, Start unlocking. It takes the wait chosen when it was turned on.</string>
 
     <string name="lock_accessibility_summary">Keeps this phone browsing with Family Site Blocker.</string>
-    <string name="lock_accessibility_description">Family Site Blocker uses this to see which app has come to the front, so that another browser can be turned away while the lock is on, and which Settings screen is open, so that the lock cannot be removed without its wait. It reads nothing else: the only words it looks for are its own name, on Settings screens.</string>
-    <string name="lock_admin_explanation">As a device administrator, Family Site Blocker cannot be uninstalled until this is deactivated, which the lock watches. It changes nothing else on the phone.</string>
-    <string name="lock_admin_disable_warning">Family Site Blocker\'s lock watches this screen. Deactivating is possible only while the lock is off; the Lock page in the app says how.</string>
+    <string name="lock_accessibility_description">Family Site Blocker uses this to see which app has come to the front, so that another browser can be turned away while the lock is on, and which Settings screen is open or tapped, so that the lock cannot be removed without its wait. While the lock is on it also closes Security &amp; privacy, where one tap switches the lock off, and Developer options, Users, and the setting up of a Private space or a work profile, which open ways round it. It reads nothing else: the only words it looks for are its own name and those screens\' titles, in Settings.</string>
+    <string name="lock_admin_description">Family Site Blocker asks for no powers over this phone, so Android lists no operations for it. While this is on, Android does not uninstall the app.</string>
+    <string name="lock_admin_disable_warning">Without this, Android can uninstall Family Site Blocker, and its lock cannot hold.</string>
     <string name="lock_notification_channel">Unlocking</string>
     <string name="lock_notification_title">Family Site Blocker is unlocking</string>
-    <string name="lock_notification_text">%1$s done, about %2$s left</string>
+    <string name="lock_notification_text">%1$s done, about %2$s to go</string>
 
     <!-- Mozilla's tab counter button takes its color from this name. -->
     <color name="mozac_ui_tabcounter_default_tint">@color/fsb_toolbar_text</color>
