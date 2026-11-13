@@ -37,7 +37,7 @@ class TabsTrayFragment : Fragment(), UserInteractionHandler {
         binding.toolbar.tintIcons()
         binding.toolbar.setOnMenuItemClickListener { item ->
             if (item.itemId == R.id.newTab) {
-                components.tabsUseCases.addTab("about:blank", selectTab = true)
+                components.tabsUseCases.addTab(AddressBar.FRESH_TAB, selectTab = true)
                 closeTabsTray(focusUrlBar = true)
             }
             true

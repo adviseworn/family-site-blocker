@@ -24,6 +24,8 @@
 
     <!-- Messages -->
     <string name="add_on_still_starting">Family Site Blocker is still starting. Try again in a moment.</string>
+    <string name="rules_starting">Family Site Blocker is starting. Pages open once its block list is in force.</string>
+    <string name="rules_not_started">The block list has not started, so pages stay closed. Restarting the phone can help.</string>
     <string name="default_browser_hint">To make it the default browser: Settings, Apps, Default apps, Browser app.</string>
     <string name="default_browser_open_settings">Open settings</string>
 

@@ -40,6 +40,11 @@ class BrowserApplication : Application() {
         RustHttpConfig.setClient(lazy { components.client })
 
         components.engine.warmUp()
+        // An empty window from the start, which the first tab then takes. Without a window Gecko does not start
+        // the add-on's background page on a plain start of the app (it waits for "extensions-late-startup",
+        // which only a window sends), and the add-on's word that its rules have started comes from that page:
+        // the tabs below would wait for it for ever.
+        components.engine.speculativeCreateSession()
         restoreTabs()
         components.downloadsUseCases.restoreDownloads()
         GlobalPlacesDependencyProvider.initialize(components.historyStorage)
@@ -81,12 +86,19 @@ class BrowserApplication : Application() {
         return components.store.state.selectedTabId.orEmpty()
     }
 
-    private fun restoreTabs() = components.applicationScope.launch(Dispatchers.Main) {
-        components.tabsUseCases.restore(components.sessionStorage)
-        components.sessionStorage.autoSave(components.store)
-            .periodicallyInForeground(interval = 30, unit = TimeUnit.SECONDS)
-            .whenGoingToBackground()
-            .whenSessionsChange()
+    /**
+     * The tabs of the last run come back once the add-on's rules have started ([AddOnRules]): the tab in front
+     * opens its page as it comes back, and no web page opens before that. Tabs are saved only from then on, so
+     * that a tab made in the meantime does not take the place of the ones still to come back.
+     */
+    private fun restoreTabs() = components.addOnRules.whenStarted {
+        components.applicationScope.launch(Dispatchers.Main) {
+            components.tabsUseCases.restore(components.sessionStorage)
+            components.sessionStorage.autoSave(components.store)
+                .periodicallyInForeground(interval = 30, unit = TimeUnit.SECONDS)
+                .whenGoingToBackground()
+                .whenSessionsChange()
+        }
     }
 
     override fun onTrimMemory(level: Int) {

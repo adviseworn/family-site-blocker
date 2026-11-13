@@ -2,12 +2,18 @@
 //
 // Only the Android app carries this file: its build adds it to the add-on as a second background script,
 // with the two permissions GeckoView wants for it (android/app/build.gradle, copyExtension). It tells the
-// app what the bedtime is (the setting kept under `bedtime`, lib/bedtime.js), so that the app's lock can do
+// app two things.
+//
+// What the bedtime is (the setting kept under `bedtime`, lib/bedtime.js), so that the app's lock can do
 // the phone's part of it: turn the other apps away while it lasts, and hold the clock it goes by
 // (lock/BedtimeWatch.kt). The app keeps what it is told and works out the hours for itself, so nothing here
 // has to be awake when a bedtime begins.
 //
-// The app is told when the add-on starts and whenever the setting changes, and it answers true once it has
+// And whether the add-on's rules have started: the lists of sites, safe search and the rest (rulesStarted
+// has what can go wrong). The app opens no web page before it has heard that they have, and starts the
+// add-on again when it hears that they have not (AddOnRules.kt).
+//
+// The app is told when the add-on starts and whenever the bedtime changes, and it answers true once it has
 // taken what it was told. It starts listening a moment after the add-on starts; GeckoView holds a message
 // sent before that and hands it over then. A telling the app has not answered within ANSWER_MS is given up
 // and tried again: a few times at the start, and then with every alarm (the heartbeat's, once a minute),
@@ -67,19 +73,73 @@ export function tell() {
   return turn;
 }
 
+/**
+ * The rule sets the add-on ships switched on (manifest.json, declarative_net_request). The add-on never
+ * switches one off, so its rules are in force only with every one of them.
+ */
+export const RULE_SETS = (api.runtime.getManifest().declarative_net_request?.rule_resources ?? [])
+  .filter((set) => set.enabled)
+  .map((set) => set.id);
+
+/**
+ * Whether the add-on's rules are in force: whether Firefox's rule engine has started for the add-on, with every
+ * rule set it ships. Firefox answers the question asked here only once it has read every list, with the names
+ * of the ones its matcher holds, and with an error when the engine did not start for this copy of the add-on.
+ * That happens when an update of the app brings a new version of the add-on: Firefox starts the version it had,
+ * swaps in the new one while the old one is still reading its lists, and the new one then has no rules at all
+ * until it is started once more (Firefox 159, ExtensionDNRStore.sys.mjs: "Unexpected queueTask call on closed
+ * queue").
+ */
+export async function rulesStarted() {
+  try {
+    const inForce = await api.declarativeNetRequest.getEnabledRulesets();
+    return RULE_SETS.length > 0 && RULE_SETS.every((id) => inForce.includes(id));
+  } catch {
+    return false;
+  }
+}
+
+let rulesTold = null; // what the app last took about the rules
+let rulesTurn = Promise.resolve(); // one telling at a time, apart from the bedtime's: Firefox may be long in answering
+
+/** Tells the app whether the rules have started. Rules that have not are told every time: the app mends that. */
+async function tellRulesNow() {
+  try {
+    const started = await rulesStarted();
+    if (started && rulesTold === true) return true;
+    if ((await send({ type: 'rules', started })) !== true) return false;
+    rulesTold = started;
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Tells the app about the rules, after any such telling under way. */
+export function tellRules() {
+  rulesTurn = rulesTurn.then(tellRulesNow, tellRulesNow);
+  return rulesTurn;
+}
+
 api.storage.onChanged.addListener((changes, area) => {
   if (area === 'local' && changes[BEDTIME]) tell();
 });
 api.alarms.onAlarm.addListener(() => {
   tell();
+  tellRules();
 });
 
-/** The first telling, tried again while the app is still starting. */
-export const started = (async () => {
-  if (await tell()) return true;
+/** A first telling, tried again while the app is still starting. */
+async function first(telling) {
+  if (await telling()) return true;
   for (const wait of TRIES_MS) {
     await new Promise((resolve) => setTimeout(resolve, wait));
-    if (await tell()) return true;
+    if (await telling()) return true;
   }
   return false;
-})();
+}
+
+/** The first telling of the bedtime. */
+export const started = first(tell);
+/** The first telling of the rules. */
+export const startedRules = first(tellRules);

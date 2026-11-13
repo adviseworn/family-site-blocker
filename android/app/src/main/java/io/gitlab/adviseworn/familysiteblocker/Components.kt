@@ -2,12 +2,14 @@ package io.gitlab.adviseworn.familysiteblocker
 
 import android.content.Context
 import android.content.SharedPreferences
+import android.os.Handler
+import android.os.Looper
 import androidx.core.app.NotificationManagerCompat
 import io.gitlab.adviseworn.familysiteblocker.downloads.DownloadService
+import java.util.WeakHashMap
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
-import mozilla.components.browser.domains.autocomplete.ShippedDomainsProvider
 import mozilla.components.browser.engine.gecko.GeckoEngine
 import mozilla.components.browser.engine.gecko.fetch.GeckoViewFetchClient
 import mozilla.components.browser.errorpages.ErrorPages
@@ -15,6 +17,7 @@ import mozilla.components.browser.icons.BrowserIcons
 import mozilla.components.browser.session.storage.SessionStorage
 import mozilla.components.browser.state.engine.EngineMiddleware
 import mozilla.components.browser.state.engine.middleware.SessionPrioritizationMiddleware
+import mozilla.components.browser.state.state.BrowserState
 import mozilla.components.browser.state.store.BrowserStore
 import mozilla.components.browser.storage.sync.PlacesHistoryStorage
 import mozilla.components.browser.thumbnails.ThumbnailsMiddleware
@@ -37,8 +40,6 @@ import mozilla.components.feature.intent.processing.TabIntentProcessor
 import mozilla.components.feature.prompts.PromptMiddleware
 import mozilla.components.feature.prompts.file.FileUploadsDirCleaner
 import mozilla.components.feature.search.SearchUseCases
-import mozilla.components.feature.search.middleware.SearchMiddleware
-import mozilla.components.feature.search.region.RegionMiddleware
 import mozilla.components.feature.session.HistoryDelegate
 import mozilla.components.feature.session.SessionUseCases
 import mozilla.components.feature.session.middleware.LastAccessMiddleware
@@ -46,7 +47,6 @@ import mozilla.components.feature.session.middleware.undo.UndoMiddleware
 import mozilla.components.feature.sitepermissions.OnDiskSitePermissionsStorage
 import mozilla.components.feature.tabs.TabsUseCases
 import mozilla.components.feature.webcompat.WebCompatFeature
-import mozilla.components.service.location.LocationService
 import mozilla.components.support.base.android.NotificationsDelegate
 import mozilla.components.support.base.log.logger.Logger
 import mozilla.components.support.utils.DefaultDateTimeProvider
@@ -94,15 +94,41 @@ class Components(private val applicationContext: Context) {
         }
     }
 
+    /**
+     * Whether the add-on's rules are in force, and the mend when they have not started ([AddOnRules]): Gecko
+     * installs the add-on again, which starts it once more, and the app then takes it up as at its own start.
+     */
+    val addOnRules = AddOnRules(
+        installAgain = { over ->
+            logger.warn("The add-on's rules have not started: installing the add-on again")
+            runtime.webExtensionController.installBuiltIn(FamilySiteBlocker.EXTENSION_URL).accept(
+                { installAddOn(engine, over) },
+                { throwable ->
+                    logger.error("Could not install the add-on again", throwable)
+                    installAddOn(engine, over)
+                },
+            )
+        },
+        later = { milliseconds, run -> Handler(Looper.getMainLooper()).postDelayed(run, milliseconds) },
+    )
+
+    /** The pages that wait for the add-on's rules, each with the tab that is to open it: the last one asked for there. */
+    private val waitingPages = WeakHashMap<EngineSession, String>()
+
     /** What the app has to say about a page: before Gecko goes to it, and when it did not open. */
     private val pages = object : RequestInterceptor {
         /** Asked about the addresses the app itself sends a tab to as well: a typed one is one of those. */
         override fun interceptsAppInitiatedRequests() = true
 
         /**
-         * A page of an add-on opens only if [AddOnPages] lets it, which keeps uBlock Origin's settings shut.
-         * A frame inside a page is left to Gecko: no web page can frame an add-on's settings, and uBlock
-         * Origin puts a blank of its own into a frame it has emptied.
+         * No web page opens before the add-on's rules have started. A page the app itself was asked for (the
+         * address bar, a search, a link or text from another app) waits and opens then. What a page on the
+         * screen asks for meanwhile is dropped: only the add-ons' own pages can be there, and a tap can be
+         * tapped again.
+         *
+         * And a page of an add-on opens only if [AddOnPages] lets it, which keeps uBlock Origin's settings
+         * shut. A frame inside a page is left to Gecko there: no web page can frame an add-on's settings, and
+         * uBlock Origin puts a blank of its own into a frame it has emptied.
          */
         override fun onLoadRequest(
             engineSession: EngineSession,
@@ -113,13 +139,21 @@ class Components(private val applicationContext: Context) {
             isRedirect: Boolean,
             isDirectNavigation: Boolean,
             isSubframeRequest: Boolean,
-        ): RequestInterceptor.InterceptionResponse? =
-            if (isSubframeRequest || addOnPages.opens(uri)) {
+        ): RequestInterceptor.InterceptionResponse? {
+            if (!addOnRules.started && AddOnRules.holds(uri)) {
+                if (isDirectNavigation && !isSubframeRequest) {
+                    if (waitingPages.isEmpty()) addOnRules.whenStarted(::openWaitingPages)
+                    waitingPages[engineSession] = uri
+                }
+                return RequestInterceptor.InterceptionResponse.Deny
+            }
+            return if (isSubframeRequest || addOnPages.opens(uri)) {
                 null
             } else {
                 logger.info("An add-on's page that does not open here was asked for")
                 RequestInterceptor.InterceptionResponse.Deny
             }
+        }
 
         /**
          * A page that does not open (no network, no such site, a certificate that is not right) says so, on
@@ -129,22 +163,19 @@ class Components(private val applicationContext: Context) {
             RequestInterceptor.ErrorResponse(ErrorPages.createUrlEncodedErrorPage(applicationContext, errorType, uri))
     }
 
+    private fun openWaitingPages() {
+        val open = waitingPages.toMap()
+        waitingPages.clear()
+        open.forEach { (session, address) -> session.loadUrl(address) }
+    }
+
     /**
      * Gecko with Family Site Blocker built in, and uBlock Origin beside it for the advertisements. Both come
      * from the APK's assets and have no off switch.
      */
     val engine: Engine by lazy {
         GeckoEngine(applicationContext, engineSettings, runtime).also { engine ->
-            engine.installBuiltInWebExtension(
-                id = FamilySiteBlocker.EXTENSION_ID,
-                url = FamilySiteBlocker.EXTENSION_URL,
-                onSuccess = { extension ->
-                    FamilySiteBlocker.onInstalled(extension)
-                    addOnPages.reported()
-                    AddOnBridge.listen(applicationContext, extension)
-                },
-                onError = { throwable -> logger.error("Could not install the Family Site Blocker add-on", throwable) },
-            )
+            installAddOn(engine)
             engine.installBuiltInWebExtension(
                 id = UBlockOrigin.EXTENSION_ID,
                 url = UBlockOrigin.EXTENSION_URL,
@@ -156,6 +187,28 @@ class Components(private val applicationContext: Context) {
             )
             WebCompatFeature.install(engine)
         }
+    }
+
+    /**
+     * Has Gecko install the add-on if it is not there in this version, and takes it up: where its pages are,
+     * and its line to the app. Gecko starts an add-on it already has by itself. From then on the add-on is
+     * waited for to say that its rules have started.
+     */
+    private fun installAddOn(engine: Engine, over: () -> Unit = addOnRules::listening) {
+        engine.installBuiltInWebExtension(
+            id = FamilySiteBlocker.EXTENSION_ID,
+            url = FamilySiteBlocker.EXTENSION_URL,
+            onSuccess = { extension ->
+                FamilySiteBlocker.onInstalled(extension)
+                addOnPages.reported()
+                AddOnBridge.listen(applicationContext, extension, addOnRules)
+                over()
+            },
+            onError = { throwable ->
+                logger.error("Could not install the Family Site Blocker add-on", throwable)
+                over()
+            },
+        )
     }
 
     val client: Client by lazy { GeckoViewFetchClient(applicationContext, runtime) }
@@ -183,22 +236,27 @@ class Components(private val applicationContext: Context) {
                 ),
                 ThumbnailsMiddleware(thumbnailStorage),
                 UndoMiddleware(),
-                RegionMiddleware(applicationContext, LocationService.default(), applicationScope = applicationScope),
-                SearchMiddleware(applicationContext),
                 LastAccessMiddleware(),
                 PromptMiddleware(),
                 SessionPrioritizationMiddleware(),
                 AddOnPagesWatch(addOnPages),
             ) + EngineMiddleware.create(engine),
+            // The one search engine is there from the start (Search). Mozilla's two parts that read a list of
+            // engines later, RegionMiddleware and SearchMiddleware, are left out of the list above: they would
+            // put their own list in its place.
+            initialState = BrowserState(search = Search.state()),
         )
     }
 
     val sessionUseCases: SessionUseCases by lazy { SessionUseCases(store) }
     val tabsUseCases: TabsUseCases by lazy { TabsUseCases(store) }
     val searchUseCases: SearchUseCases by lazy { SearchUseCases(store, tabsUseCases, sessionUseCases) }
+    /** What the address bar does with words that are no address. Go on an empty bar searches for nothing. */
     val defaultSearchUseCase: (String) -> Unit by lazy {
         { searchTerms: String ->
-            searchUseCases.defaultSearch.invoke(searchTerms = searchTerms, searchEngine = null, parentSessionId = null)
+            if (searchTerms.isNotBlank()) {
+                searchUseCases.defaultSearch.invoke(searchTerms = searchTerms, searchEngine = null, parentSessionId = null)
+            }
         }
     }
     val downloadsUseCases: DownloadsUseCases by lazy {
@@ -207,9 +265,6 @@ class Components(private val applicationContext: Context) {
     val contextMenuUseCases: ContextMenuUseCases by lazy { ContextMenuUseCases(store) }
     val tabIntentProcessor: TabIntentProcessor by lazy {
         TabIntentProcessor(tabsUseCases, searchUseCases.newTabSearch, applicationScope = applicationScope)
-    }
-    val shippedDomainsProvider: ShippedDomainsProvider by lazy {
-        ShippedDomainsProvider(1).also { it.initialize(applicationContext) }
     }
     val fileSizeFormatter: FileSizeFormatter by lazy { DefaultFileSizeFormatter(applicationContext) }
     val downloadEstimator: DownloadEstimator by lazy { DownloadEstimator(dateTimeProvider = DefaultDateTimeProvider()) }

@@ -24,7 +24,75 @@ or anyone else's help.
 
 Nothing in the app can switch the add-on off: no about:config, no add-on installs from web pages, no remote
 debugging, no private tabs (where add-ons do not run), no add-on manager. The menu's Settings, Every try and
-Is it working? items open the add-on's own pages. uBlock Origin has no off switch either, and no settings.
+Is it working? items open the add-on's own pages: Is it working? is the part of the settings page under that
+heading. `FamilySiteBlockerTest` holds the names the app opens against the add-on's files. uBlock Origin has no
+off switch either, and no settings.
+
+## No page before the block list
+
+Gecko starts the add-on by itself and gives it its rules (the lists of sites, safe search, the web proxies) a
+moment later, once it has read them; a page asked for in that moment is checked against nothing. And after an
+update of the app that brings a new version of the add-on the rules may not come at all. An update of the app
+throws Gecko's quick copy of the rules away, so Gecko 159 starts the version it had with a long read of every
+list, swaps in the new one while that read still lasts, and the new one then runs without a single rule until
+it is started once more: `ExtensionDNRStore.sys.mjs` hands it the old one's queue, which is closed ("Unexpected
+queueTask call on closed queue" in the log). Nothing on the screen says so and a listed site opens. Every
+update with a new add-on version could end that way, from 1.29.0 to 1.30.0 build 26, and it lasted until the
+app's process was next started, which with the lock on can be days.
+
+So the add-on says for itself whether its rules have started, and the app goes by that alone (`AddOnRules.kt`):
+
+- `app/src/main/extension/android-bridge.js` asks Firefox which of the add-on's rule sets are in force. Firefox
+  answers only once every list is read, and with an error when the rule engine did not start for this copy of
+  the add-on. The script says yes only when the answer names every rule set the add-on ships switched on
+  (`manifest.json`), and tells the app yes or no each time the add-on's background page starts.
+- Until the app has heard yes, no web page opens. A page it is asked for (the address bar, a search, a link or
+  text from another app) waits and opens then, the tabs of the last run come back then, and a line under the
+  address bar says that Family Site Blocker is starting. An empty tab and the add-on's own pages open at once.
+  The check sits in the browser's request interceptor (`Components`), before the one for add-on pages
+  (see "Ad blocking").
+- On a no the app has Gecko install the add-on again, which starts it once more: after 3 seconds, and for as
+  long as the answer stays no after longer and longer waits, since the old one's reading may not be over yet.
+  From the fifth no in a row the line says that the block list has not started.
+- Two minutes without a word from the add-on, counted from the moment Gecko has it installed, are taken as a
+  no, and the line says so at once.
+
+The app opens an empty window as soon as it starts, which the first tab then takes (`BrowserApplication`). On a
+plain start Gecko starts an add-on's background page only once there is a window, and the add-on's word comes
+from that page.
+
+Not covered: what a page on the screen asks for while the app waits is dropped, not kept for later. And a
+page that is open stays open if the rules were to stop in the middle of a run, which nothing is known to cause.
+
+## Searching
+
+A word typed into the address bar that is no address is searched with Google. So are text marked on a page
+("Search" over the selection) and text shared from another app. The app knows this one engine and no other
+(`Search.kt`), and it is in the browser's state from the start. Its address asks for Google's strict filter
+itself, `safe=active`: the add-on's safe search (`../extension/lib/safesearch.js`) lets such an address through
+as it is and adds the setting to any Google search without it. `SearchTest` holds the app's address and the
+add-on's rules together.
+
+Mozilla's own list of search engines is left out. Its pick changes with the country, to engines the add-on's
+safe search does not know, and its addresses carry Firefox's partner codes, which are not this app's to send.
+
+What someone types into the address bar is theirs until they press Go or leave the bar. Mozilla's toolbar
+parts, wired together as they come, put the front tab's search words into the bar at every change to that tab,
+which emptied the bar under the person's fingers whenever the page behind was loading or changing its title.
+`AddressBar.kt` stands between the two and holds such words back until the typing is over. The bar also stays
+open when the page in front moves to another address by itself; it closes when another tab comes to the front.
+Go on an empty bar closes the bar and searches for nothing.
+
+The bar completes nothing by itself. Mozilla's part for that turns the start of a site's name into its address,
+from the history and from a list of sites that comes with it, and so turned a plain word into a site: "example"
+opened example.com on a phone whose history held it. The history holds more than the sites someone chose to
+visit: a visit the add-on blocked is in it, and so is a page that did not open. A word alone is always searched.
+
+`AddressBar.kt` sets three more things right. The keyboard closes when the bar does: Mozilla's field no longer
+closes it, and it stayed over the page after Go, where the first Back only closed it. Back with the bar open
+closes the bar and its keyboard and leaves the page where it is; from Android 16 on that takes two Backs, one
+for the keyboard and one for the bar. And a fresh tab's bar opens empty, on neither `about:blank` nor the
+address of the tab that was in front before.
 
 ## The lock
 
@@ -243,7 +311,8 @@ to keep: the hours, the day's wait and the reason for loosening it, and its reco
   `app/src/main/extension/android-bridge.js`, which `copyExtension` adds with the two permissions GeckoView wants
   for it (`nativeMessaging`, `geckoViewAddons`). It sends the setting when the add-on starts and whenever it
   changes; `AddOnBridge` hears it and `lock/BedtimeSetting` keeps it, so the app knows the hours without the
-  add-on being awake (`lock/Bedtime` works them out, a change that waits its day included).
+  add-on being awake (`lock/Bedtime` works them out, a change that waits its day included). The same script
+  tells the app whether the add-on's rules have started (see "No page before the block list").
 - **Other apps are turned away**, once that is switched on from the Lock page ("Turn other apps away at
   bedtime"). From the bedtime's start to its end the watch covers every app that has an icon with the lock
   screen ("It's bedtime"), except this one, the home screen, the phone app, the clock, Settings, the keyboard and
@@ -368,6 +437,10 @@ for a change to the app that goes to a phone without a new add-on version, so th
 before it. The Lock page shows both at its foot. The first build to reach a phone (1.29.0, November 2026) had
 versionCode `1029000`, below every number made this way.
 
+The phone files of 1.30.0 were handed over under names that count from further back, builds 21 to 26, while
+`fsbAppBuild` said 2 to 7; where this file names a build of 1.30.0, it is by that name. From 1.31.0 on
+`fsbAppBuild` is the number in the file's name, starting at 27.
+
 ## Building
 
 Needs a JDK (17 or newer), the Android SDK with platform 37.2 and build-tools 37.0.0, and `ANDROID_HOME`
@@ -439,6 +512,23 @@ the app from every page on Android 16 and 17, and an Android 15 test phone showe
 activity now takes Back through an `OnBackPressedCallback` (`BrowserActivity`) and hands it to the page shown.
 So after a raise, walk the app on a test phone with the newest Android: Back in the browser, on the tabs grid
 and on the Lock page.
+
+A new `android-components` can change what the browser's parts do by themselves. From 1.29.0 to 1.30.0 build
+26 a word typed into the address bar was searched nowhere and the page stayed as it was: Mozilla's code had
+stopped reading its list of search engines when the browser's state is made and read it only when the app
+asked, which the app never did. In the same builds the address bar emptied itself while the page behind was
+busy, and the keyboard stayed up after Go (see "Searching"). Nothing failed in a build or a test. So after a
+bump, on a test phone: type a plain word into the address bar and press Go, type into the bar while a page that
+keeps changing is in front, see that the keyboard goes after Go, press Back with the bar open, and open a new
+tab from the menu.
+
+How Gecko starts a built-in add-on, swaps in a new version of it and reads its rules is Mozilla's to change as
+well, and no build or unit test sees it (see "No page before the block list"). So after a bump, after a change
+to how the app installs the add-on, and before a file with a new add-on version goes to a phone, on a test
+phone: install the file over one that carries the older add-on and ask for a listed site at once, which has to
+end at "This site is blocked" (`adb logcat` has the app's lines under `AddOnBridge` and `Components`, and
+Gecko's "closed queue" when the swap went wrong). Then start the app afresh and see the tabs come back, and
+open Settings, Every try and Is it working? from the menu.
 
 ## Not in the first version
 

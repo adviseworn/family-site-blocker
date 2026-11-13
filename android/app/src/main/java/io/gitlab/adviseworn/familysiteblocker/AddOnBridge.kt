@@ -11,8 +11,9 @@ import org.json.JSONObject
 /**
  * The app's end of the add-on's line. The add-on in this app carries one more background script than the
  * add-on elsewhere (app/src/main/extension/android-bridge.js, added by the copyExtension task), which sends
- * the app a message when it starts and whenever its bedtime changes. The app keeps what it hears
- * ([BedtimeSetting]) for the lock, which does the phone's part of the bedtime.
+ * the app a message when it starts, whenever its bedtime changes, and for as long as its rules have not
+ * started. The app keeps the bedtime it hears ([BedtimeSetting]) for the lock, which does the phone's part of
+ * it, and goes by what it hears of the rules before it opens a web page ([AddOnRules]).
  *
  * Only the add-on's own background page can send here: Gecko takes messages for the app from nowhere else.
  */
@@ -23,12 +24,19 @@ object AddOnBridge {
     private val logger = Logger("AddOnBridge")
 
     /** Starts listening to the add-on, once Gecko has installed it. */
-    fun listen(context: Context, extension: WebExtension) {
+    fun listen(context: Context, extension: WebExtension, rules: AddOnRules) {
         val setting = BedtimeSetting(context)
         extension.registerBackgroundMessageHandler(
             APP,
             object : MessageHandler {
-                override fun onMessage(message: Any, source: EngineSession?): Any = answer(message) { bedtime ->
+                override fun onMessage(message: Any, source: EngineSession?): Any = answer(
+                    message,
+                    hearRules = { started ->
+                        rules.heard(started).also { taken ->
+                            logger.info("The add-on's rules have ${if (started) "started" else "not started"}${if (taken) "" else " (not taken: the add-on is being installed again)"}")
+                        }
+                    },
+                ) { bedtime ->
                     if (setting.hear(bedtime)) logger.info("The add-on's bedtime is now ${setting.bedtime}")
                 }
             },
@@ -36,19 +44,25 @@ object AddOnBridge {
     }
 
     /**
-     * Takes one message, { type: "bedtime", bedtime: "<the setting as JSON text>" }, and answers true so that
-     * the add-on knows it need not say it again. A message that isn't one of these is answered false and
-     * changes nothing.
+     * Takes one message and answers true so that the add-on knows it need not say it again:
+     *  - { type: "bedtime", bedtime: "<the setting as JSON text>" }
+     *  - { type: "rules", started: true or false }, answered with what [hearRules] says: whether it was taken.
+     * A message that isn't one of these is answered false and changes nothing.
      *
      * The answer is a plain true or false on purpose. GeckoView hands the add-on only simple values (a number,
      * a string, true or false) and its own bundles: answered with a JSONObject it sends nothing back, the
      * add-on waits for ever, and a background page that waits is never put to sleep.
      */
-    fun answer(message: Any, hearBedtime: (String) -> Unit): Boolean {
-        val json = message as? JSONObject
-        val bedtime = json?.opt("bedtime") as? String
-        if (json?.optString("type") != "bedtime" || bedtime == null) return false
-        hearBedtime(bedtime)
-        return true
+    fun answer(message: Any, hearRules: (Boolean) -> Boolean = { false }, hearBedtime: (String) -> Unit): Boolean {
+        val json = message as? JSONObject ?: return false
+        return when (json.optString("type")) {
+            "bedtime" -> {
+                val bedtime = json.opt("bedtime") as? String ?: return false
+                hearBedtime(bedtime)
+                true
+            }
+            "rules" -> hearRules(json.opt("started") as? Boolean ?: return false)
+            else -> false
+        }
     }
 }

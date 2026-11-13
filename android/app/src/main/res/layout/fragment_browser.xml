@@ -29,6 +29,20 @@
             app:findInPageQueryHintTextColor="@color/fsb_toolbar_hint"
             app:findInPageResultCountTextColor="@color/fsb_toolbar_text"
             app:findInPageButtonsTint="@color/fsb_toolbar_text" />
+
+        <!-- There until the add-on's rules have started: web pages wait for that (AddOnRules). -->
+        <TextView
+            android:id="@+id/rulesStarting"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:background="@color/fsb_toolbar"
+            android:paddingHorizontal="16dp"
+            android:paddingTop="6dp"
+            android:paddingBottom="12dp"
+            android:text="@string/rules_starting"
+            android:textColor="@color/fsb_toolbar_text"
+            android:textSize="14sp"
+            android:visibility="gone" />
     </com.google.android.material.appbar.AppBarLayout>
 
     <mozilla.components.ui.widgets.VerticalSwipeRefreshLayout

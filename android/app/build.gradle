@@ -197,7 +197,6 @@ dependencies {
     implementation libs.google.material
     implementation libs.kotlinx.coroutines.android
 
-    implementation libs.mozilla.browser.domains
     implementation libs.mozilla.browser.engine.gecko
     implementation libs.mozilla.browser.errorpages
     implementation libs.mozilla.browser.icons
@@ -228,7 +227,6 @@ dependencies {
     implementation libs.mozilla.feature.webcompat
     implementation libs.mozilla.lib.publicsuffixlist
     implementation libs.mozilla.lib.state
-    implementation libs.mozilla.service.location
     implementation libs.mozilla.support.appservices
     implementation libs.mozilla.support.base
     implementation libs.mozilla.support.ktx
