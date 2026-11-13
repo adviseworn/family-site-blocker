@@ -107,12 +107,34 @@
     <string name="lock_screen_security_body">One tap on that screen switches the lock off. So it stays closed until the lock is off. The Lock page in the menu says how.</string>
     <string name="lock_screen_way_round_body">Developer options, Users, and setting up a Private space or a work profile each open a way round the lock. They stay closed until the lock is off. The Lock page in the menu says how.</string>
     <string name="lock_screen_display_over_body">A browser allowed to display over other apps can float a page over everything else on the screen. So that setting stays closed for other browsers until the lock is off. The Lock page in the menu says how.</string>
+    <string name="lock_screen_bedtime_title">It’s bedtime</string>
+    <string name="lock_screen_bedtime_body">%1$s was turned away. Until %2$s this phone is for calls and the clock.</string>
+    <string name="lock_screen_bedtime_body_over">%1$s was turned away. Until bedtime is over this phone is for calls and the clock.</string>
+    <string name="lock_screen_clock_title">The lock holds the phone’s clock</string>
+    <string name="lock_screen_clock_body">A bedtime is set, and it goes by this phone’s clock. Changing the date, the time or the time zone waits until the lock is off. The Lock page in the menu says how.</string>
     <string name="lock_screen_open">Open Family Site Blocker</string>
     <string name="lock_screen_home">Home</string>
     <string name="lock_screen_footnote">To turn the lock off: the menu, Lock, Start unlocking. It takes the wait chosen when it was turned on.</string>
 
+    <!-- Bedtime on the Lock page -->
+    <string name="bedtime_heading">Bedtime</string>
+    <string name="bedtime_none">No bedtime is set. Set one in the menu’s Settings, under Bedtime.</string>
+    <string name="bedtime_sites">Bedtime is %1$s to %2$s: every site is blocked then.</string>
+    <string name="bedtime_now">It’s bedtime until %1$s.</string>
+    <string name="bedtime_apps_off">Other apps stay open.</string>
+    <string name="bedtime_apps_on">While the lock is on, every other app is turned away then too. Left open: %1$s.</string>
+    <string name="bedtime_apps_on_none_named">While the lock is on, every other app is turned away then too, except calls and the clock.</string>
+    <string name="bedtime_apps_held">The lock holds this: it changes only while the lock is off.</string>
+    <string name="bedtime_turn_apps_on">Turn other apps away at bedtime</string>
+    <string name="bedtime_turn_apps_off">Leave other apps open at bedtime</string>
+    <string name="bedtime_turn_apps_on_confirm">At bedtime, while the lock is on, every app is turned away except this one, calls, the clock and Settings. That takes in maps, messages and the camera. Once the lock is on, leaving other apps open again takes the lock’s wait.</string>
+    <string name="bedtime_turn_apps_on_short">Turn them away</string>
+    <string name="bedtime_notification_channel">Bedtime</string>
+    <string name="bedtime_notification_title">Bedtime at %1$s</string>
+    <string name="bedtime_notification_text">Other apps close then, and every site is blocked. Finish what you are writing.</string>
+
     <string name="lock_accessibility_summary">Keeps this phone browsing with Family Site Blocker.</string>
-    <string name="lock_accessibility_description">Family Site Blocker uses this to see which app has come to the front, so that another browser can be turned away while the lock is on, and which Settings screen is open or tapped, so that the lock cannot be removed without its wait. While the lock is on it also closes Security &amp; privacy, where one tap switches the lock off, and Developer options, Users, and the setting up of a Private space or a work profile, which open ways round it. It reads nothing else: the only words it looks for are its own name and those screens\' titles, in Settings.</string>
+    <string name="lock_accessibility_description">Family Site Blocker uses this to see which app has come to the front, so that another browser can be turned away while the lock is on, and other apps at bedtime if that is switched on, and which Settings screen is open or tapped, so that the lock cannot be removed without its wait, nor the phone’s clock changed while a bedtime is set. While the lock is on it also closes Security &amp; privacy, where one tap switches the lock off, and Developer options, Users, and the setting up of a Private space or a work profile, which open ways round it. It reads nothing else: the only words it looks for are its own name, those screens\' titles and those of Date &amp; time, in Settings.</string>
     <string name="lock_admin_description">Family Site Blocker asks for no powers over this phone, so Android lists no operations for it. While this is on, Android does not uninstall the app.</string>
     <string name="lock_admin_disable_warning">Without this, Android can uninstall Family Site Blocker, and its lock cannot hold.</string>
     <string name="lock_notification_channel">Unlocking</string>

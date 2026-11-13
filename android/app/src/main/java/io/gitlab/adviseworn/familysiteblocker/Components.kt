@@ -106,7 +106,10 @@ class Components(private val applicationContext: Context) {
             engine.installBuiltInWebExtension(
                 id = FamilySiteBlocker.EXTENSION_ID,
                 url = FamilySiteBlocker.EXTENSION_URL,
-                onSuccess = { extension -> FamilySiteBlocker.onInstalled(extension) },
+                onSuccess = { extension ->
+                    FamilySiteBlocker.onInstalled(extension)
+                    AddOnBridge.listen(applicationContext, extension)
+                },
                 onError = { throwable -> logger.error("Could not install the Family Site Blocker add-on", throwable) },
             )
             WebCompatFeature.install(engine)

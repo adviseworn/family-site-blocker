@@ -12,8 +12,9 @@ import io.gitlab.adviseworn.familysiteblocker.databinding.ActivityLockScreenBind
 import io.gitlab.adviseworn.familysiteblocker.ext.matchBarIconsToTheScreen
 
 /**
- * The screen the lock puts in front of another browser, of a Settings screen about Family Site Blocker, of
- * Security & privacy, or of a screen that opens a way round the lock.
+ * The screen the lock puts in front of another browser, of a Settings screen about Family Site Blocker or the
+ * phone's clock, of Security & privacy, of a screen that opens a way round the lock, or, at bedtime, of any
+ * other app.
  * It says what happened and offers Family Site Blocker; Back goes home, since behind it is the thing the lock
  * turned away.
  */
@@ -102,6 +103,15 @@ class LockScreenActivity : AppCompatActivity() {
                 binding.title.text = getString(R.string.lock_screen_settings_title)
                 binding.body.text = getString(R.string.lock_screen_display_over_body)
             }
+            REASON_CLOCK -> {
+                binding.title.text = getString(R.string.lock_screen_clock_title)
+                binding.body.text = getString(R.string.lock_screen_clock_body)
+            }
+            REASON_BEDTIME -> {
+                val until = intent.getStringExtra(EXTRA_UNTIL)
+                binding.title.text = getString(R.string.lock_screen_bedtime_title)
+                binding.body.text = if (until != null) getString(R.string.lock_screen_bedtime_body, app, until) else getString(R.string.lock_screen_bedtime_body_over, app)
+            }
             else -> {
                 binding.title.text = getString(R.string.lock_screen_browser_title)
                 binding.body.text = getString(R.string.lock_screen_browser_body, app)
@@ -129,10 +139,13 @@ class LockScreenActivity : AppCompatActivity() {
 
         const val EXTRA_REASON = "reason"
         const val EXTRA_APP = "app"
+        const val EXTRA_UNTIL = "until"
         const val REASON_BROWSER = "browser"
         const val REASON_SETTINGS = "settings"
         const val REASON_SECURITY = "security"
         const val REASON_WAY_ROUND = "way-round"
         const val REASON_DISPLAY_OVER = "display-over"
+        const val REASON_CLOCK = "clock"
+        const val REASON_BEDTIME = "bedtime"
     }
 }

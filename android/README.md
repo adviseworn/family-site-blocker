@@ -211,6 +211,40 @@ The lock cannot reach Safe mode, a factory reset, a second user, a Private space
 set up before the lock was on, or pages opened inside other apps' own in-app browsers; Family Link cannot
 either.
 
+### Bedtime
+
+The add-on's bedtime (its settings page, Bedtime: every site blocked between two times of day) is the add-on's
+to keep: the hours, the day's wait and the reason for loosening it, and its record are all in
+`extension/lib/bedtime.js`. The app does the phone's part of it, while the lock is on:
+
+- **The add-on tells the app its bedtime.** The app's copy of the add-on carries one more background script,
+  `app/src/main/extension/android-bridge.js`, which `copyExtension` adds with the two permissions GeckoView wants
+  for it (`nativeMessaging`, `geckoViewAddons`). It sends the setting when the add-on starts and whenever it
+  changes; `AddOnBridge` hears it and `lock/BedtimeSetting` keeps it, so the app knows the hours without the
+  add-on being awake (`lock/Bedtime` works them out, a change that waits its day included).
+- **Other apps are turned away**, once that is switched on from the Lock page ("Turn other apps away at
+  bedtime"). From the bedtime's start to its end the watch covers every app that has an icon with the lock
+  screen ("It's bedtime"), except this one, the home screen, the phone app, the clock, Settings, the keyboard and
+  the phone's safety apps (`lock/BedtimeApps` finds them on the phone). The lock's watch does the covering,
+  where it decides everything else, in `lookAtTheFront`; `lock/BedtimeWatch` tells it which apps and when,
+  asks it every 20 seconds of a bedtime to look for an app that was in front already (not while the screen is
+  off), and says ten minutes ahead that bedtime is coming. Anyone can switch this on; once the lock is on it
+  comes off only while the lock is off.
+- **The clock is held.** While a bedtime is set, the Settings screens that set the date, the time and the time
+  zone are closed and covered like the screens that undo the lock, since the bedtime goes by the phone's clock.
+
+Out of its reach at bedtime, besides the lock's own limits: a video already playing in a small window, sound
+from an app in the background, what a notification shows and an answer typed into it, the camera opened from
+the phone's lock screen, and a call or an alarm in an app that did not come with the phone (its sound goes on;
+its screen is covered). Setting the clock from a computer over adb is out of reach too.
+
+A build that changes what `copyExtension` packs needs no new add-on version to take effect on a phone. Tried on
+the emulator: app build 3, with the bridge script added, installed over app build 2 without it, both 1.30.0,
+and the app heard the add-on at its next start. Gecko notes the app's install path in its profile
+(`compatibility.ini`) and Android gives every update a new one, which is when Gecko throws its startup caches
+away. `AddOnBridge` answers the add-on with a plain true or false on purpose: GeckoView cannot hand a JSON
+object back, and the add-on's message would never be answered.
+
 ## Versions
 
 The app takes its version name from the add-on's `manifest.json`: bumping the add-on's version bumps the app.

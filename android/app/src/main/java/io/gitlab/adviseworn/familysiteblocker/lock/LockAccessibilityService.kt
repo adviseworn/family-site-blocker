@@ -40,7 +40,7 @@ import org.json.JSONObject
 
 /**
  * The lock's watch. Android tells an accessibility service which window has come to the front and when
- * something on it changes; while the lock is on, this one turns five things away:
+ * something on it changes; while the lock is on, this one turns these away:
  *  - another browser (any app that opens web links, [Browsers.packages]): its screen is covered by
  *    [LockScreenActivity], which offers Family Site Blocker instead. A window of it that the lock screen
  *    does not hide (beside another app, in a bubble, on a second screen, floating over the other apps) gets
@@ -61,11 +61,15 @@ import org.json.JSONObject
  *    watch is never told about. For as long as a browser holds that leave all the same, Android is made to
  *    keep every floating window off the screens ([keepFloatingWindowsOff]);
  *  - the setting up of a work profile, which is such a place too ([Browsers.setUpOfAWorkProfile]). It is an
- *    app of its own with nothing of Settings under it, so it is covered as another browser is.
+ *    app of its own with nothing of Settings under it, so it is covered as another browser is;
+ *  - while a bedtime is set, the Settings screens that set the phone's clock, which the bedtime goes by
+ *    ([ClockScreen]): closed like the screens that undo the lock;
+ *  - at bedtime, with "other apps" switched on from the Lock page, every other app but the few a phone is for
+ *    at night ([BedtimeWatch], [BedtimeApps]): covered like another browser.
  * It reads nothing else: the only text it looks for is the app's own name next to one of those actions
- * ([Guard.undoesTheLock]), the titles of those screens and another browser's name beside that switch, and
- * only on the screens of the apps in [Browsers.guarded] and in a tap that opens Security & privacy from
- * Settings' search or the home screen.
+ * ([Guard.undoesTheLock]), the titles of those screens, another browser's name beside that switch and the
+ * words of Date & time, and only on the screens of the apps in [Browsers.guarded] and in a tap that opens
+ * Security & privacy from Settings' search or the home screen.
  *
  * A screen is looked at when it comes to the front, again while its page fills in, and after every change on
  * it ([Guard.fillInLooks], [Guard.waitBeforeLook]): what settles last is always seen. A guarded app's screen
@@ -80,6 +84,7 @@ import org.json.JSONObject
 class LockAccessibilityService : AccessibilityService() {
     private lateinit var state: LockState
     private lateinit var front: Front
+    private lateinit var bedtime: BedtimeWatch
     @Volatile private var browsers: Set<String> = emptySet()
 
     /** The phone's other browsers by what they are called, which is how a page of Settings names them ([Guard.letsDisplayOver]). */
@@ -123,6 +128,9 @@ class LockAccessibilityService : AccessibilityService() {
     /** Back has been sent and the lock screen is about to follow it: nothing is looked at in between. */
     private var covering = false
     private val coverWaits = Any()
+
+    /** Until when an app that the bedtime turns away, and that has said it is coming to the front, is looked for there. */
+    private var bedtimeAppComesBy = 0L
 
     /** Marks the look set for the end of an off period, and the end it is set for. */
     private val relock = Any()
@@ -205,7 +213,10 @@ class LockAccessibilityService : AccessibilityService() {
     }
 
     private val packagesChanged = object : BroadcastReceiver() {
-        override fun onReceive(context: Context, intent: Intent) { rescanBrowsers() }
+        override fun onReceive(context: Context, intent: Intent) {
+            rescanBrowsers()
+            bedtime.rescan()
+        }
     }
 
     /** The screen has been switched on: the steady looks stopped while it was dark ([lookSteadily]). */
@@ -218,7 +229,10 @@ class LockAccessibilityService : AccessibilityService() {
         askForItsEvents()
         state = LockState(this)
         front = Front(this)
+        // What bedtime began with in front has sent the watch nothing either: the bedtime's own clock asks for a look.
+        bedtime = BedtimeWatch(this, state) { if (lockIsOn()) watchClosely() }
         rescanBrowsers()
+        bedtime.start()
         ContextCompat.registerReceiver(
             this,
             packagesChanged,
@@ -287,6 +301,7 @@ class LockAccessibilityService : AccessibilityService() {
 
     override fun onDestroy() {
         main.removeCallbacksAndMessages(null)
+        if (::bedtime.isInitialized) bedtime.stop()
         lowerShield()
         dropCovers()
         letFloatingWindowsShow()
@@ -349,6 +364,14 @@ class LockAccessibilityService : AccessibilityService() {
                     note { "front: $packageName ${event.className} ${event.text}" }
                     watchClosely()
                 }
+            }
+            // At bedtime, an app that is turned away then: the front is looked at, and the app is covered once
+            // its window is the one there. A window says it is coming a moment before it is in front.
+            bedtime.turnsAway(packageName) -> if (cameToFront) {
+                bedtimeAppComesBy = SystemClock.elapsedRealtime() + Guard.fillInLooks.last()
+                watchClosely()
+            } else {
+                lookSoon()
             }
         }
     }
@@ -443,13 +466,15 @@ class LockAccessibilityService : AccessibilityService() {
 
     /**
      * Looks at what is in front, the one place that decides: Security & privacy is closed, another browser is
-     * covered, and a guarded app's screen is turned away when it offers to undo the lock. Whose window it is,
+     * covered, and a guarded app's screen is turned away when it offers to undo the lock or, while a bedtime is
+     * set, to set the phone's clock. At bedtime an app that is turned away then is covered. Whose window it is,
      * is asked of the window itself and of Android's record of app use, not of the event that prompted the
      * look: the lock screen may be in front by now.
      *
      * Says whether the window is worth another look while it fills in: a guarded app's that shows nothing to
-     * turn away yet, or one Android keeps from the watch. A guarded app's screen that was read and left open
-     * is looked at steadily after that ([lookSteadily]).
+     * turn away yet, one Android keeps from the watch, or, at bedtime, one that an app turned away then is
+     * about to take the place of. A guarded app's screen that was read and left open is looked at steadily
+     * after that ([lookSteadily]).
      */
     private fun look(): Boolean {
         val began = SystemClock.elapsedRealtime()
@@ -550,14 +575,20 @@ class LockAccessibilityService : AccessibilityService() {
                 turnAway(settings, LockScreenActivity.REASON_SECURITY, last?.takeIf { it.packageName == settings })
                 return false
             }
-            if (byTheRecord != Guard.ByTheRecord.COVER_IF_HIDDEN) {
+            if (byTheRecord == Guard.ByTheRecord.COVER_IF_HIDDEN) {
+                cover(last!!.packageName, LockScreenActivity.REASON_BROWSER)
+                return false
+            }
+            // At bedtime the same goes for an app that is turned away then.
+            val hidden = last?.packageName
+            if (hidden == null || !bedtime.turnsAway(hidden)) {
                 // A guarded app's screen that cannot be read for the moment is still looked at steadily: it
                 // may be busy, and may be on another page by the time it answers. Without the record of app
                 // use the watch cannot tell whose the window is, and looks all the same.
                 guardedStays = last == null || last.packageName in Browsers.guarded
                 return true
             }
-            cover(last!!.packageName, LockScreenActivity.REASON_BROWSER)
+            cover(hidden, LockScreenActivity.REASON_BEDTIME)
             return false
         }
         if (inFront in browsers || inFront in Browsers.setUpOfAWorkProfile) {
@@ -570,7 +601,14 @@ class LockAccessibilityService : AccessibilityService() {
             }
             return false
         }
-        if (inFront !in Browsers.guarded) return false
+        if (inFront !in Browsers.guarded) {
+            if (bedtime.turnsAway(inFront)) {
+                cover(inFront, LockScreenActivity.REASON_BEDTIME)
+                return false
+            }
+            // Not in front yet, though it has said it is coming, or the record of app use names it already.
+            return SystemClock.elapsedRealtime() < bedtimeAppComesBy || (last != null && bedtime.turnsAway(last.packageName))
+        }
         val texts = mutableListOf<String>()
         val rows = mutableSetOf<Int>()
         collectTexts(root, texts, 0, rows)
@@ -613,11 +651,15 @@ class LockAccessibilityService : AccessibilityService() {
             }
             "look: $inFront, ${texts.size} texts, undoes the lock: $undoes$where: ${texts.take(40)}"
         }
-        if (!undoes) {
-            guardedStays = true
-            return true
+        val reason = when {
+            undoes -> LockScreenActivity.REASON_SETTINGS
+            bedtime.holdsClock() && ClockScreen.shows(texts + textsBehind(root)) -> LockScreenActivity.REASON_CLOCK
+            else -> {
+                guardedStays = true
+                return true
+            }
         }
-        turnAway(inFront, LockScreenActivity.REASON_SETTINGS, shown)
+        turnAway(inFront, reason, shown)
         return false
     }
 
@@ -1226,6 +1268,21 @@ class LockAccessibilityService : AccessibilityService() {
     private fun focusedWindow(): Int? = runCatching { windows.firstOrNull { it.isFocused }?.id }.getOrNull()
 
     /**
+     * The words on the other windows the guarded apps have on the screen, behind the one in front: a dialog
+     * (the one that sets the time, say) must not hide the screen it was opened from. Read only for the clock,
+     * while a bedtime is set.
+     */
+    private fun textsBehind(inFront: AccessibilityNodeInfo): List<String> {
+        val texts = mutableListOf<String>()
+        runCatching { windows }.getOrNull()?.forEach { window ->
+            if (window.type != AccessibilityWindowInfo.TYPE_APPLICATION) return@forEach
+            val root = window.root ?: return@forEach
+            if (root != inFront && root.packageName?.toString() in Browsers.guarded) collectTexts(root, texts, 0)
+        }
+        return texts
+    }
+
+    /**
      * The texts of a window, from the top down, into [into]. Where [rows] is given it takes the places of
      * the texts that stand in a row of one of Settings' newer lists, or in anything else there that can be
      * tapped ([Guard.isRow]; [Guard.undoesTheLock] tells the app's row in a list from the heading of its
@@ -1349,6 +1406,8 @@ class LockAccessibilityService : AccessibilityService() {
                 when (reason) {
                     LockScreenActivity.REASON_BROWSER -> "blocked-browser"
                     LockScreenActivity.REASON_SECURITY -> "blocked-security"
+                    LockScreenActivity.REASON_BEDTIME -> "blocked-bedtime"
+                    LockScreenActivity.REASON_CLOCK -> "blocked-clock"
                     else -> "blocked-settings"
                 },
                 JSONObject().put("app", Browsers.label(this, packageName)).put("package", packageName),
@@ -1357,6 +1416,7 @@ class LockAccessibilityService : AccessibilityService() {
         val lockScreen = Intent(this, LockScreenActivity::class.java)
             .putExtra(LockScreenActivity.EXTRA_REASON, reason)
             .putExtra(LockScreenActivity.EXTRA_APP, Browsers.label(this, packageName))
+            .putExtra(LockScreenActivity.EXTRA_UNTIL, if (reason == LockScreenActivity.REASON_BEDTIME) bedtime.until() else null)
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
         // On a phone with a second screen the lock screen goes to the screen the app is on. With one screen
         // nothing is said about where: that is how every phone so far has been covered.
