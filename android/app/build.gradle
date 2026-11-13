@@ -5,13 +5,20 @@ plugins {
     alias(libs.plugins.android.application)
 }
 
-// One version for the add-on and the app: the add-on's manifest.json is the source of truth.
-// 1.23.0 becomes versionName "1.23.0" and versionCode 1023000.
+// One version name for the add-on and the app: the add-on's manifest.json is the source of truth.
+// The number Android compares, versionCode, is that version followed by two digits for the app's own build
+// (fsbAppBuild in gradle.properties), so that a change to the app alone still installs over the build before
+// it: 1.29.0 with app build 2 becomes versionName "1.29.0" and versionCode 102900002. The first build to reach
+// a phone had no such digits (1.29.0 was 1029000), and every number made this way is above it.
 def extensionDir = rootProject.file('../extension')
 def extensionManifest = new JsonSlurper().parse(new File(extensionDir, 'manifest.json'))
 def extensionVersion = extensionManifest.version as String
 def versionParts = extensionVersion.tokenize('.').collect { it as int }
-def computedVersionCode = versionParts[0] * 1_000_000 + versionParts[1] * 1_000 + versionParts[2]
+def appBuild = (providers.gradleProperty('fsbAppBuild').orNull ?: '0') as int
+if (appBuild < 0 || appBuild > 99) {
+    throw new GradleException("fsbAppBuild must be between 0 and 99; it is ${appBuild}")
+}
+def computedVersionCode = (versionParts[0] * 1_000_000 + versionParts[1] * 1_000 + versionParts[2]) * 100 + appBuild
 
 // A release key comes from Gradle properties (CI variables). Without one, the debug key signs the APK,
 // which still installs on a phone but cannot be uploaded to Google Play.
@@ -27,6 +34,8 @@ android {
         targetSdk = 37
         versionCode = computedVersionCode
         versionName = extensionVersion
+        // The Lock page shows it next to the version, so that it can be told which build is on the phone.
+        buildConfigField 'int', 'APP_BUILD', "${appBuild}"
     }
 
     signingConfigs {

@@ -73,14 +73,25 @@ object Puzzle {
 
     data class Layer(val steps: Long, val rate: Double)
 
-    /** The unlocking under way: the number reached and the squarings done in the layer being worked on, and the layer itself once the stored box has been opened to one inside it. */
-    data class Progress(val x: BigInteger, val done: Long, val before: Long, val inner: Box?) {
+    /**
+     * The unlocking under way: the number reached and the squarings done in the layer being worked on, the
+     * layer itself once the stored box has been opened to one inside it, and [box], the modulus of the stored
+     * box the work was done on. Progress counts only for that box (as on the computer, where it carries the
+     * box's `n`): lengthening the wait stores a new box, and work saved for the old one must never be carried
+     * on against it. Progress saved by the first build to reach a phone has no [box]; it cannot be told whose
+     * it is, so it is not used ([LockState] drops it and says so in the record).
+     */
+    data class Progress(val x: BigInteger, val done: Long, val before: Long, val inner: Box?, val box: BigInteger? = null) {
         fun toJson(): JSONObject = JSONObject().apply {
             put("x", x.toString(16))
             put("done", done)
             put("before", before)
             inner?.let { put("inner", it.toJson()) }
+            box?.let { put("n", it.toString(16)) }
         }
+
+        /** Whether this is work done on [stored], the box now kept. */
+        fun isFor(stored: Box): Boolean = box != null && box == stored.n
 
         companion object {
             fun fromJson(json: JSONObject): Progress = Progress(
@@ -88,6 +99,7 @@ object Puzzle {
                 done = json.getLong("done"),
                 before = json.optLong("before", 0),
                 inner = json.optJSONObject("inner")?.let { Box.fromJson(it) },
+                box = json.optString("n").takeIf { it.isNotEmpty() }?.let { BigInteger(it, 16) },
             )
         }
     }
@@ -103,9 +115,13 @@ object Puzzle {
     /** How long the whole box takes, in seconds, at the rates measured when its layers were sealed. */
     fun secondsOf(box: Box): Double = layersOf(box).sumOf { it.steps / it.rate }
 
-    /** Seals [secret] so that opening it takes [delaySeconds] at [rate] squarings a second. */
+    /**
+     * Seals [secret] so that opening it takes [delaySeconds] at [rate] squarings a second. The squarings are
+     * rounded to the nearest whole one, as the computer's page does; cutting the fraction off left every box a
+     * hair short of its wait, and 1 hour, measured back, came out as 3599 seconds.
+     */
     fun seal(secret: ByteArray, delaySeconds: Long, rate: Double, holds: Holds = Holds.SECRET, inside: List<Layer> = emptyList()): Box {
-        val steps = maxOf(1L, (delaySeconds * rate).toLong())
+        val steps = maxOf(1L, Math.round(delaySeconds * rate))
         val p = BigInteger.probablePrime(MODULUS_BITS / 2, random)
         val q = BigInteger.probablePrime(MODULUS_BITS / 2, random)
         val n = p * q
@@ -158,23 +174,26 @@ object Puzzle {
         null
     }
 
-    /** The start of the work on a box: the base, no squarings done. */
-    fun start(): Progress = Progress(BASE, 0, 0, null)
+    /** The start of the work on [box]: the base, no squarings done, and whose work it is. */
+    fun start(box: Box): Progress = Progress(BASE, 0, 0, null, box.n)
 
     /**
      * Works on [box] from [progress] for up to [chunk] squarings and returns the progress reached, or null once
      * the whole box is open (the secret is then in [onOpened]). A layer that opens onto a box inside continues
-     * on that box, counting its squarings under `before`.
+     * on that box, counting its squarings under `before`. Progress made on another box is refused: its number
+     * means nothing here.
      */
     fun work(box: Box, progress: Progress, chunk: Long, onOpened: (ByteArray) -> Unit): Progress? {
+        check(progress.isFor(box)) { "The saved unlocking is for another box" }
         val layer = progress.inner ?: box
+        check(progress.done in 0..layer.steps) { "The saved unlocking does not fit the box" }
         val todo = minOf(chunk, layer.steps - progress.done)
         val x = if (todo > 0) square(progress.x, layer.n, todo) else progress.x
         val done = progress.done + todo
         if (done < layer.steps) return progress.copy(x = x, done = done)
         val contents = open(layer, x) ?: throw IllegalStateException("The box did not open after ${layer.steps} squarings")
         return if (layer.holds == Holds.BOX) {
-            Progress(BASE, 0, progress.before + layer.steps, Box.fromJson(JSONObject(String(contents))))
+            Progress(BASE, 0, progress.before + layer.steps, Box.fromJson(JSONObject(String(contents))), progress.box)
         } else {
             onOpened(contents)
             null

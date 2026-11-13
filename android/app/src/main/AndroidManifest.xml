@@ -9,6 +9,14 @@
     <!-- The lock's wait is worked through by a foreground service (lock/UnlockService). -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- The lock's watch asks Android's record of app use which screen is in front when Android keeps the
+         screen itself from it (lock/Front). The person gives it under Settings, Usage access. -->
+    <uses-permission
+        android:name="android.permission.PACKAGE_USAGE_STATS"
+        tools:ignore="ProtectedPermissions" />
+    <!-- While another browser is allowed to display over other apps, the lock's watch has Android keep
+         floating windows off the screen (lock/LockAccessibilityService, keepFloatingWindowsOff). Android 12 on. -->
+    <uses-permission android:name="android.permission.HIDE_OVERLAY_WINDOWS" />
     <uses-permission
         android:name="android.permission.WRITE_EXTERNAL_STORAGE"
         android:maxSdkVersion="28" />
@@ -52,6 +60,10 @@
             <action android:name="android.intent.action.VIEW" />
             <category android:name="android.intent.category.BROWSABLE" />
             <data android:scheme="http" />
+        </intent>
+        <!-- Security & privacy, which the lock closes while it is on (lock/Guard). -->
+        <intent>
+            <action android:name="android.intent.action.SAFETY_CENTER" />
         </intent>
     </queries>
 
@@ -135,6 +147,7 @@
 
         <receiver
             android:name=".lock.LockAdminReceiver"
+            android:description="@string/lock_admin_description"
             android:exported="true"
             android:label="@string/app_name"
             android:permission="android.permission.BIND_DEVICE_ADMIN">

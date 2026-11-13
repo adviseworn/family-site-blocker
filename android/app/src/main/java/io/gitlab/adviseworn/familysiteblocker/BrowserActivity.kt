@@ -8,6 +8,7 @@ import android.view.View
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.WindowCompat
 import io.gitlab.adviseworn.familysiteblocker.ext.components
+import io.gitlab.adviseworn.familysiteblocker.ext.matchBarIconsToTheScreen
 import io.gitlab.adviseworn.familysiteblocker.lock.LockFragment
 import mozilla.components.concept.engine.EngineView
 import mozilla.components.feature.contextmenu.ext.DefaultSelectionActionDelegate
@@ -20,6 +21,7 @@ class BrowserActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
         WindowCompat.enableEdgeToEdge(window)
+        matchBarIconsToTheScreen()
         window.setupPersistentInsets()
 
         if (savedInstanceState == null) {
