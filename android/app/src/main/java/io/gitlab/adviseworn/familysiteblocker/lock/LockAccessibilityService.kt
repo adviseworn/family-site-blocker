@@ -105,6 +105,9 @@ class LockAccessibilityService : AccessibilityService() {
     private var steadyWaits = false
     private var lastRecordAt = 0L
     private var lastRecorded: String? = null
+
+    /** When one of the app's own screens last came to the front, for [Guard.writesDown]. */
+    private var ownScreenAt = 0L
     private var lastCoverAt = 0L
     private var lastCovered: String? = null
 
@@ -338,6 +341,7 @@ class LockAccessibilityService : AccessibilityService() {
             // Android shows while a screen starts does not count: it comes under the app's name too, and it lets
             // taps through to what is under it.
             if (cameToFront && event.className?.startsWith(packageName) == true) {
+                ownScreenAt = SystemClock.elapsedRealtime()
                 lowerShield()
                 if (event.className?.toString() == LockScreenActivity::class.java.name) lockScreenWindow = event.windowId
                 // The lock screen is up: a cover over what it has hidden comes off, and one over what it has not, stays.
@@ -1390,7 +1394,8 @@ class LockAccessibilityService : AccessibilityService() {
 
     /**
      * Puts the lock screen in front. It is started once in [COVER_ONCE_IN] for one screen, however many looks
-     * find that screen before the lock screen is up, and the record gets one entry for each turning away.
+     * find that screen before the lock screen is up, and the record gets one entry for each turning away
+     * ([Guard.writesDown]).
      */
     private fun cover(packageName: String, reason: String, display: Int = Display.DEFAULT_DISPLAY) {
         val now = SystemClock.elapsedRealtime()
@@ -1399,7 +1404,7 @@ class LockAccessibilityService : AccessibilityService() {
         lastCoverAt = now
         lastCovered = what
         note { "the lock screen ($reason) over $packageName" }
-        if (what != lastRecorded || now - lastRecordAt > RECORD_ONCE_IN) {
+        if (Guard.writesDown(what == lastRecorded, now - lastRecordAt, ownScreenAt > lastRecordAt)) {
             lastRecordAt = now
             lastRecorded = what
             state.record(
@@ -1474,9 +1479,6 @@ class LockAccessibilityService : AccessibilityService() {
 
         /** The lock screen is started for one screen at most once in this long, in milliseconds: it takes about that long to come up. */
         const val COVER_ONCE_IN = 300L
-
-        /** One entry in the record for the looks at one screen that fall within this long, in milliseconds. */
-        const val RECORD_ONCE_IN = 3000L
 
         /** How often the watch looks again while a cover is up, in milliseconds: a window that moves takes its cover along that fast. */
         const val COVER_LOOK_EVERY = 200L

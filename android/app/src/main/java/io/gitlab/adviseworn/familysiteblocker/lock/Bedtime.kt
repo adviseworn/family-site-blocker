@@ -131,16 +131,24 @@ object ClockScreen {
      * the time zone's screens under it, or a list of time zones. Android's own English words, as
      * [LockAccessibilityService] reads the words of the screens about this app. The list of all settings, where
      * "Date & time" is one line among others, is not one of them.
+     *
+     * The time zone's screen names the zone by its region, or, for a zone that is only a distance from
+     * Greenwich, by that distance: "Select UTC offset" up to Android 15, "GMT offset" on Android 17.
      */
     fun shows(texts: List<String>): Boolean {
         val words = texts.map { it.trim().lowercase() }
         fun has(vararg any: String) = words.any { it in any }
         fun holds(vararg any: String) = words.any { word -> any.any { word.contains(it) } }
-        val dateAndTime = has("date & time", "date and time") && holds(
-            "set time automatically", "automatic date", "automatic time", "network-provided time", "set automatically",
-            "24-hour format", "24‑hour format", "locale default", "select time zone", "set date", "set time",
+        // Date & time by its title and one of its lines. A phone that sets nothing by itself shows few of them:
+        // the Android 17 test phone has Date, Time, Time zone and the 24-hour format, and no more.
+        val dateAndTime = has("date & time", "date and time") && (
+            holds(
+                "set time automatically", "automatic date", "automatic time", "network-provided time", "set automatically",
+                "24-hour format", "24‑hour format", "locale default", "select time zone", "set date", "set time",
+            ) || has("time zone") || (has("date") && has("time"))
         )
-        val timeZone = has("time zone", "select time zone") && has("region", "select by utc offset", "select utc offset", "select by region")
+        val timeZone = has("time zone", "select time zone") &&
+            has("region", "select by utc offset", "select utc offset", "select by region", "gmt offset", "utc offset")
         val picker = holds("search region") || has("select utc offset")
         val zones = texts.count { ZONE.containsMatchIn(it) } >= 3
         return dateAndTime || timeZone || picker || zones

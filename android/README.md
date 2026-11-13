@@ -232,6 +232,11 @@ to keep: the hours, the day's wait and the reason for loosening it, and its reco
   comes off only while the lock is off.
 - **The clock is held.** While a bedtime is set, the Settings screens that set the date, the time and the time
   zone are closed and covered like the screens that undo the lock, since the bedtime goes by the phone's clock.
+  The watch tells them by Android's own English words, as it tells the screens about this app
+  (`ClockScreen.shows`): Date & time by its title with one of its lines, the time zone's screens by the region
+  or by the zone's distance from Greenwich, and a list of time zones by its lines. So the words of Date & time
+  and the time zone are one more thing the watch looks for in Settings, and the description Android shows
+  before the watch is switched on says so.
 
 Out of its reach at bedtime, besides the lock's own limits: a video already playing in a small window, sound
 from an app in the background, what a notification shows and an answer typed into it, the camera opened from

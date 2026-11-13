@@ -240,6 +240,29 @@ object Guard {
         sinceBack !in 0..BACK_ONCE_IN && (broughtForwardAt == null || broughtForwardAt != backWentTo)
 
     /**
+     * The same screen gets a new line in the record at the earliest this long after its last one, and after
+     * [RECORD_AT_LATEST] whatever has been in front since, in milliseconds.
+     */
+    const val RECORD_ONCE_IN = 3000L
+    const val RECORD_AT_LATEST = 30_000L
+
+    /**
+     * Whether a turning away is written into the record. One turning away is one line, however many looks
+     * find the screen before the lock screen is up. So a screen that is the same as the last one written down
+     * ([sameAsLast], [sinceLast] milliseconds ago) gets a new line only after [RECORD_ONCE_IN], and only when
+     * one of the app's own screens has come to the front in between ([ownScreenSince]): that is the lock screen
+     * having come up, and the screen having been opened again. A slow phone takes seconds to bring the lock
+     * screen up, and every look in that time finds the same screen and sends for it again; an earlier build
+     * wrote down each of those that came three seconds after the last line, two lines for one try. After
+     * [RECORD_AT_LATEST] the screen is written down whatever has been in front: a lock screen that cannot come
+     * up must not hide the tries that follow.
+     */
+    fun writesDown(sameAsLast: Boolean, sinceLast: Long, ownScreenSince: Boolean): Boolean = when {
+        !sameAsLast || sinceLast < 0 || sinceLast > RECORD_AT_LATEST -> true
+        else -> sinceLast > RECORD_ONCE_IN && ownScreenSince
+    }
+
+    /**
      * How long after Back the lock screen follows it, in milliseconds, where the record of app use does not
      * tell when the screen has closed; and the longest it waits where the record does, for a screen whose
      * window the watch has seen, and for one it has not ([COVER_AT_LATEST_UNSEEN]).

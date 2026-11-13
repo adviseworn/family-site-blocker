@@ -182,6 +182,22 @@ class BedtimeTest {
     }
 
     @Test
+    fun `the clock's screens on Android 17 are clock screens`() {
+        // Date & time as the Android 17 test phone shows it, and with its format line left out.
+        assertTrue(ClockScreen.shows(listOf("Date & time", "Navigate up", "Date & time", "Date", "November 13, 2026", "Time", "1:10 AM", "Time zone", "Time zone", "GMT+00:00 Coordinated Universal Time", "12-hour / 24-hour format", "Use 24-hour format", "1:00 PM", "Notifications", "Time zone change")))
+        assertTrue(ClockScreen.shows(listOf("Date & time", "Navigate up", "Date & time", "Date", "November 13, 2026", "Time", "1:10 AM", "Notifications")))
+        assertTrue(ClockScreen.shows(listOf("Date & time", "Navigate up", "Date & time", "Time zone", "GMT+00:00 Coordinated Universal Time")))
+        // The time zone's screen for a zone chosen by region, and for one that is only a distance from Greenwich.
+        assertTrue(ClockScreen.shows(listOf("Select time zone", "More options", "Navigate up", "Select time zone", "Region", "United States", "Time zone", "New York (GMT-05:00)", "Uses Eastern Time (GMT-05:00). Eastern Daylight Time starts on March 14, 2027.")))
+        assertTrue(ClockScreen.shows(listOf("Select time zone", "More options", "Navigate up", "Select time zone", "GMT offset", "Coordinated Universal Time (GMT+00:00)")))
+        // The list of distances, and the home time zone's screen, which Settings' search leads to.
+        assertTrue(ClockScreen.shows(listOf("GMT offset", "Navigate up", "GMT offset", "Greenwich Mean Time", "GMT+00:00", "1:21 AM", "GMT-12:00", "1:21 PM", "GMT-11:00", "2:21 PM")))
+        assertTrue(ClockScreen.shows(listOf("Home time zone", "Navigate up", "Home time zone", "Select a time zone", "Region", "Time zone", "Suggestions", "Adak", "GMT-10:00 Hawaii-Aleutian Standard Time")))
+        // The System list, where Date & time is one line among others, stays open.
+        assertFalse(ClockScreen.shows(listOf("System", "Navigate up", "System", "Update device", "System updates", "Updated to Android 17", "Languages & input", "Language & region", "System languages, app languages, regional preferences, speech", "Interaction", "Keyboard", "Keyboard apps, physical keyboards, tools", "Gestures", "System management", "Date & time", "GMT+00:00 Coordinated Universal Time", "Backup", "Reset options")))
+    }
+
+    @Test
     fun `other Settings screens are left alone`() {
         // The System list, where Date & time is one line among others.
         assertFalse(ClockScreen.shows(listOf("System", "Languages", "Keyboard", "Gestures", "Date & time", "GMT-05:00 Eastern Standard Time", "Backup", "System update", "Reset options")))

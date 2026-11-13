@@ -408,6 +408,21 @@ class GuardTest {
     }
 
     @Test
+    fun `one turning away is one line in the record`() {
+        assertTrue("another screen", Guard.writesDown(false, 100, false))
+        assertFalse("the same screen, found again at once", Guard.writesDown(true, 400, true))
+        // The Android 17 test phone took seven seconds to bring the lock screen up, and wrote two lines.
+        assertFalse("the lock screen is still on its way", Guard.writesDown(true, 7000, false))
+        assertTrue("opened again after the lock screen came up", Guard.writesDown(true, 7000, true))
+        assertFalse(Guard.writesDown(true, Guard.RECORD_ONCE_IN, true))
+        assertTrue(Guard.writesDown(true, Guard.RECORD_ONCE_IN + 1, true))
+        // A lock screen that never comes up does not hide the tries that follow.
+        assertFalse(Guard.writesDown(true, Guard.RECORD_AT_LATEST, false))
+        assertTrue(Guard.writesDown(true, Guard.RECORD_AT_LATEST + 1, false))
+        assertTrue("a clock that went back", Guard.writesDown(true, -5, false))
+    }
+
+    @Test
     fun `Back waits for the window of a screen the record names`() {
         // The page the screen was opened from still has the focus.
         assertTrue(Guard.waitsForItsWindow(onTheWindowBefore = true, onAWindow = true, sinceNamed = 0, sinceItLeft = 0))
