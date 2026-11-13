@@ -12,6 +12,7 @@ import { webcrypto } from 'node:crypto';
 import { EXTENSION_DIR, findPage, launchBrowser, startStubInternet, visit } from './helpers/browser.mjs';
 import { BACKGROUND_MARKS, FAKE_CAMERA_ARGS, MARKS, STAND_IN_SCORES, backgroundsPage, cameraPage, extensionWithStandInClassifier, galleryPage, inlinePage, servePictures, serveVideos, videoPage } from './helpers/pictures.mjs';
 import { VIDEO_LENGTH, copiesByKey, copyKey, hashOf, sameGroups } from '../extension/lib/pictures.js';
+import { CARRIERS, FIRST_ID as PROXIES_FIRST_ID, SHAPES } from '../extension/lib/proxies.js';
 
 globalThis.crypto ??= webcrypto; // Node 18 has Web Crypto, but not on globalThis
 // What the waits know a box by (1.13.0), to check what the page stores.
@@ -22,6 +23,13 @@ const BUILT_IN = JSON.parse(readFileSync(join(EXTENSION_DIR, 'rules', 'domains.j
 const SITE = 'exampleadultsite.com';
 const BLOCKED_URL = `http://${SITE}/`;
 const BLOCK_PAGE = /\/blocked\.html$/;
+// The address a person reported as getting through (1.31.0): a CroxyProxy server at a bare IP address. Its
+// "r" holds, in base64, the address the server sends the browser on to (PROXIED), and that one holds the
+// site in its "__cpo", in base64 again. Neither names a listed site where a rule on the host could see it.
+// Its "s" the proxy makes for one visit, so a made-up one of the same shape stands in.
+const PROXY = '208.87.240.203';
+const REPORTED = `https://${PROXY}/__cpi.php?s=UVNCdFlXUmxMWFZ3SUhSdmEyVnVJRzltSUhSb1pTQnphR0Z3WlNCMGFHVWdjSEp2ZUhrZ1oybDJaWE1nYjI1bElIWnBjMmwwT2lCdWIzUm9hVzVuSUc5bUlHRWdjbVZoYkNCMmFYTnBkQzQ9&r=aHR0cHM6Ly8yMDguODcuMjQwLjIwMy8%2FX19jcG89YUhSMGNITTZMeTlsZUdGdGNHeGxZV1IxYkhSemFYUmxMbU52YlE%3D&__cpo=1`;
+const PROXIED = `https://${PROXY}/?__cpo=aHR0cHM6Ly9leGFtcGxlYWR1bHRzaXRlLmNvbQ`;
 
 let stub;
 let browser;
@@ -37,6 +45,69 @@ async function assertBlocked(url, domain = SITE) {
   assert.equal(result.outcome, 'blocked page', where);
   assert.equal(result.heading, 'This site is blocked', where);
   assert.equal(stub.reached(domain), false, `${url}: a request reached the site`);
+}
+
+/**
+ * Opens an address that is a road to a site rather than the site's own (a web proxy's, say: lib/proxies.js)
+ * and checks that the tab ends at the block page, with nothing asked of the hosts in `unreached`. Such a
+ * load is stopped twice over, by a rule and by the background script sending the tab on: where the tab ends
+ * up is what counts.
+ */
+async function assertStopped(url, unreached = [], context = browser.context) {
+  stub.clear();
+  const page = await context.newPage();
+  try {
+    startLoad(page, url);
+    assert.equal(await endsAt(page, BLOCK_PAGE), true, `${url} ended at ${await whereIs(page)}`);
+    await page.waitForFunction(() => document.querySelector('h1')?.textContent === 'This site is blocked', null, { timeout: 10_000 });
+    for (const host of unreached) assert.equal(stub.reached(host), false, `${url}: a request reached ${host}: ${JSON.stringify(stub.requests.map(({ scheme, host: name, path, search }) => `${scheme}://${name}${path}${search ?? ''}`))}`);
+  } finally {
+    await page.close();
+  }
+}
+
+/**
+ * Starts a load that the extension is expected to stop, and doesn't wait to hear how the load went, because
+ * Chromium doesn't always say. When a load's answer has already arrived (from a proxy's own worker, or from
+ * a server no rule knows) and the background script sends the tab on before that page is put in place, the
+ * browser's remote-control protocol sometimes reports neither the end of that load nor the page that took
+ * its place: Page.navigate has answered without an error, no Network.loadingFailed follows, and no
+ * Page.frameNavigated for the block page. Playwright then waits out its time limit for news that never
+ * comes, and goes on giving the dropped address as the tab's, while the tab shows the block page. Seen in
+ * 3 of 139 such loads on a busy machine, and once on GitHub's, where it used up a test's whole time. So
+ * the load is only started here, and the tab itself is asked where it is (endsAt).
+ */
+function startLoad(page, url) {
+  page.goto(url, { waitUntil: 'commit' }).catch(() => {});
+}
+
+/** For a click that starts such a load: Playwright is told not to wait for the load the click starts. */
+const STARTED = { noWaitAfter: true };
+
+/** The address a tab's page gives for itself, or none when it gives none within a second (between two pages, say). */
+async function whereIs(page) {
+  let timer;
+  const late = new Promise((done) => {
+    timer = setTimeout(done, 1000, '');
+  });
+  try {
+    return await Promise.race([page.evaluate(() => location.href).catch(() => ''), late]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * Waits until a tab's address fits `pattern`, whatever loads were started and dropped on the way there;
+ * resolves to whether it came to. The page itself is asked where it is, not Playwright (see startLoad).
+ */
+async function endsAt(page, pattern, timeout = 10_000) {
+  const until = Date.now() + timeout;
+  for (;;) {
+    if (pattern.test(await whereIs(page))) return true;
+    if (Date.now() >= until) return false;
+    await new Promise((done) => setTimeout(done, 50));
+  }
 }
 
 /** Opens a page on an allowed site, lets "act" follow a link/redirect to the blocked site, and checks the result. */
@@ -494,8 +565,9 @@ describe('real browser', () => {
       try {
         assert.match(await page.locator('#check-note').innerText(), /^All \d+ checks passed\.$/);
         assert.equal(await page.locator('#check-details').isVisible(), true, 'the checks can be opened');
-        assert.equal(await page.locator('#check-details').evaluate((details) => details.open), false, 'but are folded away: six Passed rows say nothing new');
-        assert.equal(await page.locator('#results li').count(), 6);
+        assert.equal(await page.locator('#check-details').evaluate((details) => details.open), false, 'but are folded away: seven Passed rows say nothing new');
+        assert.equal(await page.locator('#results li').count(), 7, 'six until 1.31.0 added a web proxy’s address');
+        assert.equal(await page.locator('#results li').last().textContent(), 'Passed203.0.113.7 with __cpo in the address, a web proxyBlocked, as expected');
         assert.ok(await page.evaluate(() => document.getElementById('check').classList.contains('ok')), 'ticked');
         assert.deepEqual(page.errors, []);
       } finally {
@@ -510,8 +582,16 @@ describe('real browser', () => {
         assert.match(await page.locator('#lock-status').innerText(), /^Anyone who can open the extensions page can switch the add-on off or remove it; the lock covers Firefox only\. What to do about that\.$/);
         assert.ok(await page.evaluate(() => document.getElementById('lock').classList.contains('todo')), 'marked as something to do');
         assert.equal(await page.locator('#lock-status a').getAttribute('href'), 'https://adviseworn.github.io/family-site-blocker-updates/#limits');
-        // The page is short again (#70): the explanations live in the README, linked from each section.
-        const words = await page.evaluate(() => document.body.innerText.split(/\s+/).filter(Boolean).length);
+        // The page is short again (#70): the explanations live in the README, linked from each section. The
+        // words counted are the page's own: the caption of the record's table, "The latest 3", is left out,
+        // because it shows only once the record holds more than three tries, and how many the tests before
+        // this one have left there depends on the machine's speed (tries at one site within two seconds are
+        // one try). With three tries the page has 447 words; with four, on a busy machine, the caption made
+        // them 450 and this test failed, with nothing on the page changed.
+        const words = await page.evaluate(() => {
+          const count = (text) => text.split(/\s+/).filter(Boolean).length;
+          return count(document.body.innerText) - count(document.querySelector('#attempts-table caption').innerText);
+        });
         assert.ok(words < 450, `${words} words on the settings page`);
         assert.ok((await page.locator('a[href^="https://adviseworn.github.io/family-site-blocker-updates/#"]').count()) >= 4, 'links to the README');
         assert.equal(await page.locator('#lockbox-page').getAttribute('href'), 'lockbox.html');
@@ -1270,6 +1350,482 @@ describe('real browser', () => {
         await page.evaluate((state) => chrome.storage.local.set({ watching: state }).then(() => chrome.storage.local.remove(['attempts', 'historyScan'])), original).catch(() => {});
         await page.close();
       }
+    });
+  });
+
+  describe('web proxies (1.31.0)', () => {
+    // A listed site opened by another road (extension/lib/proxies.js): through a web proxy, a translation
+    // or an archive, each of which fetches the site's pages and shows them under an address of its own.
+    // The stub internet stands in for the proxies as it does for every site: a host that never shows up in
+    // its requests was asked for nothing.
+    let plain; // a Chromium without the blocker, for the controls
+    const base64 = (text) => Buffer.from(text).toString('base64');
+    const base64url = (text) => Buffer.from(text).toString('base64url');
+    /** An address as Ultraviolet's default coding writes it: every second letter changed, then percent-coded. */
+    const ultraviolet = (text) => encodeURIComponent([...text].map((letter, index) => (index % 2 ? String.fromCharCode(letter.charCodeAt(0) ^ 2) : letter)).join(''));
+    const UNLISTED = 'http://allowed.test/';
+    const pause = (ms) => new Promise((done) => setTimeout(done, ms));
+    const stored = (page) => page.evaluate(() => chrome.storage.local.get('attempts').then((got) => got.attempts ?? []));
+    /** The record's entries without their times. */
+    const roads = (list) => list.map(({ at, ...rest }) => rest);
+
+    async function freshRecord() {
+      const page = await openSettings();
+      await page.evaluate(() => chrome.storage.local.remove('attempts'));
+      await page.reload();
+      await page.waitForFunction(() => document.getElementById('attempts-summary').textContent === 'No attempts so far.');
+      return page;
+    }
+
+    /** Waits until the record holds `count` notes; the background script writes them a moment after a visit. */
+    async function recorded(page, count) {
+      const until = Date.now() + 10_000;
+      let list = await stored(page);
+      while (list.length !== count && Date.now() < until) {
+        await pause(100);
+        list = await stored(page);
+      }
+      assert.equal(list.length, count, `recorded: ${JSON.stringify(list)}`);
+      return list;
+    }
+
+    /** Whether an address opens in the browser without the blocker: the control for a test that then sees it stopped. */
+    async function opensWithoutTheBlocker(url) {
+      const result = await visit(plain.context, url);
+      assert.equal(result.outcome, 'site loaded', `without the blocker, ${url} ended at ${result.finalUrl} ${result.error ?? ''}`);
+      return result;
+    }
+
+    // A stand-in for a proxy that serves its pages from a script of its own, kept in the browser (a service
+    // worker), as Ultraviolet and Scramjet do: once the worker is in place, a page under /service/ is made
+    // by the worker, and no request for it leaves the browser. "localhost" names count as secure, which a
+    // worker needs, and reach the stub like every other name.
+    const WORKER_HOST = 'sw.localhost';
+    const WORKER_SERVED = 'served by the worker';
+    const workerPage = (address) => `http://${WORKER_HOST}/service/${address}`;
+
+    async function withTheWorker(context) {
+      const page = await context.newPage();
+      await page.goto(`http://${WORKER_HOST}/`);
+      await page.waitForFunction(() => document.title !== 'front', null, { timeout: 15_000 });
+      assert.equal(await page.title(), 'ready', 'the stand-in proxy’s worker is in place');
+      return page;
+    }
+
+    before(async () => {
+      plain = await launchBrowser(stub, { extension: false });
+      // As the real proxy does: __cpi.php sets its cookies and sends the browser on to the address in "r".
+      stub.page(`${PROXY}/__cpi.php`, '', { status: 302, headers: { location: PROXIED } });
+      stub.page('allowed.test/proxy-link', `<!doctype html><title>links</title><a id="go" href="${REPORTED.replaceAll('&', '&amp;')}">go</a>`);
+      const coded = base64url(UNLISTED);
+      stub.page(
+        'allowed.test/embeds-proxied',
+        `<!doctype html><meta charset="utf-8"><title>embeds</title>
+        <img id="img" src="http://cdn.allowed.test/pixel.gif?__cpo=${coded}">
+        <script src="http://cdn.allowed.test/x.js?__cpo=${coded}"></script>
+        <iframe id="frame" src="http://cdn.allowed.test/frame?__cpo=${coded}"></iframe>`,
+      );
+      stub.page(
+        'allowed.test/app',
+        `<!doctype html><title>app</title><h1>SITE LOADED</h1>
+        <button id="push" onclick="history.pushState({}, '', '/app/view?url=' + encodeURIComponent('https://${SITE}/'))">push</button>
+        <button id="hash" onclick="location.hash = 'https://${SITE}/'">hash</button>
+        <button id="other" onclick="history.pushState({}, '', '/app/view?url=' + encodeURIComponent('${UNLISTED}'))">other</button>`,
+      );
+      stub.page(
+        'allowed.test/frames-proxied',
+        `<!doctype html><title>frames</title><h1>SITE LOADED</h1>
+        <iframe id="named" src="http://cdn.allowed.test/view?url=${encodeURIComponent(`https://${SITE}/`)}"></iframe>
+        <iframe id="other" src="http://cdn.allowed.test/view?url=${encodeURIComponent(UNLISTED)}"></iframe>`,
+      );
+      stub.page(
+        `${WORKER_HOST}/`,
+        `<!doctype html><title>front</title><h1>FRONT</h1><script>
+          navigator.serviceWorker.register('/sw.js').then(() => navigator.serviceWorker.ready).then(() => { document.title = 'ready'; }, (error) => { document.title = 'failed: ' + error.message; });
+        </script>`,
+      );
+      stub.page(
+        `${WORKER_HOST}/sw.js`,
+        `self.addEventListener('install', () => self.skipWaiting());
+        self.addEventListener('activate', (event) => event.waitUntil(self.clients.claim()));
+        self.addEventListener('fetch', (event) => {
+          if (new URL(event.request.url).pathname.startsWith('/service/')) event.respondWith(new Response('<!doctype html><title>worker</title><h1>SITE LOADED</h1><p>${WORKER_SERVED}</p>', { headers: { 'content-type': 'text/html' } }));
+        });`,
+        { headers: { 'content-type': 'text/javascript' } },
+      );
+      stub.page(`${WORKER_HOST}/framed`, `<!doctype html><title>framed</title><h1>FRONT</h1><iframe id="f" src="/service/${ultraviolet(UNLISTED)}"></iframe>`);
+    });
+
+    after(async () => {
+      await plain?.close();
+    });
+
+    describe('test case: navigate to the reported address', () => {
+      test('Actual, with no blocker installed: the site opens through the proxy (so this test can see a failure)', async () => {
+        stub.clear();
+        const result = await opensWithoutTheBlocker(REPORTED);
+        assert.equal(result.finalUrl, PROXIED, 'the proxy sends the browser on to the address in "r"');
+        const asked = stub.requests.filter(({ host }) => host === PROXY).map(({ path, search }) => `${path}${search}`);
+        assert.ok(asked.some((path) => path.startsWith('/__cpi.php?')) && asked.includes(new URL(PROXIED).pathname + new URL(PROXIED).search), `asked of the proxy: ${asked}`);
+        assert.equal(stub.reached(SITE), false, 'the site itself is never asked: the proxy fetches it, which is why a rule on the site’s name saw nothing');
+      });
+
+      test('Expected, with the blocker installed: blocked, with nothing asked of the proxy', () => assertStopped(REPORTED, [PROXY, SITE]));
+      test('the page the proxy sends the browser on to is blocked too', () => assertStopped(PROXIED, [PROXY, SITE]));
+      test('by http as well', () => assertStopped(REPORTED.replace('https:', 'http:'), [PROXY, SITE]));
+
+      test('a link to it ends at the block page, and Go back returns to the page the link was on', async () => {
+        stub.clear();
+        const page = await browser.context.newPage();
+        try {
+          await page.goto('http://allowed.test/proxy-link');
+          await page.click('#go', STARTED); // the click only: how the load it starts ends is asked of the tab (see startLoad)
+          assert.equal(await endsAt(page, BLOCK_PAGE), true, 'the link ends at the block page');
+          assert.equal(stub.reached(PROXY), false, 'a request reached the proxy');
+          await pause(500); // the background script sends the tab to the block page as well: let that settle
+          await page.waitForFunction(() => document.getElementById('back')?.hidden === false);
+          await page.click('#back');
+          assert.equal(await endsAt(page, /^http:\/\/allowed\.test\/proxy-link$/), true, `Go back led to ${await whereIs(page)}`);
+        } finally {
+          await page.close();
+        }
+      });
+    });
+
+    describe('the addresses the common proxy programs make are blocked on any host, whatever site they lead to', () => {
+      for (const { name, example } of SHAPES) {
+        test(`${name}: ${example.length > 70 ? `${example.slice(0, 70)}…` : example}`, async () => {
+          const { hostname } = new URL(example);
+          await opensWithoutTheBlocker(example.replace('https:', 'http:'));
+          await assertStopped(example, [hostname]);
+          await assertStopped(example.replace('https:', 'http:'), [hostname]);
+        });
+      }
+
+      test("the browser takes every pattern among the rules it is given, and its own rule matcher stops each program's example", async () => {
+        // Chrome leaves out a rule whose pattern compiles too large, with no error: Rammerhead's was, written
+        // with {32}, and its pages were stopped by the background script alone, after a request had gone out.
+        const page = await openSettings();
+        try {
+          const manifest = JSON.parse(readFileSync(join(EXTENSION_DIR, 'manifest.json'), 'utf8'));
+          const patterns = manifest.declarative_net_request.rule_resources.flatMap(({ path }) => JSON.parse(readFileSync(join(EXTENSION_DIR, path), 'utf8')).map((rule) => rule.condition.regexFilter).filter(Boolean));
+          for (const { pattern } of SHAPES) assert.ok(patterns.includes(pattern), `among the rules: ${pattern}`);
+          for (const regex of new Set(patterns)) {
+            assert.deepEqual(await page.evaluate((pattern) => chrome.declarativeNetRequest.isRegexSupported({ regex: pattern }), regex), { isSupported: true }, regex);
+          }
+          for (const { name, example } of SHAPES) {
+            for (const type of ['main_frame', 'sub_frame', 'image', 'script', 'xmlhttprequest', 'other']) {
+              const { matchedRules } = await page.evaluate(([url, kind]) => chrome.declarativeNetRequest.testMatchOutcome({ url, type: kind }), [example, type]);
+              assert.equal(matchedRules.length, 1, `${name}, ${type}: ${JSON.stringify(matchedRules)}`);
+              assert.equal(matchedRules[0].rulesetId, 'proxies', `${name}, ${type}`);
+              // Each shape has two rules, one after the other: a page to the block page, and everything else blocked.
+              assert.equal((matchedRules[0].ruleId - PROXIES_FIRST_ID) % 2, type === 'main_frame' ? 0 : 1, `${name}, ${type}: rule ${matchedRules[0].ruleId}`);
+            }
+          }
+        } finally {
+          await page.close();
+        }
+      });
+
+      test('addresses that only look like them open as before', async () => {
+        const others = [
+          'http://allowed.test/page?cpo=1&x__cpo=2',
+          'http://allowed.test/__cpi.phtml',
+          'http://allowed.test/browse.php?id=7',
+          'http://allowed.test/browse.php?u=short&b=1',
+          'http://allowed.test/service/hvtr',
+          'http://allowed.test/0123456789abcdef0123456789abcdef/page',
+          'http://allowed.test/photos/_rhs.jpg',
+          'http://allowed.test/cgi-bin/proxy.cgi',
+        ];
+        for (const url of others) assert.equal((await visit(browser.context, url)).outcome, 'site loaded', url);
+      });
+
+      test('nothing is fetched from such an address into another page: pictures, scripts, frames and fetches are blocked', async () => {
+        const probe = (page) =>
+          page.evaluate(async (query) => ({
+            image: document.getElementById('img').naturalWidth > 0 ? 'loaded' : 'blocked',
+            script: window.__loadedFromBlockedSite ? 'loaded' : 'blocked',
+            fetch: await fetch(`http://cdn.allowed.test/api${query}`, { mode: 'no-cors' }).then(() => 'loaded', () => 'blocked'),
+          }), `?__cpo=${base64url(UNLISTED)}`);
+        const proxied = () => stub.requests.filter(({ search }) => (search ?? '').includes('__cpo=')).map(({ host, path }) => `${host}${path}`);
+        // Control: without the blocker they all load.
+        stub.clear();
+        const control = await plain.context.newPage();
+        try {
+          await control.goto('http://allowed.test/embeds-proxied', { waitUntil: 'load' });
+          assert.deepEqual(await probe(control), { image: 'loaded', script: 'loaded', fetch: 'loaded' });
+          assert.deepEqual(proxied().sort(), ['cdn.allowed.test/api', 'cdn.allowed.test/frame', 'cdn.allowed.test/pixel.gif', 'cdn.allowed.test/x.js']);
+        } finally {
+          await control.close();
+        }
+        stub.clear();
+        const page = await browser.context.newPage();
+        try {
+          await page.goto('http://allowed.test/embeds-proxied', { waitUntil: 'load' });
+          assert.deepEqual(await probe(page), { image: 'blocked', script: 'blocked', fetch: 'blocked' });
+          assert.deepEqual(proxied(), [], 'a request with __cpo in it went out');
+          assert.equal(await whereIs(page), 'http://allowed.test/embeds-proxied', 'the page itself stays');
+        } finally {
+          await page.close();
+        }
+      });
+    });
+
+    describe('a listed site named inside another address is blocked, however it is written', () => {
+      const roadsTo = (site) => [
+        ['as it is', `http://allowed.test/fetch?url=http://${site}/`],
+        ['percent-coded', `http://allowed.test/fetch?url=${encodeURIComponent(`https://www.${site}/page?x=1`)}`],
+        ['percent-coded twice', `http://allowed.test/fetch?url=${encodeURIComponent(encodeURIComponent(`https://${site}/`))}`],
+        ['in the path', `http://allowed.test/go/https://${site}/gallery`],
+        ['in the path, as /https/site/', `http://allowed.test/proxy/https/${site}/gallery`],
+        ['after the #', `http://allowed.test/reader#https://${site}/`],
+        ['in base64', `http://allowed.test/fetch?q=${base64(`https://${site}/`)}`],
+        ['in base64 for addresses, in the path', `http://allowed.test/go/${base64url(`https://${site}/a/b`)}`],
+        ['in base64 twice', `http://allowed.test/go/${base64url(base64(`https://${site}/`))}`],
+        ['in base64 with other things before it', `http://allowed.test/go?d=${base64(`{"id":7,"to":"https://${site}/"}`)}`],
+        ['its name alone in base64', `http://allowed.test/open?site=${base64(site)}`],
+        ['backwards by 13 letters', `http://allowed.test/open?to=${`https://${site}/`.replace(/[a-z]/g, (c) => String.fromCharCode(((c.charCodeAt(0) - 97 + 13) % 26) + 97))}`],
+        ['in a Google translation’s own host name', `https://${site.replaceAll('-', '--').replaceAll('.', '-')}.translate.goog/?_x_tr_sl=auto&_x_tr_tl=en`],
+        ['in a Google translation', `https://translate.google.com/translate?sl=auto&tl=en&u=${site}`],
+        ['in the Wayback Machine', `https://web.archive.org/web/2020/${site}/`],
+        ['in the Wayback Machine’s list of copies', `https://web.archive.org/web/*/${site}*`],
+        ['in archive.today', `https://archive.ph/newest/${site}`],
+        ['in Google’s copy for phones', `https://www.google.com/amp/s/${site}/page`],
+      ];
+
+      for (const [name, url] of roadsTo(SITE)) {
+        test(`${name}: ${url.length > 90 ? `${url.slice(0, 90)}…` : url}`, async () => {
+          await assertStopped(url, [SITE]);
+        });
+      }
+
+      test('control: the same addresses for a site on no list open as before, here and without the blocker', async () => {
+        for (const [name, url] of roadsTo('allowed-site.test')) {
+          assert.equal((await visit(browser.context, url)).outcome, 'site loaded', `${name}: ${url}`);
+        }
+        for (const [name, url] of roadsTo(SITE).slice(0, 3)) await opensWithoutTheBlocker(url).catch((error) => assert.fail(`${name}: ${error.message}`));
+      });
+
+      test('an address that merely mentions a listed site, or holds something that only looks like one, opens as before', async () => {
+        const others = [
+          `http://allowed.test/search?q=${SITE}`,
+          `http://allowed.test/search?q=is+${SITE}+safe`,
+          `http://allowed.test/login?next=${SITE}`,
+          `http://allowed.test/${SITE}`,
+          `http://allowed.test/whois/${SITE}`,
+          `http://allowed.test/fetch?url=https://not${SITE}/`,
+          `http://allowed.test/fetch?url=https://${SITE}.allowed.test/`,
+          `http://allowed.test/open?site=${base64(`not${SITE}`)}`,
+          `http://allowed.test/session/${base64url('a session token that happens to be long enough to look like anything at all')}`,
+          `https://web.archive.org/web/2020/not${SITE}/`,
+        ];
+        for (const url of others) assert.equal((await visit(browser.context, url)).outcome, 'site loaded', url);
+      });
+
+      for (const { name, example } of CARRIERS) {
+        test(`${name} still opens for a site on no list: ${example.length > 70 ? `${example.slice(0, 70)}…` : example}`, async () => {
+          assert.equal((await visit(browser.context, example)).outcome, 'site loaded', example);
+        });
+      }
+    });
+
+    describe('what a tab comes to show without a page load', () => {
+      test('an address the page writes for itself is read too: one that names a listed site is replaced by the block page', async () => {
+        for (const button of ['push', 'hash']) {
+          const page = await browser.context.newPage();
+          try {
+            await page.goto('http://allowed.test/app');
+            await page.click('#other');
+            await pause(500);
+            assert.match(await whereIs(page), /^http:\/\/allowed\.test\/app\/view\?url=/, 'an address for a site on no list stays');
+            await page.click(`#${button}`, STARTED);
+            assert.equal(await endsAt(page, BLOCK_PAGE), true, `${button}: the tab shows ${await whereIs(page)}`);
+            assert.equal(stub.reached(SITE), false);
+          } finally {
+            await page.close();
+          }
+        }
+      });
+
+      test('a frame that shows a listed site by another road is emptied, the page around it stays, and nothing is noted', async () => {
+        const settings = await freshRecord();
+        const page = await browser.context.newPage();
+        try {
+          await page.goto('http://allowed.test/frames-proxied', { waitUntil: 'load' });
+          const frames = () => page.frames().slice(1).map((frame) => frame.url());
+          const until = Date.now() + 10_000;
+          while (frames().some((url) => url.includes(SITE)) && Date.now() < until) await pause(100);
+          assert.deepEqual(frames().sort(), ['about:blank', `http://cdn.allowed.test/view?url=${encodeURIComponent(UNLISTED)}`].sort());
+          assert.equal(await whereIs(page), 'http://allowed.test/frames-proxied');
+          assert.match(await page.locator('h1').innerText(), /SITE LOADED/);
+          await pause(500);
+          assert.deepEqual(await stored(settings), [], 'only a page opened in a tab is a try');
+        } finally {
+          await page.close();
+          await settings.close();
+        }
+      });
+
+      test('a proxy that makes its pages in the browser, where no rule sees a request: a tab is sent to the block page and a frame is emptied', async () => {
+        const shaped = workerPage(ultraviolet(UNLISTED)); // known by the shape of its address
+        const naming = workerPage(encodeURIComponent(`https://${SITE}/`)); // known by the listed site it names
+        // Control, without the blocker: the worker makes the page, and nothing is asked of any server for it.
+        const control = await withTheWorker(plain.context);
+        try {
+          for (const url of [shaped, naming]) {
+            stub.clear();
+            await control.goto(url);
+            assert.match(await control.locator('body').innerText(), new RegExp(WORKER_SERVED), url);
+            assert.deepEqual(stub.requests.map(({ host, path }) => `${host}${path}`).filter((asked) => asked.includes('/service/')), [], 'the page came from the worker');
+          }
+        } finally {
+          await control.close();
+        }
+
+        const page = await withTheWorker(browser.context);
+        try {
+          for (const url of [shaped, naming]) {
+            await page.goto(`http://${WORKER_HOST}/`);
+            startLoad(page, url);
+            assert.equal(await endsAt(page, BLOCK_PAGE), true, `${url} ended at ${await whereIs(page)}`);
+          }
+          // In a frame: the page around it stays, and the frame ends up empty.
+          await page.goto(`http://${WORKER_HOST}/framed`, { waitUntil: 'load' });
+          const frame = () => page.frames().slice(1).map((inner) => inner.url());
+          const until = Date.now() + 10_000;
+          while (frame().some((url) => url.includes('/service/')) && Date.now() < until) await pause(100);
+          assert.equal(frame().some((url) => url.includes('/service/')), false, `the frame shows ${frame()}`);
+          assert.equal(await whereIs(page), `http://${WORKER_HOST}/framed`);
+          assert.doesNotMatch(await page.frames()[1].locator('body').innerText(), new RegExp(WORKER_SERVED));
+        } finally {
+          await page.close();
+        }
+      });
+
+      test('a tab already showing a site through a proxy is sent to the block page when that site is added to the list', async () => {
+        const settings = await openSettings();
+        const open = await visit(browser.context, `http://allowed.test/fetch?url=${encodeURIComponent('https://added-later.test/')}`, { keepOpen: true });
+        const other = await visit(browser.context, `http://allowed.test/fetch?url=${encodeURIComponent(UNLISTED)}`, { keepOpen: true });
+        try {
+          assert.equal(open.outcome, 'site loaded', 'not listed yet');
+          await saveList(settings, 'added-later.test');
+          assert.equal(await endsAt(open.page, BLOCK_PAGE), true, `the tab shows ${await whereIs(open.page)}`);
+          assert.match(await whereIs(other.page), /^http:\/\/allowed\.test\/fetch/, 'a tab showing another site through the same proxy stays');
+        } finally {
+          await saveList(settings, '').catch(() => {});
+          await open.page.close();
+          await other.page.close();
+          await settings.close();
+        }
+      });
+    });
+
+    describe('the record says which road was tried', () => {
+      test('"Blocked, through" the proxy for a listed site, and "Blocked, a web proxy" for a proxy’s address that leads elsewhere; neither is marked as opened', async () => {
+        const settings = await freshRecord();
+        let tries = null;
+        let record = null;
+        try {
+          const before = Date.now();
+          await assertStopped(REPORTED, [PROXY]);
+          await assertStopped(PROXIED, [PROXY]); // straight after: the same try
+          let list = await recorded(settings, 1);
+          assert.deepEqual(roads(list), [{ site: SITE, via: PROXY }]);
+          assert.ok(list[0].at >= before - 1000 && list[0].at <= Date.now() + 1000, `at: ${list[0].at}`);
+
+          await pause(2100); // more than the two seconds that make two notes one try
+          const shaped = `https://203.0.113.7/page?__cpo=${base64url(UNLISTED)}`;
+          await assertStopped(shaped, ['203.0.113.7']);
+          await pause(2100);
+          await assertStopped(`https://web.archive.org/web/2020/${SITE}/`, [SITE]);
+          await pause(1000); // long enough for a page that loaded after all to be marked as opened
+          list = await recorded(settings, 3);
+          assert.deepEqual(roads(list), [{ site: SITE, via: PROXY }, { site: '203.0.113.7', proxy: true }, { site: SITE, via: 'web.archive.org' }]);
+
+          // The settings page: the latest three, newest first.
+          await settings.waitForFunction(() => document.querySelectorAll('#attempts-table tbody tr').length === 3);
+          const shown = await settings.evaluate(() => [...document.querySelectorAll('#attempts-table tbody tr')].map((row) => [...row.cells].slice(1).map((cell) => cell.textContent)));
+          assert.deepEqual(shown, [[SITE, 'Blocked, through web.archive.org'], ['203.0.113.7', 'Blocked, a web proxy'], [SITE, `Blocked, through ${PROXY}`]]);
+          assert.match(await settings.locator('#attempts-summary').innerText(), /^3 attempts, the latest at .+\.$/, 'none opened');
+
+          // Every try: the same words.
+          tries = await browser.context.newPage();
+          tries.errors = [];
+          tries.on('pageerror', (error) => tries.errors.push(error.message));
+          await tries.goto(`chrome-extension://${browser.extensionId}/tries.html`);
+          await tries.waitForFunction(() => document.querySelectorAll('.day tbody tr:not(.band)').length === 3);
+          const rows = await tries.evaluate(() => [...document.querySelectorAll('.day tbody tr:not(.band)')].map((row) => [...row.cells].slice(1).map((cell) => cell.textContent)));
+          assert.deepEqual(rows, shown);
+          assert.deepEqual(tries.errors, []);
+
+          // And the saved file, oldest first.
+          record = await browser.context.newPage();
+          await record.goto(`chrome-extension://${browser.extensionId}/attempts.html`);
+          await record.waitForFunction(() => document.querySelectorAll('#sites-table tbody tr').length === 2);
+          const [download] = await Promise.all([record.waitForEvent('download'), record.click('#save-file')]);
+          const lines = readFileSync(await download.path(), 'utf8').trim().split('\n').slice(1).map((line) => line.replace(/^[^,]+,/, ''));
+          assert.deepEqual(lines, [`${SITE},"Blocked, through ${PROXY}",,,,`, '203.0.113.7,"Blocked, a web proxy",,,,', `${SITE},"Blocked, through web.archive.org",,,,`]);
+          assert.deepEqual(settings.errors, []);
+        } finally {
+          await settings.evaluate(() => chrome.storage.local.remove('attempts')).catch(() => {});
+          await tries?.close();
+          await record?.close();
+          await settings.close();
+        }
+      });
+
+      test("visits by another road found in this browser's history are added with their road, then taken out of the history with any bookmarks", async () => {
+        const settings = await freshRecord();
+        const record = await browser.context.newPage();
+        const wayback = `https://web.archive.org/web/2020/https://${SITE}/`;
+        const keptBookmark = `https://web.archive.org/web/2020/${UNLISTED}`;
+        const keptVisit = `http://allowed.test/fetch?url=${encodeURIComponent(UNLISTED)}`;
+        const history = () => settings.evaluate(() => chrome.history.search({ text: '', startTime: 0, maxResults: 10_000 }).then((items) => items.map((item) => item.url)));
+        const bookmarks = () => settings.evaluate(() => chrome.bookmarks.search('archive.org').then((items) => items.map((item) => item.url).filter(Boolean)));
+        try {
+          // Visits the extension never saw, and bookmarks: put straight into the browser (Chrome dates the visits now).
+          await settings.evaluate((urls) => Promise.all(urls.map((url) => chrome.history.addUrl({ url }))), [PROXIED, keptVisit]);
+          await settings.evaluate((urls) => Promise.all(urls.map((url) => chrome.bookmarks.create({ title: 'saved', url }))), [wayback, keptBookmark]);
+          assert.ok((await history()).includes(PROXIED));
+          await record.goto(`chrome-extension://${browser.extensionId}/attempts.html`);
+          await record.waitForFunction(() => document.getElementById('history-scan').textContent.length > 0);
+          await record.click('#history-scan-now');
+          await record.waitForFunction(() => /^Looked through this browser's history on .+: found \d+ visits? to listed sites/.test(document.getElementById('history-scan').textContent));
+          const list = await stored(settings);
+          const found = list.filter((entry) => entry.via === PROXY);
+          assert.ok(found.length >= 1, JSON.stringify(list));
+          for (const entry of found) assert.deepEqual(roads([entry]), [{ site: SITE, via: PROXY, from: 'history' }]);
+          assert.ok(found.some((entry) => Date.now() - entry.at < 60_000), 'the visit just added, with its own time');
+          await settings.waitForFunction((words) => [...document.querySelectorAll('#attempts-table tbody tr')].some((row) => row.cells[2].textContent === words), `Visited before it was listed, through ${PROXY}`);
+          // Taken out of the history, and the bookmark removed; what leads to a site on no list stays.
+          assert.equal((await history()).includes(PROXIED), false, 'the proxied page is out of the history');
+          assert.ok((await history()).includes(keptVisit));
+          const kept = await bookmarks();
+          assert.equal(kept.includes(wayback), false, 'the bookmark to the archive’s copy of a listed site is removed');
+          assert.ok(kept.includes(keptBookmark));
+        } finally {
+          await settings.evaluate(() => chrome.bookmarks.search('archive.org').then((items) => Promise.all(items.filter((item) => item.url).map((item) => chrome.bookmarks.remove(item.id))))).catch(() => {});
+          await settings.evaluate(() => chrome.storage.local.remove(['attempts', 'historyScan'])).catch(() => {});
+          await record.close();
+          await settings.close();
+        }
+      });
+    });
+
+    describe('the web proxies on the built-in list are blocked by name', () => {
+      for (const proxy of ['croxyproxy.com', 'proxyium.com', 'blockaway.net', 'proxysite.com', 'hideproxy.me', 'rammerhead.org']) {
+        test(proxy, async () => {
+          await assertBlocked(`https://www.${proxy}/`, proxy);
+          await assertBlocked(`http://${proxy}/servers`, proxy);
+        });
+      }
+
+      test('archives and translators are not on it: they are stopped only for a listed site', async () => {
+        for (const url of ['https://web.archive.org/', 'https://archive.ph/', 'https://translate.google.com/', 'https://translate.yandex.com/']) {
+          assert.equal((await visit(browser.context, url)).outcome, 'site loaded', url);
+        }
+      });
     });
   });
 
@@ -3100,8 +3656,8 @@ describe('real browser', () => {
         assert.equal(await open.page.locator('h1').innerText(), 'It’s bedtime');
         assert.equal(await open.page.title(), 'Bedtime');
 
-        // A page being opened lands there too, by http or https, listed or not, and nothing is asked of its site.
-        for (const url of ['http://allowed.test/new?a=1&b=2', 'https://www.google.com/search?q=cats', BLOCKED_URL]) {
+        // A page being opened lands there too, by http or https, listed or not, a web proxy's (1.31.0) or not, and nothing is asked of its site.
+        for (const url of ['http://allowed.test/new?a=1&b=2', 'https://www.google.com/search?q=cats', BLOCKED_URL, PROXIED, `http://allowed.test/fetch?url=${BLOCKED_URL}`]) {
           stub.clear();
           const result = await visit(night.context, url);
           assert.equal(result.finalUrl, bedtimePage(url), url);
@@ -3306,6 +3862,13 @@ describe('real browser', () => {
         await page.waitForURL('http://allowed.test/back?x=1');
         await page.goto(bedtimePage(BLOCKED_URL));
         await page.waitForURL(BLOCK_PAGE);
+        // So is a listed site by another road, and a web proxy's address (1.31.0), with nothing asked of the proxy.
+        for (const url of [PROXIED, `http://allowed.test/fetch?url=${BLOCKED_URL}`, SHAPES[0].example]) {
+          stub.clear();
+          await page.goto(bedtimePage(url));
+          await page.waitForURL(BLOCK_PAGE);
+          assert.deepEqual(stub.requests.map(({ host }) => host), [], `${url}: a request went out`);
+        }
         for (const hash of ['', '#', '#javascript:alert(1)', '#file:///etc/hosts', `#chrome-extension://${night.extensionId}/options.html`, '#allowed.test']) {
           await page.goto('about:blank');
           await page.goto(`chrome-extension://${night.extensionId}/bedtime.html${hash}`);

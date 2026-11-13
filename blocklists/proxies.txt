@@ -1,0 +1,55 @@
+# Web proxies: sites that fetch another site's pages and show them under their own address, which is a
+# way round any list of sites. One domain per line, as in starter.txt; blocking a domain also blocks all
+# of its subdomains. The rules for the shape of a proxy's addresses (extension/lib/proxies.js) stop most
+# proxies wherever they are, on whatever address; this list names the well-known sites, so that their
+# front pages are blocked too, and so that those whose addresses have no shape to go by are stopped.
+#
+# Each site here was opened on November 13, 2026 and offered, on its own front page, to fetch other
+# sites. Sites that sell proxy servers or VPNs to set up on a computer are left out: with one of those
+# the browser still asks for the listed site by name, and the rules still stop it.
+
+# CroxyProxy and the sites that run its program
+croxyproxy.com
+croxyproxy.rocks
+croxyproxy.net
+croxy.network
+croxy.org
+youtubeunblocked.live
+blockaway.net
+blockaway.com
+proxyium.com
+proxypal.net
+azureserv.com           # where ProxyPal's pages are served from
+
+# Other web proxies
+proxyorb.com
+4everproxy.com
+genmirror.com
+proxfree.com
+weboproxy.com
+proxysite.one
+proxysite.pro
+freeproxy.win
+freeproxy.io
+sitenable.com
+sitenable.info
+sitenable.ch
+turbohide.org
+unblock-websites.com
+unblockvideos.com
+my-proxy.com
+hidester.one
+anonymizing.com
+free-proxy.com          # sends its visitors to anonymizing.com
+proxify.com
+vpnbook.com             # its free web proxy is on the same site as its VPN pages
+shuttleproxy.com
+rammerhead.org
+
+# Web proxies known for years that could not be opened from the build machine that day (a certificate
+# that didn't fit, or a check for robots)
+proxysite.com
+kproxy.com
+hideproxy.me            # the host of hide.me's web proxy
+hidemyass-freeproxy.com
+anonymouse.org

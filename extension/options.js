@@ -1,7 +1,7 @@
 // The settings page: a board that says whether everything is working and what still needs switching on,
 // the three settings (the person's own sites, the pictures setting, the bedtime), the record in a few lines,
 // and where the locked-away password stands. The record and the password have pages of their own.
-import { ATTEMPTS, LABELS, outcome, summarize } from './lib/attempts.js';
+import { ATTEMPTS, LABELS, outcome, roadWords, summarize } from './lib/attempts.js';
 import { BEDTIME, BEDTIME_EVENTS, WAIT_MS, bedtimeEvents, blockedAt, describeBedtime, endOf, isTimes, loosens, minutesAt, parseTime, settingOf, settle, timeValue, timeWords, within } from './lib/bedtime.js';
 import { parseDomainList } from './lib/domains.js';
 import { LOCK_CHANGES, describeLock, lockChanges, lockInForce, managedStamp, ownStamp, profileFile } from './lib/lock.js';
@@ -28,6 +28,8 @@ const CHECKS = [
   { label: 'exampleadultsite.com.example.org, a different site', url: 'https://exampleadultsite.com.example.org/', blocked: false },
   { label: 'notexampleadultsite.com, a different site', url: 'https://notexampleadultsite.com/', blocked: false },
   { label: 'example.com, an unrelated site', url: 'https://example.com/', blocked: false },
+  // From 1.31.0: an address of the shape a web proxy makes, on an address no list has (lib/proxies.js SHAPES).
+  { label: '203.0.113.7 with __cpo in the address, a web proxy', url: 'https://203.0.113.7/page?__cpo=aHR0cHM6Ly9leGFtcGxlLmNvbQ', blocked: true },
 ];
 
 const sites = (n) => (n === 1 ? '1 site' : `${n} sites`);
@@ -311,7 +313,7 @@ async function renderAttempts() {
     const row = document.createElement('tr');
     const what = outcome(attempt, watching);
     row.className = what;
-    for (const text of [when.format(attempt.at), attempt.site, LABELS[what]]) {
+    for (const text of [when.format(attempt.at), attempt.site, `${LABELS[what]}${roadWords(attempt)}`]) {
       const cell = document.createElement('td');
       cell.textContent = text;
       row.append(cell);

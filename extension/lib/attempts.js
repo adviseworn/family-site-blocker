@@ -2,7 +2,10 @@
 // script writes it, the settings page shows it, and the tests check both through these functions.
 //
 // It lives in the extension's storage under ATTEMPTS as a list, oldest first, of
-//   { at: <milliseconds since 1970>, site: <the listed domain>, opened?: true, from?: 'history' }
+//   { at: <milliseconds since 1970>, site: <the listed domain>, via?: <a host>, proxy?: true, opened?: true, from?: 'history' }
+// `via` means the try didn't go to the site's own address: the site was named inside an address at that
+// host, a web proxy, a translation or an archive (lib/proxies.js, 1.31.0). `proxy` means the page tried was
+// a web proxy's, known by the shape of its address, for a site no list has: then `site` is the proxy's host.
 // `opened` means the site's page actually loaded instead of being blocked: the extension had no access
 // to websites, say, or its rules were off. `from: 'history'` means the visit was found in the browser's
 // own history rather than seen as it happened: from before the extension was installed, from a time it
@@ -68,15 +71,17 @@ export function hostOf(url) {
 
 /**
  * The bookmarks in a bookmark tree (bookmarks.getTree) that point at listed sites: { id, url, site } each,
- * in tree order. Folders, separators and bookmarks to anything but http(s) pages are left out.
+ * in tree order. Folders, separators and bookmarks to anything but http(s) pages are left out. `siteOf`
+ * says which listed site an address is for, if any: by default the one its host is on; the background
+ * script passes one that knows the other roads to a listed site as well (lib/proxies.js siteAt).
  */
-export function bookmarksTo(tree, domains) {
+export function bookmarksTo(tree, domains, siteOf = (url) => listedDomain(hostOf(url), domains)) {
   const found = [];
   const walk = (node) => {
     if (!node) return;
     if (Array.isArray(node)) return node.forEach(walk);
     if (node.url) {
-      const site = listedDomain(hostOf(node.url), domains);
+      const site = siteOf(node.url);
       if (site) found.push({ id: node.id, url: node.url, site });
     }
     walk(node.children);
@@ -96,33 +101,42 @@ export function listedDomain(host, domains) {
   return null;
 }
 
+/** The road a try took, as an entry keeps it: `via` or `proxy` (see the top of this file), or neither for a site's own address. */
+const roadOf = ({ via, proxy }) => (typeof via === 'string' && via ? { via } : proxy === true ? { proxy: true } : {});
+
+/** The words after a try's result when it didn't go to the site's own address: ", through <host>" or ", a web proxy"; else none. */
+export const roadWords = (attempt) => (attempt?.via ? `, through ${attempt.via}` : attempt?.proxy ? ', a web proxy' : '');
+
 /**
  * Notes an attempt, or that a page opened, and returns the new list; or null when nothing changes.
  * `attempt` is { at, site } for a navigation that started, or { at, site, opened: true } for a page
- * that finished loading, which marks the attempt it belongs to rather than adding one. A navigation within
- * SAME_ATTEMPT_MS of the last note of the same site is that note's try reported again, unless the note is
- * a visit from the history: then it is a new try, noted after the visit (a site added to the list a moment
- * after it was visited, and tried again at once, gets both).
+ * that finished loading, which marks the attempt it belongs to rather than adding one; either can carry
+ * the road the try took, `via` or `proxy`, which is kept with it. A navigation within SAME_ATTEMPT_MS of
+ * the last note of the same site is that note's try reported again, unless the note is a visit from the
+ * history: then it is a new try, noted after the visit (a site added to the list a moment after it was
+ * visited, and tried again at once, gets both).
  */
-export function record(attempts, { at, site, opened = false }) {
+export function record(attempts, { at, site, opened = false, via, proxy }) {
   const list = Array.isArray(attempts) ? attempts : [];
+  const road = roadOf({ via, proxy });
   if (opened) {
     for (let i = list.length - 1; i >= 0 && at - list[i].at <= OPENED_WITHIN_MS; i -= 1) {
       if (list[i].site !== site) continue;
       if (list[i].opened) return null;
       return [...list.slice(0, i), { ...list[i], opened: true }, ...list.slice(i + 1)];
     }
-    return trim([...list, { at, site, opened: true }]);
+    return trim([...list, { at, site, ...road, opened: true }]);
   }
   const last = list[list.length - 1];
   if (last && last.site === site && !last.from && Math.abs(at - last.at) < SAME_ATTEMPT_MS) return null;
-  return trim([...list, { at, site }]);
+  return trim([...list, { at, site, ...road }]);
 }
 
 /**
- * Adds visits found in the browser's history, { at, site } each, to the record: in time order, marked as
- * from the history, leaving out any that the record already holds (the same site within two seconds: a
- * try seen as it happened, or a visit added by an earlier look) and repeats among the visits themselves.
+ * Adds visits found in the browser's history, { at, site } each, with the road when the visit wasn't to the
+ * site's own address (`via` or `proxy`), to the record: in time order, marked as from the history, leaving
+ * out any that the record already holds (the same site within two seconds: a try seen as it happened, or a
+ * visit added by an earlier look) and repeats among the visits themselves.
  * `sameWithinMs` widens the two seconds: the sweep after a live try passes a few minutes, because the
  * page of a site that got through is written to the history when it finishes loading, not when the try
  * was noted. Returns the new list (or the same one when nothing was added), how many distinct visits
@@ -138,7 +152,7 @@ export function mergeVisits(attempts, visits, sameWithinMs = SAME_ATTEMPT_MS) {
     if (distinct.some((other) => sameTry(other, visit))) continue;
     distinct.push(visit);
     if (kept.some((entry) => sameTry(entry, visit))) continue;
-    kept.push({ at: visit.at, site: visit.site, from: 'history' });
+    kept.push({ at: visit.at, site: visit.site, ...roadOf(visit), from: 'history' });
     added += 1;
   }
   if (added === 0) return { attempts: list, found: distinct.length, added };
@@ -263,13 +277,14 @@ function midnightAfter(day) {
  * whether it was found in force in the result column, as on Every try; and from 1.27.0 the pictures that
  * waited for a verdict (lib/pictures.js WAITING), with the row's words in the result column and the address
  * in its own; and from 1.30.0 the bedtime's record (lib/bedtime.js), "Bedtime" in the site column and the
- * row's words in the result column.
+ * row's words in the result column. From 1.31.0 a try that didn't go to the site's own address says so
+ * after what happened, as on Every try: "Blocked, through 203.0.113.7", "Blocked, a web proxy".
  */
 export function toCsv(attempts, watching, pictures = [], lock = [], waiting = [], bedtime = []) {
   const cell = (text) => (/[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text);
   const row = (fields) => fields.map((field) => cell(String(field ?? ''))).join(',');
   const score = (entry, name) => Math.max(0, Number(entry?.scores?.[name]) || 0);
-  const tries = (Array.isArray(attempts) ? attempts : []).map((attempt) => ({ at: attempt.at, fields: [localIso(attempt.at), attempt.site, LABELS[outcome(attempt, watching)], '', '', '', ''] }));
+  const tries = (Array.isArray(attempts) ? attempts : []).map((attempt) => ({ at: attempt.at, fields: [localIso(attempt.at), attempt.site, `${LABELS[outcome(attempt, watching)]}${roadWords(attempt)}`, '', '', '', ''] }));
   const hidden = (Array.isArray(pictures) ? pictures : []).map((entry) => ({
     at: entry.at,
     fields: [

@@ -6,12 +6,14 @@
 // access to websites (see "Access to websites" below), keeps the record of blocked attempts, and keeps
 // track of when it is running (lib/watching.js), so the record can say whether the extension was ever
 // off, and whether the Firefox lock was in force (lib/lock.js), so the record can say when it came and
-// went, and blocks every site while a bedtime lasts (lib/bedtime.js; see "Bedtime" below). Chrome, Edge and
-// Brave run it as a service worker; Firefox runs it as an event page. Both load it as a module
-// (manifest.json: background.type).
-import { ATTEMPTS, HISTORY_SCAN, bookmarksTo, hostOf, listedDomain, mergeVisits, record } from './lib/attempts.js';
+// went, blocks every site while a bedtime lasts (lib/bedtime.js; see "Bedtime" below), and stops a listed
+// site that is opened by another road, through a web proxy, a translation or an archive (lib/proxies.js;
+// see "Web proxies" below). Chrome, Edge and Brave run it as a service worker; Firefox runs it as an event
+// page. Both load it as a module (manifest.json: background.type).
+import { ATTEMPTS, HISTORY_SCAN, bookmarksTo, hostOf, mergeVisits, record } from './lib/attempts.js';
 import { BEDTIME, BEDTIME_EVENTS, ask, beginsSoon, blockedAt, endOf, keep, minutesAt, nextChange, pageFor, recordBedtime, settingOf, settle, timeWords, undo } from './lib/bedtime.js';
 import { LOCK_CHANGES, locked, recordLock } from './lib/lock.js';
+import { byAnotherRoad, proxyPageBlockRules, siteAt } from './lib/proxies.js';
 import { COPIES, COPY_SIZE, PICTURES, PICTURE_LENGTH, SHOWN, STRICTNESS, URL_LENGTH, WAITING, bodyUpTo, copiesByKey, copyKey, hashOf, hideAgain, isPage, keepCopy, markAlike, noteLook, recordHidden, recordWaiting, sameHidden, settleWaiting, showAgain, shownAgain, strictnessOf, verdict } from './lib/pictures.js';
 import { BEDTIME_PAGE, BLOCK_PAGE, PAGE_BLOCK_FIRST_ID, bedtimeRules, domainsOf, isBedtimeRule, pageBlockRules } from './lib/rules.js';
 import { UNLISTED, tallyUnlisted } from './lib/suspects.js';
@@ -40,7 +42,8 @@ api.action.onClicked.addListener(() => api.runtime.openOptionsPage());
 // The browser reports every navigation; the ones to a listed site are noted (lib/attempts.js). The rules
 // block those same navigations, so an attempt is noted whether the add-on's block page took over, or
 // Firefox's own copy of the list stopped it first. If the site's page then loads anyway, the note says
-// so: that means the blocking isn't working (the rules switched off, say).
+// so: that means the blocking isn't working (the rules switched off, say). A try at a listed site by
+// another road, and a try at a web proxy's page, are noted with the road (lib/proxies.js siteAt).
 
 const BUILT_IN = api.runtime.getURL('rules/domains.json'); // the built-in list as plain domains (npm run build)
 let domains = null; // Promise<Set<string>>: the built-in list plus the sites saved on the settings page.
@@ -261,11 +264,11 @@ function scanHistory() {
       const listed = await listedDomains();
       const items = await api.history.search({ text: '', startTime: 0, maxResults: 1_000_000 });
       for (const item of items) {
-        const site = listedDomain(hostOf(item.url), listed);
-        if (!site) continue;
+        const found = siteAt(item.url, listed);
+        if (!found) continue;
         pages.push(item.url);
         for (const visit of await api.history.getVisits({ url: item.url })) {
-          if (!/subframe/.test(visit.transition ?? '')) visits.push({ at: visit.visitTime, site });
+          if (!/subframe/.test(visit.transition ?? '')) visits.push({ ...found, at: visit.visitTime });
         }
       }
       unlisted = { at: started, sites: tallyUnlisted(items, listed) };
@@ -308,32 +311,37 @@ function scanHistory() {
 // (from a time it was off, say) that no look through the history has recorded yet: those go into the
 // record first, as the scan does it, so nothing leaves the history unrecorded. Visits from the last few
 // minutes are the try just noted (a page that got through is written to the history when it has loaded).
+// The history is searched for the site's name; a try by another road (lib/proxies.js) can have the name
+// coded in its address, where no search finds it, so the address tried is looked up as it is as well.
 const SWEEP_AFTER_MS = 2500;
 const SWEEP_SAME_MS = 300_000;
-const sweeps = new Map(); // site -> timer, so a burst of tries at one site is one sweep
+const sweeps = new Map(); // site -> { timer, urls: the addresses tried }, so a burst of tries at one site is one sweep
 
-function sweepSoon(site) {
-  clearTimeout(sweeps.get(site));
-  sweeps.set(
-    site,
-    setTimeout(() => {
-      sweeps.delete(site);
-      sweep(site).catch(() => {});
-    }, SWEEP_AFTER_MS),
-  );
+function sweepSoon(site, url) {
+  const waiting = sweeps.get(site) ?? { timer: null, urls: new Set() };
+  clearTimeout(waiting.timer);
+  if (url) waiting.urls.add(url);
+  waiting.timer = setTimeout(() => {
+    sweeps.delete(site);
+    sweep(site, waiting.urls).catch(() => {});
+  }, SWEEP_AFTER_MS);
+  sweeps.set(site, waiting);
 }
 
-async function sweep(site) {
+async function sweep(site, urls = []) {
   const listed = await listedDomains();
   const pages = [];
   const visits = [];
   const recent = Date.now() - SWEEP_SAME_MS;
-  for (const item of await api.history.search({ text: site, startTime: 0, maxResults: 100_000 })) {
-    const found = listedDomain(hostOf(item.url), listed);
+  const items = await api.history.search({ text: site, startTime: 0, maxResults: 100_000 });
+  const searched = new Set(items.map((item) => item.url));
+  for (const url of urls) if (!searched.has(url)) items.push({ url });
+  for (const item of items) {
+    const found = siteAt(item.url, listed);
     if (!found) continue;
     pages.push(item.url);
     for (const visit of await api.history.getVisits({ url: item.url }).catch(() => [])) {
-      if (visit.visitTime < recent && !/subframe/.test(visit.transition ?? '')) visits.push({ at: visit.visitTime, site: found });
+      if (visit.visitTime < recent && !/subframe/.test(visit.transition ?? '')) visits.push({ ...found, at: visit.visitTime });
     }
   }
   if (visits.length) {
@@ -348,12 +356,12 @@ async function sweep(site) {
   await takeOut(pages, listed);
 }
 
-/** Removes bookmarks to any listed site, then the given pages from the history; returns how many of each. */
+/** Removes bookmarks to any listed site, by its own address or by another road, then the given pages from the history; returns how many of each. */
 async function takeOut(pages, listed) {
   let bookmarks = 0;
   if (api.bookmarks && listed.size) {
     const tree = await api.bookmarks.getTree().catch(() => []);
-    for (const bookmark of bookmarksTo(tree, listed)) {
+    for (const bookmark of bookmarksTo(tree, listed, (url) => siteAt(url, listed)?.site ?? null)) {
       await api.bookmarks.remove(bookmark.id).catch(() => {});
       bookmarks += 1;
     }
@@ -367,31 +375,35 @@ async function takeOut(pages, listed) {
 }
 
 // Only pages in a tab (frameId 0), not frames inside other pages, and not pages Chrome prerenders by
-// itself for addresses it guesses the person might open next.
+// itself for addresses it guesses the person might open next. What comes back is what the address is to
+// the lists (lib/proxies.js siteAt): the listed site, and the road to it when that isn't its own address.
 async function listedSite({ frameId, url, documentLifecycle }) {
   if (frameId !== 0 || documentLifecycle === 'prerender') return null;
-  const host = hostOf(url);
-  return host && listedDomain(host, await listedDomains());
+  return siteAt(url, await listedDomains());
 }
 
 async function tried(details) {
   noteRunning({ fromPage: true }); // every page load the extension sees says it is running
-  const site = await listedSite(details);
-  if (!site) return;
+  const found = await listedSite(details);
+  if (!found) return;
   // Without access to websites the rules stop the page but can't put the block page in its place (see
-  // "Access to websites" below): the tab is sent there from here.
-  if (!(await hasAccess())) api.tabs.update(details.tabId, { url: BLOCK_PAGE_URL }).catch(() => {});
-  await note({ at: details.timeStamp ?? Date.now(), site });
-  sweepSoon(site);
+  // "Access to websites" below): the tab is sent there from here. So is a try by another road, which the
+  // rules may not see at all (see "Web proxies" below); during a bedtime its rules take the page instead.
+  if (!(await hasAccess()) || (byAnotherRoad(found) && !(await bedtimeNow()).blocked)) api.tabs.update(details.tabId, { url: BLOCK_PAGE_URL }).catch(() => {});
+  await note({ ...found, at: details.timeStamp ?? Date.now() });
+  sweepSoon(found.site, details.url);
 }
 
 // A listed site's page has loaded: the attempt got through. (A block page, Firefox's or the add-on's,
-// has its own address, so it never counts: Firefox reports its error pages under about:neterror.)
+// has its own address, so it never counts: Firefox reports its error pages under about:neterror.) A page
+// by another road is stopped from here, not by a rule, and can have loaded before it was: that one got
+// through only if it can't be taken out of the tab now either.
 async function opened(details) {
-  const site = await listedSite(details);
-  if (!site) return;
-  await note({ at: details.timeStamp ?? Date.now(), site, opened: true });
-  sweepSoon(site);
+  const found = await listedSite(details);
+  if (!found) return;
+  if (byAnotherRoad(found) && (await replacePage(details))) return;
+  await note({ ...found, at: details.timeStamp ?? Date.now(), opened: true });
+  sweepSoon(found.site, details.url);
 }
 
 // Two reports of each navigation, because each misses some. The browser's navigation events see every
@@ -413,8 +425,9 @@ api.webRequest.onCompleted.addListener(opened, PAGES);
 // redirect rule and tries no other: it picks the one rule that fits a request and only then asks whether
 // the extension may act on it. So the page loaded. Blocking a request outright needs no access, so while
 // access is missing, rules that block listed pages outright are kept ahead of the redirect ones
-// (lib/rules.js pageBlockRules), the person's sites included, and the tab is sent to the block page from
-// here (tried, above) in place of the page that was stopped; they come off when access is given. They last
+// (lib/rules.js pageBlockRules), the person's sites included, with the like for a web proxy's addresses
+// (lib/proxies.js proxyPageBlockRules), and the tab is sent to the block page from here (tried, above) in
+// place of the page that was stopped; they come off when access is given. They last
 // the browser session, so they are put back each time this script starts, and remade when the lists
 // change. The settings page says what still needs the access: the pictures aren't judged and safe search
 // isn't turned on.
@@ -435,7 +448,7 @@ function syncAccess() {
     .then(async () => {
       const dnr = api.declarativeNetRequest;
       const removeRuleIds = (await dnr.getSessionRules()).filter((rule) => rule.id >= PAGE_BLOCK_FIRST_ID).map((rule) => rule.id);
-      const addRules = (await hasAccess()) ? [] : pageBlockRules([...(await listedDomains())]);
+      const addRules = (await hasAccess()) ? [] : [...pageBlockRules([...(await listedDomains())]), ...proxyPageBlockRules()];
       if (removeRuleIds.length || addRules.length) await dnr.updateSessionRules({ removeRuleIds, addRules });
     })
     .catch(() => {});
@@ -456,13 +469,14 @@ api.permissions.onRemoved?.addListener(() => syncBedtime());
 // behind it, so Back doesn't bring it back, and no request goes to the site. A page no script can run in
 // (one that failed to load, say) is navigated to the block page instead. A listed site inside another
 // page (a frame) is left as it is: a load of it is blocked outright, not sent to the block page, and
-// nothing more can load into it.
+// nothing more can load into it. A tab showing a listed site by another road, or a web proxy's page
+// (lib/proxies.js), is sent to the block page with the rest.
 async function sweepTabs() {
   const listed = await listedDomains();
   const tabs = await api.tabs.query({});
   await Promise.all(
     tabs
-      .filter((tab) => listedDomain(hostOf(tab.url), listed))
+      .filter((tab) => siteAt(tab.url, listed))
       .map(async (tab) => {
         try {
           await api.scripting.executeScript({ target: { tabId: tab.id }, func: (url) => location.replace(url), args: [BLOCK_PAGE_URL] });
@@ -472,6 +486,72 @@ async function sweepTabs() {
       }),
   );
 }
+
+// --- Web proxies -----------------------------------------------------------------------------------------
+// A listed site can be opened by another road: through a web proxy, a translation or an archive, each of
+// which fetches the site's page and shows it under an address of its own (lib/proxies.js, 1.31.0). The
+// rules stop what they can see: the proxy sites on the built-in list, and every address of the shape the
+// common proxy programs make (rules/proxies.json). The rest is done here, because only a script can read
+// an address closely enough to find a listed site coded inside it, and because a proxy that serves its
+// pages from a script of its own, kept in the browser (a service worker), makes no request for a rule to
+// stop.
+//
+// A try by another road is noted and its tab sent to the block page as the load starts (tried, above).
+// The load may win that race, and some pages come up with no load at all (an address the page writes for
+// itself, Back to a page the browser kept whole, a page the browser loaded ahead of time), so whatever a
+// tab comes to show is looked at again, and replaced by the block page (replacePage). A frame inside a
+// page is emptied instead, and not noted, as a listed site in a frame is blocked and not noted.
+
+/**
+ * Puts the block page (the bedtime page, during a bedtime) in place of a page by another road that a tab
+ * was seen to show at `url`, as sweepTabs does. Resolves to whether such a page is out of the tab: replaced
+ * now, or gone already; false only when the tab still shows it and can't be sent anywhere.
+ */
+async function replacePage({ tabId, url }) {
+  const tab = await api.tabs.get(tabId).catch(() => null);
+  if (!tab) return true; // the tab is closed
+  // What the tab shows by now is what counts: it may have moved on while this script was busy, to the block
+  // page perhaps. The browser gives a tab's address only for a web page, so none means the tab shows
+  // something else by now; unless there is no access to websites, when it gives none at all, and the
+  // address reported stands.
+  const showing = tab.url ?? ((await hasAccess()) ? null : url);
+  if (!byAnotherRoad(siteAt(showing, await listedDomains()))) return true;
+  const to = (await bedtimeNow()).blocked ? pageFor(BEDTIME_PAGE_URL, showing) : BLOCK_PAGE_URL;
+  try {
+    // The page itself says where it is before it goes, in case the tab moves on in the meantime.
+    await api.scripting.executeScript({ target: { tabId }, func: (from, address) => location.href === from && location.replace(address), args: [showing, to] });
+    return true;
+  } catch {
+    return api.tabs.update(tabId, { url: to }).then(() => true, () => false);
+  }
+}
+
+/** Empties a frame that shows `url`. Where no script can run (without access to websites, that is everywhere), the tab itself is all that can be reached, and goes to the block page. */
+async function emptyFrame({ tabId, frameId, url }) {
+  try {
+    await api.scripting.executeScript({ target: { tabId, frameIds: [frameId] }, func: (from) => location.href === from && location.replace('about:blank'), args: [url] });
+  } catch {
+    if (!(await hasAccess())) await api.tabs.update(tabId, { url: BLOCK_PAGE_URL }).catch(() => {});
+  }
+}
+
+/** A tab or a frame has come to show an address: one by another road is taken out again, and noted if it is the tab's own page. */
+async function shown(details) {
+  if (details.documentLifecycle === 'prerender' || !isWebPage(details.url)) return;
+  const found = siteAt(details.url, await listedDomains());
+  if (!byAnotherRoad(found)) return;
+  if (details.frameId !== 0) return emptyFrame(details);
+  await replacePage(details);
+  await note({ ...found, at: details.timeStamp ?? Date.now() });
+  sweepSoon(found.site, details.url);
+}
+api.webNavigation.onCommitted.addListener(shown);
+api.webNavigation.onHistoryStateUpdated.addListener(shown);
+api.webNavigation.onReferenceFragmentUpdated.addListener(shown);
+// A page the browser loaded ahead of time takes over its tab with no navigation of the tab's own; the tab's address changes all the same.
+api.tabs.onUpdated.addListener((tabId, change) => {
+  if (change.url) shown({ tabId, frameId: 0, url: change.url });
+});
 
 // --- Bedtime ---------------------------------------------------------------------------------------------
 // Between the two times set on the settings page, every site is blocked (lib/bedtime.js, 1.30.0). The
@@ -682,12 +762,12 @@ function changeBedtime({ type, on, from, to, why }) {
 /**
  * For the bedtime page: whether the bedtime still lasts and until when, from a fresh look at the clock, which
  * takes the rules off first when it is over, so that the page can go back to the address it stands in for;
- * and whether that address is a listed site's, which the page then leaves to the block page.
+ * and whether that address is a listed site's, by its own address or by another road (lib/proxies.js), which
+ * the page then leaves to the block page.
  */
 async function bedtimeState(url) {
   const { blocked, until } = await syncBedtime();
-  const host = hostOf(url ?? '');
-  const listed = host ? Boolean(listedDomain(host, await listedDomains().catch(() => new Set()))) : false;
+  const listed = Boolean(siteAt(url ?? '', await listedDomains().catch(() => new Set())));
   return { blocked, until, listed };
 }
 

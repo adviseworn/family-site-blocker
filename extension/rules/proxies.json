@@ -1,0 +1,176 @@
+[
+  {
+    "id": 2001,
+    "priority": 1,
+    "action": {
+      "type": "redirect",
+      "redirect": {
+        "extensionPath": "/blocked.html"
+      }
+    },
+    "condition": {
+      "regexFilter": "^https?://[^/?#]+/[^?#]*\\?(?:[^#]*&)?__cpo=",
+      "resourceTypes": [
+        "main_frame"
+      ]
+    }
+  },
+  {
+    "id": 2002,
+    "priority": 1,
+    "action": {
+      "type": "block"
+    },
+    "condition": {
+      "regexFilter": "^https?://[^/?#]+/[^?#]*\\?(?:[^#]*&)?__cpo=",
+      "excludedResourceTypes": [
+        "main_frame"
+      ]
+    }
+  },
+  {
+    "id": 2003,
+    "priority": 1,
+    "action": {
+      "type": "redirect",
+      "redirect": {
+        "extensionPath": "/blocked.html"
+      }
+    },
+    "condition": {
+      "regexFilter": "^https?://[^/?#]+/(?:[^?#]*/)?__cpi\\.php(?:[?#]|$)",
+      "resourceTypes": [
+        "main_frame"
+      ]
+    }
+  },
+  {
+    "id": 2004,
+    "priority": 1,
+    "action": {
+      "type": "block"
+    },
+    "condition": {
+      "regexFilter": "^https?://[^/?#]+/(?:[^?#]*/)?__cpi\\.php(?:[?#]|$)",
+      "excludedResourceTypes": [
+        "main_frame"
+      ]
+    }
+  },
+  {
+    "id": 2005,
+    "priority": 1,
+    "action": {
+      "type": "redirect",
+      "redirect": {
+        "extensionPath": "/blocked.html"
+      }
+    },
+    "condition": {
+      "regexFilter": "^https?://[^/?#]+/(?:[^?#]*/)?hvtr(?:s8%2F-|%3A-%2F)",
+      "resourceTypes": [
+        "main_frame"
+      ]
+    }
+  },
+  {
+    "id": 2006,
+    "priority": 1,
+    "action": {
+      "type": "block"
+    },
+    "condition": {
+      "regexFilter": "^https?://[^/?#]+/(?:[^?#]*/)?hvtr(?:s8%2F-|%3A-%2F)",
+      "excludedResourceTypes": [
+        "main_frame"
+      ]
+    }
+  },
+  {
+    "id": 2007,
+    "priority": 1,
+    "action": {
+      "type": "redirect",
+      "redirect": {
+        "extensionPath": "/blocked.html"
+      }
+    },
+    "condition": {
+      "regexFilter": "^https?://[^/?#]+/[a-z0-9]{16}[^/?#]*/_rhs",
+      "resourceTypes": [
+        "main_frame"
+      ]
+    }
+  },
+  {
+    "id": 2008,
+    "priority": 1,
+    "action": {
+      "type": "block"
+    },
+    "condition": {
+      "regexFilter": "^https?://[^/?#]+/[a-z0-9]{16}[^/?#]*/_rhs",
+      "excludedResourceTypes": [
+        "main_frame"
+      ]
+    }
+  },
+  {
+    "id": 2009,
+    "priority": 1,
+    "action": {
+      "type": "redirect",
+      "redirect": {
+        "extensionPath": "/blocked.html"
+      }
+    },
+    "condition": {
+      "regexFilter": "^https?://[^/?#]+/(?:[^?#]*/)?browse\\.php\\?u=[^&#]{6,}&b=[0-9]{1,3}(?:&f=[a-z]+)?(?:#|$)",
+      "resourceTypes": [
+        "main_frame"
+      ]
+    }
+  },
+  {
+    "id": 2010,
+    "priority": 1,
+    "action": {
+      "type": "block"
+    },
+    "condition": {
+      "regexFilter": "^https?://[^/?#]+/(?:[^?#]*/)?browse\\.php\\?u=[^&#]{6,}&b=[0-9]{1,3}(?:&f=[a-z]+)?(?:#|$)",
+      "excludedResourceTypes": [
+        "main_frame"
+      ]
+    }
+  },
+  {
+    "id": 2011,
+    "priority": 1,
+    "action": {
+      "type": "redirect",
+      "redirect": {
+        "extensionPath": "/blocked.html"
+      }
+    },
+    "condition": {
+      "regexFilter": "^https?://[^/?#]+/(?:[^?#]*/)?nph-proxy\\.(?:cgi|pl)(?:[/?#]|$)",
+      "resourceTypes": [
+        "main_frame"
+      ]
+    }
+  },
+  {
+    "id": 2012,
+    "priority": 1,
+    "action": {
+      "type": "block"
+    },
+    "condition": {
+      "regexFilter": "^https?://[^/?#]+/(?:[^?#]*/)?nph-proxy\\.(?:cgi|pl)(?:[/?#]|$)",
+      "excludedResourceTypes": [
+        "main_frame"
+      ]
+    }
+  }
+]
