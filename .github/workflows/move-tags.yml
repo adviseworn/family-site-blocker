@@ -1,0 +1,53 @@
+# Moves the release tags onto the rewritten commits of main (the history rewrite of 2026-10-31), which have
+# the same content as the commits the tags point at now. Start it by hand from the Actions tab; it pushes with
+# the workflow's own token, so it needs no git on a Mac. Running it again is harmless: a tag already in place
+# is a no-op. Delete this file once the tags are moved.
+name: Move tags
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  move:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Point each release tag at its rewritten commit
+        run: |
+          set -e
+          git fetch origin main
+          while read -r tag old new; do
+            case "$tag" in '#'*|'') continue ;; esac
+            git push --force origin "$new:refs/tags/$tag"
+          done <<'MAP'
+          v1.1.2 b89f84751b87792d13ce5b9b099f52edf48e9027 90ad38458957716767fda5b913455f6cc94a11a4
+          v1.2.0 b9d248bf4055f972e1d0ae037d2402ed6208ed9a de1c0b4aeb42580f3c20e5af431a190c3db5bf89
+          v1.2.1 a61cad69a88f55f939f8f325e719be7e3fa1187a 2fc17932e87022878ef0aa22625eb2dcb4f390ab
+          v1.3.0 5d7bda8f7b472db893d1af9f38cb0b4be7eac066 0de434780ea464cb4cb782e56a145f2240bf9892
+          v1.3.1 cb4591a7f4c7d52f5e085b19b08cf9454e99a4dd 8bea55d69a894aaaa3c548c068b60c5df087cb75
+          v1.3.2 312a815846e382524393014f776603f0d56eb26b 37aa09ac04de2ad2d94d441b42363fa69f748c8e
+          v1.3.3 974cbfd3d6cd87e2247603c80c2dcc81822d76e5 e8a4b1a89eb1e12d2d7c8c7ea5f4cdb468a660f2
+          v1.3.4 b4fb3545ced2f66cdf6925329624477c27cf7e7d a78767d826b8fe6886a16e95c3936766b6ba874e
+          v1.3.5 110a088499d3cb53503b46d18b5962f8209cf72f aafa5e08024f7483cca35c14853b323575ca4a5c
+          v1.3.6 f1d62a1968a8d433e6d719ef328ae0d098d3a3ad 094581ebf60c5de7193e273af8446ec40e1f4281
+          v1.3.7 4fecf063f782900bc495a7e16a1339b74794572c ad021e28ee4af6681167dcf4193f3f4538ee3d29
+          v1.4.0 ffb8e7971dd55d838c22d467a7a6aa404409b53b ef04fb6aa12a18e87c717758f125d825f3eaf64c
+          v1.4.1 27aaa42f8e2f1c03059e71186797c8017c7a91a0 45bb558c4d1b84668dd7a99461896f7de5390ac3
+          v1.5.0 e0012547ded3b8db9a961e2cadacd97404a2deba 740f9ee691cc1a865cf16a289d182e051a9ad4c7
+          v1.5.1 fa58beac1c7045d99efa98c08612e2b19e6e1db8 72b1bdb3b14aeeabc18a3f509624c160be53a3a8
+          v1.5.2 fabbbfa874e70e2eda0c3c2d1fa219f368711916 614d8af0b0389877471a751f40ed187d8105b4df
+          v1.5.3 0267896aa8551666221e926aecd2eaeeae90d963 427068ff37338d11f1b12852acea315f33837559
+          v1.5.4 f6b181f325da1d61fe83088e91d4bd41c43b491e db2bde73221c5129bc0e23b265a5a6bf62523027
+          v1.5.5 8e12c78b813d633ee2f86b3f000af768419f7813 bc1cf6a3b7e9d0e509c0e8c9b0fa435d8d3f1a5d
+          v1.6.0 e23470813b39713b5a368538e902de5674a19196 800a3d9a01a3640c8fad706f4210ccd31e51ef09
+          v1.7.0 01e815057b30c68517b6a965294483d0901e0559 cd804c61b6189169d357326f826d243bc99c59b5
+          v1.9.0 9ed823e11fa5d5e55de2fdf54fe9f6c8b36b5e1d 22e73d409aa29e3acfd67ee5d5c7aa2c2f893b1f
+          v1.10.5 aa90cc1866e8c3bc3e297523376280d62321e942 5780c38fe74e926e777c0cf73fd3df1c8443077d
+          v1.11.0 4afa7c717a9331dd59cc0faf6f762d951f3a8757 b4bf8e96fd30ea8e3e6de9dd57fad3f947c8cbfb
+          MAP
+          echo "Tags moved."

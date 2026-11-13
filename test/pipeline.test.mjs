@@ -173,7 +173,9 @@ describe('a run does only what its push needs', () => {
 
   it('the other workflows only start by hand, the two on a Mac among them', () => {
     const names = readdirSync(join(ROOT, '.github', 'workflows')).sort();
-    assert.deepEqual(names, ['android.yml', 'lock-check.yml', 'mac-installer.yml', 'macos.yml', 'mozilla-backup.yml', 'pictures-check.yml', WORKFLOW]);
+    // move-tags.yml is the one kept from before the move: the release tags still have to move onto main's rewritten commits, and GitHub only
+    // starts a workflow whose file is on the default branch. It goes once they have moved, as its own first lines say.
+    assert.deepEqual(names, ['android.yml', 'lock-check.yml', 'mac-installer.yml', 'macos.yml', 'move-tags.yml', 'mozilla-backup.yml', 'pictures-check.yml', WORKFLOW]);
     for (const name of names.filter((entry) => entry !== WORKFLOW)) {
       const text = workflow(name);
       assert.match(text, /\non:\n {2}workflow_dispatch:\n/, `${name} starts by hand`);
