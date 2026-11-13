@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Bedtime</title>
+  <link rel="stylesheet" href="blocked.css">
+</head>
+<body>
+  <main id="bedtime">
+    <svg class="gate" viewBox="0 0 240 200" aria-hidden="true" focusable="false">
+      <mask id="crescent">
+        <rect width="240" height="200" fill="#fff"/>
+        <circle cx="146" cy="76" r="68" fill="#000"/>
+      </mask>
+      <circle class="gate-fill" cx="108" cy="104" r="80" mask="url(#crescent)"/>
+      <circle class="latch" cx="170" cy="58" r="7"/>
+      <circle class="latch" cx="206" cy="104" r="5"/>
+      <circle class="latch" cx="148" cy="100" r="4"/>
+    </svg>
+    <div>
+      <h1 id="heading">It’s bedtime</h1>
+      <p id="words" aria-live="polite">Family Site Blocker blocks every site until morning.</p>
+      <button id="open" type="button" hidden>Open the page</button>
+    </div>
+  </main>
+  <script type="module" src="bedtime.js"></script>
+</body>
+</html>

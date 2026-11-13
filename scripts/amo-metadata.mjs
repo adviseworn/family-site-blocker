@@ -28,7 +28,7 @@ export const LISTING = {
   },
   description: {
     'en-US': [
-      'Family Site Blocker blocks adult websites in the browser it is installed in, for a family. It starts with a built-in list of about sixty thousand sites, lets you add your own on its settings page, turns safe search on at the main search engines, and judges every picture and video a page shows before it appears, keeping the ones that show nudity hidden.',
+      'Family Site Blocker blocks adult websites in the browser it is installed in, for a family. It starts with a built-in list of about sixty thousand sites, lets you add your own on its settings page, turns safe search on at the main search engines, and judges every picture and video a page shows before it appears, keeping the ones that show nudity hidden. It can also block every site between two times of day, a bedtime you set on the same page.',
       'It keeps a record on the computer or phone, and nowhere else: every try at a listed site, with the time and whether it was blocked, the pictures it hid, and the times it was off. The settings page shows whether it is working, with a test site.',
       'For a parent there is a locked-away password page: a password you can only get back after a wait you choose. On a Mac, a configuration profile can lock the add-on so that nobody can switch it off; on a phone there is no lock, so anyone who can open Firefox’s settings can remove it.',
       `The full guide, with how it works and what it can't do: ${HOME_URL}`,
@@ -62,6 +62,7 @@ export function approvalNotes({ version, commit }) {
     '- extension/models/: the MobileNetV2 and InceptionV3 model weights of NSFWJS 4.4.0 (data, not code; extension/vendor/LICENSES.md has the details).',
     'extension/rules/*.json are data too: declarativeNetRequest rules built from the plain lists in blocklists/ by scripts/build-rules.mjs.',
     `The project's guide is public at ${HOME_URL}. This upload was made from its repository on GitHub at commit ${commit} (tagged v${version} once this version is published) by \`npm run package:firefox\` (scripts/package-firefox.mjs copies the extension folder and drops background.service_worker, which only Chromium reads, from manifest.json).`,
+    'From 1.30.0 the settings page can set a bedtime: between the two times of day the person chooses, the background script adds two dynamic declarativeNetRequest rules that send every page load to the add-on’s own page bedtime.html and block other requests, and takes them off again when the time is over; it is off until someone sets it (extension/lib/bedtime.js).',
     'The add-on sends nothing anywhere: the record it keeps stays in the browser’s storage for the extension (data_collection_permissions: none). The content script on every page keeps pictures hidden until the background script has judged them with the models, on the device; the wasm-unsafe-eval entry in the CSP is for TensorFlow.js’s WebAssembly backend.',
   ].join('\n');
 }

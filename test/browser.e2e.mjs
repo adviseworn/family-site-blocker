@@ -2290,7 +2290,10 @@ describe('real browser', () => {
         assert.equal(await page.locator('#lockbox-record').isVisible(), false, 'no record yet');
         await lockAway(page, SECRET, 3);
         assert.equal(await page.inputValue('#lockbox-secret'), '', 'the typed password is cleared');
-        assert.match(await page.locator('#lockbox-summary').innerText(), /^A password is locked away \(since .+\), never unlocked; getting it back takes about [1-4] seconds\.$/);
+        // The wait on a line of its own, first, so its length is found at a glance (1.30.0); then where things stand.
+        assert.match(await page.locator('#lockbox-wait').innerText(), /^Wait: [1-4] seconds$/);
+        assert.match(await page.locator('#lockbox-summary').innerText(), /^Locked away since .+, never unlocked\.$/);
+        assert.equal(await page.locator('#lockbox-locked > p').first().getAttribute('id'), 'lockbox-wait', 'the wait is the first line of the panel');
         const stored = await storedLockbox(page);
         assert.ok(!JSON.stringify(stored).includes(SECRET));
         assert.equal(stored.lockbox.delay, 3);
@@ -2645,7 +2648,8 @@ describe('real browser', () => {
         assert.equal(restored.lockedAt, first.lockedAt);
         assert.ok(restored.lengthenedAt, 'lengthened now');
         assert.ok(!JSON.stringify(await storedLockbox(page)).includes(first.data), 'the old box is inside the new puzzle, not beside it');
-        assert.match(await page.locator('#lockbox-summary').innerText(), /^A password is locked away \(since .+, wait lengthened .+\), never unlocked; getting it back takes about [5-7] seconds\.$/);
+        assert.match(await page.locator('#lockbox-wait').innerText(), /^Wait: [5-7] seconds$/);
+        assert.match(await page.locator('#lockbox-summary').innerText(), /^Locked away since .+, wait lengthened .+, never unlocked\.$/);
         assert.deepEqual(await recordedEvents(page), ['locked', 'lengthened', 'deleted', 'restored', 'deleted', 'restored']);
         const { lockboxEvents: events } = await storedLockbox(page);
         assert.deepEqual([events.at(-1).from, events.at(-1).to, events.at(-1).lockedAt], [2, 6, first.lockedAt]);
@@ -2752,7 +2756,8 @@ describe('real browser', () => {
         assert.ok(!text.includes(before.n) && !text.includes(before.data), 'the old box is inside the new puzzle, not beside it');
         assert.ok(!text.includes(SECRET));
         assert.equal((await storedLockbox(page)).lockboxProgress, undefined);
-        assert.match(await page.locator('#lockbox-summary').innerText(), /^A password is locked away \(since .+, wait lengthened .+\), never unlocked; getting it back takes about [4-6] seconds\.$/);
+        assert.match(await page.locator('#lockbox-wait').innerText(), /^Wait: [4-6] seconds$/);
+        assert.match(await page.locator('#lockbox-summary').innerText(), /^Locked away since .+, wait lengthened .+, never unlocked\.$/);
         // The record says so (#75), and lengthening is not an unlock.
         assert.deepEqual(await recordedEvents(page), ['locked', 'lengthened']);
         assert.equal((await shownRecord())[0].what, 'The wait was lengthened from 2 seconds to 5 seconds, without unlocking.');
@@ -2777,7 +2782,8 @@ describe('real browser', () => {
         await page.locator('#lockbox-empty').waitFor({ state: 'visible' });
         await page.setInputFiles('#lockbox-restore', file);
         await page.locator('#lockbox-locked').waitFor({ state: 'visible' });
-        assert.match(await page.locator('#lockbox-summary').innerText(), /wait lengthened .+\), never unlocked; getting it back takes about [4-6] seconds\.$/);
+        assert.match(await page.locator('#lockbox-wait').innerText(), /^Wait: [4-6] seconds$/);
+        assert.match(await page.locator('#lockbox-summary').innerText(), /wait lengthened .+, never unlocked\.$/);
         assert.deepEqual((await storedLockbox(page)).lockbox, longer);
 
         // Unlocking solves the outer puzzle, then the inner one, and ends in the password.
@@ -2912,7 +2918,7 @@ describe('real browser', () => {
         await page.click('#lockbox-lengthen');
         await page.waitForFunction(() => /^The wait is now/.test(document.getElementById('lockbox-status').textContent));
         assert.match(await lockboxStatus(page), /^The wait is now 2 days\./);
-        assert.match(await page.locator('#lockbox-summary').innerText(), /getting it back takes about 2 days\.$/);
+        assert.equal(await page.locator('#lockbox-wait').innerText(), 'Wait: 2 days');
         const box = (await storedLockbox(page)).lockbox;
         assert.equal(box.delay, 172_800);
         const wait = box.steps / box.rate + box.inside[0].steps / box.inside[0].rate;
@@ -2974,11 +2980,340 @@ describe('real browser', () => {
 
         await page.click('#lockbox-hide');
         await page.locator('#lockbox-locked').waitFor({ state: 'visible' });
-        assert.match(await page.locator('#lockbox-summary').innerText(), /^A password is locked away \(since .+\), unlocked once, last on .+; getting it back takes about [2-4] seconds\.$/);
+        assert.match(await page.locator('#lockbox-wait').innerText(), /^Wait: [2-4] seconds$/);
+        assert.match(await page.locator('#lockbox-summary').innerText(), /^Locked away since .+, unlocked once, last on .+\.$/);
         await startUnlocking(page);
         await page.locator('#lockbox-open').waitFor({ state: 'visible', timeout: 20_000 });
         assert.equal(await page.inputValue('#lockbox-revealed'), SECRET, 'the same password, after the new wait');
         assert.deepEqual(page.errors, []);
+      } finally {
+        await page.close();
+      }
+    });
+  });
+
+  describe('bedtime (1.30.0)', () => {
+    // Every site blocked between two times of day (extension/lib/bedtime.js). A Chromium of its own: a
+    // bedtime in force blocks every site, which no other test should meet. The hours are set around this
+    // moment, so that it is bedtime at once, whatever the time of day the tests run at.
+    let night;
+    const slowTest = (name, fn) => it(name, { timeout: 60_000 }, fn);
+    const BEDTIME_PAGE = /\/bedtime\.html#/;
+    const DAY_MS = 24 * 60 * 60 * 1000;
+    const minutesNow = () => new Date().getHours() * 60 + new Date().getMinutes();
+    const wrap = (minutes) => ((minutes % 1440) + 1440) % 1440;
+    /** A time as a time field holds it, "21:05", so many minutes from now. */
+    const fromNow = (minutes) => `${String(Math.floor(wrap(minutesNow() + minutes) / 60)).padStart(2, '0')}:${String(wrap(minutesNow() + minutes) % 60).padStart(2, '0')}`;
+    /** Hours that began an hour ago and end in an hour, as the setting holds them. */
+    const around = () => ({ from: wrap(minutesNow() - 60), to: wrap(minutesNow() + 60) });
+    const bedtimePage = (url) => `chrome-extension://${night.extensionId}/bedtime.html#${url}`;
+
+    before(async () => {
+      night = await launchBrowser(stub);
+      await (await findPage(night.context, (url) => url.endsWith('/options.html')))?.close();
+    });
+
+    after(async () => {
+      await night?.close();
+    });
+
+    async function settings() {
+      const page = await night.context.newPage();
+      page.errors = [];
+      page.on('pageerror', (error) => page.errors.push(error.message));
+      await page.goto(`chrome-extension://${night.extensionId}/options.html`);
+      await page.waitForFunction(() => !document.getElementById('bedtime-line').textContent.startsWith('Loading'));
+      return page;
+    }
+    const stored = (page) => page.evaluate(() => chrome.storage.local.get(['bedtime', 'bedtimeEvents']));
+    const events = async (page) => ((await stored(page)).bedtimeEvents ?? []).map((entry) => entry.event);
+    const ruleIds = (page) => page.evaluate(() => chrome.declarativeNetRequest.getDynamicRules().then((rules) => rules.map((rule) => rule.id).filter((id) => id >= 900_001 && id <= 1_000_000).sort()));
+    const rulesInPlace = (page, want) =>
+      page.waitForFunction(async (expected) => (await chrome.declarativeNetRequest.getDynamicRules()).some((rule) => rule.id === 900_001) === expected, want);
+    const said = (page, words) => page.waitForFunction((expected) => document.getElementById('bedtime-status').textContent === expected, words);
+    const line = (page) => page.locator('#bedtime-line').innerText();
+
+    /** Puts a setting straight into storage, as one set a while ago (nothing left to undo), and waits for the background script to act on it. */
+    async function seed(page, bedtime, { blocked }) {
+      await page.evaluate((value) => chrome.storage.local.set({ bedtime: value }), bedtime);
+      await rulesInPlace(page, blocked);
+    }
+
+    /** Back to no bedtime and no record of one, with the sites open again. */
+    async function reset(page) {
+      await page.evaluate(() => chrome.storage.local.remove(['bedtime', 'bedtimeEvents']));
+      await rulesInPlace(page, false);
+    }
+
+    test('is off until someone sets it: the settings page offers 9:00 PM to 5:00 AM, and sites open', async () => {
+      const page = await settings();
+      try {
+        assert.equal(await page.locator('.contents a[href="#bedtime"]').innerText(), 'Bedtime', 'the contents line leads to the section');
+        assert.equal(await line(page), 'Bedtime is off.');
+        assert.equal(await page.isChecked('#bedtime-on'), false);
+        assert.equal(await page.inputValue('#bedtime-from'), '21:00');
+        assert.equal(await page.inputValue('#bedtime-to'), '05:00');
+        for (const id of ['bedtime-why-area', 'bedtime-waiting', 'bedtime-undo-line', 'bedtime-hint']) assert.equal(await page.locator(`#${id}`).isVisible(), false, id);
+        assert.deepEqual(await ruleIds(page), []);
+        assert.equal((await visit(night.context, 'http://allowed.test/day')).outcome, 'site loaded');
+        // Saving it as it is changes nothing and leaves no entry in the record.
+        await page.click('#bedtime-save');
+        await said(page, 'Bedtime is as it was.');
+        assert.deepEqual(await events(page), []);
+        // A start and an end are both needed, and they can't be the same.
+        await page.check('#bedtime-on');
+        await page.fill('#bedtime-to', '21:00');
+        await page.click('#bedtime-save');
+        await said(page, 'The two times are the same. Choose a start and an end.');
+        await page.fill('#bedtime-to', '');
+        await page.click('#bedtime-save');
+        await said(page, 'Choose a start and an end.');
+        assert.deepEqual(await stored(page), {});
+        assert.deepEqual(page.errors, []);
+      } finally {
+        await page.close();
+      }
+    });
+
+    slowTest('turned on inside its hours it blocks every site at once: a page being opened lands on the bedtime page with nothing fetched, the tabs open are sent there, and Undo that change brings them back', async () => {
+      const page = await settings();
+      const open = await visit(night.context, 'http://allowed.test/reading?page=2#notes', { keepOpen: true });
+      let listed = null;
+      try {
+        assert.equal(open.outcome, 'site loaded');
+        await page.check('#bedtime-on');
+        await page.fill('#bedtime-from', fromNow(-60));
+        await page.fill('#bedtime-to', fromNow(60));
+        assert.match(await page.locator('#bedtime-hint').innerText(), /^Saving starts bedtime at once, until .+\.$/, 'said before Save is pressed');
+        assert.equal(await page.locator('#bedtime-why-area').isVisible(), false, 'no reason is asked for blocking more');
+        await page.click('#bedtime-save');
+        await said(page, 'Saved.');
+        assert.match(await line(page), /^It’s bedtime until .+\. Every site is blocked from .+ to .+, every day\.$/);
+        assert.match(await page.locator('#bedtime-undo-line').innerText(), /^Undo that change, until .+$/);
+        assert.deepEqual(await ruleIds(page), [900_001, 900_002]);
+        assert.deepEqual(await events(page), ['set']);
+
+        // The tab that was open shows the bedtime page in place of its page, and keeps the page's address.
+        await open.page.waitForURL(BEDTIME_PAGE);
+        assert.equal(open.page.url(), bedtimePage('http://allowed.test/reading?page=2#notes'));
+        await open.page.waitForFunction(() => /^Every site is blocked until .+\.$/.test(document.getElementById('words').textContent));
+        assert.equal(await open.page.locator('h1').innerText(), 'It’s bedtime');
+        assert.equal(await open.page.title(), 'Bedtime');
+
+        // A page being opened lands there too, by http or https, listed or not, and nothing is asked of its site.
+        for (const url of ['http://allowed.test/new?a=1&b=2', 'https://www.google.com/search?q=cats', BLOCKED_URL]) {
+          stub.clear();
+          const result = await visit(night.context, url);
+          assert.equal(result.finalUrl, bedtimePage(url), url);
+          assert.equal(result.heading, 'It’s bedtime', url);
+          assert.deepEqual(stub.requests.map(({ host }) => host), [], `${url}: a request went out`);
+        }
+        // Everything else a page could ask for is blocked outright.
+        stub.clear();
+        assert.match(await page.evaluate(() => fetch('http://allowed.test/pixel.gif').then((answer) => `fetched ${answer.status}`, (error) => String(error))), /Failed to fetch/);
+        assert.equal(stub.reached('allowed.test'), false);
+        // The settings page stays open, and its board says why the test site shows something else.
+        const board = await settings();
+        try {
+          await board.waitForFunction(() => /bedtime/.test(document.getElementById('check-note').textContent));
+          assert.match(await board.locator('#check-note').innerText(), /^It’s bedtime until .+, so every site shows the bedtime page instead\.$/);
+          assert.equal(await board.locator('#check-details').isVisible(), false, 'the checks can tell nothing while every address is blocked');
+          assert.equal(await board.isChecked('#bedtime-on'), true);
+        } finally {
+          await board.close();
+        }
+        // The person's list is kept in the same store as the bedtime's rules: saving it leaves the bedtime in force.
+        assert.match(await saveList(page, 'mine.example'), /^Saved\. 1 site on your list\./);
+        assert.deepEqual(await ruleIds(page), [900_001, 900_002]);
+        assert.equal((await visit(night.context, 'http://allowed.test/still')).finalUrl, bedtimePage('http://allowed.test/still'));
+
+        // Undone within its ten minutes, the sites open again: the tab goes back to its page, a listed site's to the block page.
+        listed = await visit(night.context, BLOCKED_URL, { keepOpen: true });
+        await page.click('#bedtime-undo');
+        await said(page, 'Undone.');
+        assert.equal(await line(page), 'Bedtime is off.');
+        assert.equal(await page.isChecked('#bedtime-on'), false, 'the form shows it as it is again');
+        assert.equal(await page.locator('#bedtime-undo-line').isVisible(), false);
+        await open.page.waitForURL('http://allowed.test/reading?page=2#notes');
+        await open.page.locator('h1').waitFor();
+        assert.match(await open.page.locator('body').innerText(), /SITE LOADED/);
+        await listed.page.waitForURL(BLOCK_PAGE);
+        assert.deepEqual(await ruleIds(page), []);
+        assert.deepEqual(await events(page), ['set', 'undone']);
+        assert.equal((await visit(night.context, 'http://allowed.test/again')).outcome, 'site loaded');
+        assert.equal((await visit(night.context, 'http://mine.example/')).outcome, 'blocked page', 'and the site saved meanwhile is blocked as any other on the list');
+        assert.deepEqual(page.errors, []);
+      } finally {
+        await saveList(page, '').catch(() => {});
+        await reset(page);
+        await listed?.page.close();
+        await open.page.close();
+        await page.close();
+      }
+    });
+
+    slowTest('turning it off or making it shorter takes a reason and a day: until then it stays as it was, Keep bedtime as it is takes the change back, and every step is a row on Every try', async () => {
+      const page = await settings();
+      try {
+        await seed(page, { on: true, ...around() }, { blocked: true });
+        await page.reload();
+        await page.waitForFunction(() => document.getElementById('bedtime-on').checked);
+        assert.equal(await page.locator('#bedtime-undo-line').isVisible(), false, 'set a while ago: nothing to undo');
+
+        // Turning it off: the page says it waits a day and asks why, and Save won't go without a reason.
+        await page.uncheck('#bedtime-on');
+        assert.match(await page.locator('#bedtime-hint').innerText(), /^This change waits a day: it holds from .+\.$/);
+        assert.equal(await page.locator('#bedtime-why-area').isVisible(), true);
+        assert.equal(await page.locator('#bedtime-why-other').isVisible(), false);
+        await page.click('#bedtime-save');
+        await said(page, 'Say why first. Your answer goes into the record.');
+        assert.equal(await page.evaluate(() => document.activeElement.id), 'bedtime-why');
+        assert.deepEqual(await events(page), []);
+        await page.selectOption('#bedtime-why', 'Travelling');
+        const asked = Date.now();
+        await page.click('#bedtime-save');
+        await said(page, 'Saved. The change waits a day.');
+        assert.match(await line(page), /^It’s bedtime until .+\. Every site is blocked from .+ to .+, every day\. On .+ it turns off\.$/);
+        let { bedtime } = await stored(page);
+        assert.equal(bedtime.on, true, 'the bedtime itself is as it was');
+        assert.ok(bedtime.next.at >= asked + DAY_MS && bedtime.next.at <= Date.now() + DAY_MS, 'the change takes effect a day after it was asked for');
+        assert.deepEqual({ on: bedtime.next.on, why: bedtime.next.why }, { on: false, why: 'Travelling' });
+        assert.equal((await visit(night.context, 'http://allowed.test/still')).finalUrl, bedtimePage('http://allowed.test/still'), 'still blocked');
+        // The form shows the bedtime in force again, and the question has gone with its answer.
+        assert.equal(await page.isChecked('#bedtime-on'), true);
+        assert.equal(await page.locator('#bedtime-why-area').isVisible(), false);
+        assert.equal(await page.inputValue('#bedtime-why'), '');
+        assert.equal(await page.locator('#bedtime-waiting').isVisible(), true);
+
+        // A later start, with a reason typed under Something else, takes that change's place and waits its own day.
+        await page.fill('#bedtime-from', fromNow(-30));
+        await page.selectOption('#bedtime-why', 'other');
+        assert.equal(await page.evaluate(() => document.activeElement.id), 'bedtime-why-other');
+        await page.fill('#bedtime-why-other', '  A film that ends late ');
+        await page.click('#bedtime-save');
+        await said(page, 'Saved. The change waits a day.');
+        assert.match(await line(page), /every day\. On .+ it changes to .+ to .+\.$/);
+        ({ bedtime } = await stored(page));
+        assert.deepEqual({ on: bedtime.next.on, why: bedtime.next.why }, { on: true, why: 'A film that ends late' });
+        assert.equal((await visit(night.context, 'http://allowed.test/still')).finalUrl, bedtimePage('http://allowed.test/still'));
+
+        // Taken back, the bedtime stays as it is.
+        await page.click('#bedtime-keep');
+        await said(page, 'Bedtime stays as it is.');
+        assert.match(await line(page), /^It’s bedtime until .+\. Every site is blocked from .+ to .+, every day\.$/);
+        assert.equal(await page.locator('#bedtime-waiting').isVisible(), false);
+        assert.equal((await stored(page)).bedtime.next, undefined);
+
+        // A later end blocks more: it holds at once, with no reason asked.
+        await page.fill('#bedtime-to', fromNow(120));
+        assert.equal(await page.locator('#bedtime-why-area').isVisible(), false);
+        assert.equal(await page.locator('#bedtime-hint').isVisible(), false);
+        await page.click('#bedtime-save');
+        await said(page, 'Saved.');
+        assert.deepEqual(await events(page), ['asked', 'asked', 'kept', 'set']);
+
+        // Every step is a row on Every try, newest first, the ones that let more through marked.
+        const tries = await night.context.newPage();
+        try {
+          await tries.goto(`chrome-extension://${night.extensionId}/tries.html`);
+          await tries.locator('tr.bedtime').first().waitFor();
+          const rows = await tries.locator('tr.bedtime').evaluateAll((list) => list.map((row) => ({ looser: row.classList.contains('looser'), site: row.cells[1].textContent, what: row.cells[2].textContent })));
+          assert.deepEqual(rows.map((row) => row.site), ['Bedtime', 'Bedtime', 'Bedtime', 'Bedtime']);
+          assert.match(rows[0].what, /^Set: .+ to .+\.$/);
+          assert.equal(rows[1].what, 'The change asked for was taken back.');
+          assert.match(rows[2].what, /^Asked to change it to .+ to .+ after a day’s wait: “A film that ends late”\.$/);
+          assert.equal(rows[3].what, 'Asked to turn it off after a day’s wait: “Travelling”.');
+          assert.deepEqual(rows.map((row) => row.looser), [false, false, true, true]);
+          assert.equal(await tries.locator('#bedtime-intro').innerText(), 'Bedtime rows say when the bedtime was set and when a change to it was asked for, with the reason. Show them alone.');
+          // Alone, under where the bedtime stands.
+          await tries.click('#bedtime-intro a');
+          await tries.waitForFunction(() => document.title === 'Family Site Blocker record: the bedtime');
+          assert.match(await tries.locator('#summary').innerText(), /^It’s bedtime until .+\. Every site is blocked from .+ to .+, every day\.$/);
+          assert.equal(await tries.locator('#bedtime-intro').isVisible(), false);
+          assert.equal(await tries.locator('#filter').innerText(), 'Only the bedtime. Show every try');
+          assert.equal(await tries.locator('.day tr').count(), 4);
+          // And in the saved file, oldest first.
+          const csv = await tries.evaluate(() => import('./lib/attempts.js').then((lib) => chrome.storage.local.get('bedtimeEvents').then((got) => lib.toCsv([], undefined, [], [], [], got.bedtimeEvents))));
+          const lines = csv.trim().split('\n');
+          assert.equal(lines.length, 5);
+          assert.match(lines[1], /^[^,]+,Bedtime,Asked to turn it off after a day’s wait: “Travelling”\.,,,,$/);
+          assert.match(lines[4], /^[^,]+,Bedtime,Set: .+ to .+\.,,,,$/);
+        } finally {
+          await tries.close();
+        }
+        // The settings page's link to Every try shows for the bedtime's record alone.
+        assert.equal(await page.locator('#record-links').isVisible(), true);
+        assert.deepEqual(page.errors, []);
+      } finally {
+        await reset(page);
+        await page.close();
+      }
+    });
+
+    slowTest('by the clock: the pages open are told before every site closes, the bedtime begins on time, and when it ends the tabs come back by themselves', async () => {
+      const page = await settings();
+      const open = await visit(night.context, 'http://allowed.test/writing', { keepOpen: true });
+      let second = null;
+      try {
+        const hours = around();
+        // A bedtime's start and end fall on the minute, which a test can't wait for; a change asked for a day
+        // ago that takes effect in a few seconds, inside its own hours, closes every site by the same clock.
+        const begins = Date.now() + 8000;
+        await page.evaluate((bedtime) => chrome.storage.local.set({ bedtime }), { on: false, ...hours, next: { on: true, ...hours, asked: begins - DAY_MS, at: begins, why: 'Trying it out' } });
+        const told = open.page.locator('#family-site-blocker-bedtime-line');
+        await told.waitFor({ state: 'visible', timeout: 5000 });
+        assert.match(await told.locator('span').innerText(), /^Bedtime in 1 minute: every site closes at .+\.$/);
+        assert.match(await page.locator('#bedtime-line').innerText(), /^Bedtime is off\. On .+ it changes to .+ to .+\.$/);
+        // A page opened meanwhile is told too, and Dismiss takes the line away there.
+        second = await visit(night.context, 'http://allowed.test/second', { keepOpen: true });
+        const toldToo = second.page.locator('#family-site-blocker-bedtime-line');
+        await toldToo.waitFor({ state: 'visible', timeout: 5000 });
+        await toldToo.locator('button').click();
+        assert.equal(await toldToo.count(), 0);
+        assert.equal(await told.count(), 1, 'the other page keeps its line');
+
+        // At its time every site closes: both tabs show the bedtime page, and the record says the change took effect then.
+        await open.page.waitForURL(BEDTIME_PAGE, { timeout: 15_000 });
+        assert.ok(Date.now() >= begins, 'not before its time');
+        await second.page.waitForURL(BEDTIME_PAGE, { timeout: 15_000 });
+        const { bedtime, bedtimeEvents } = await stored(page);
+        assert.deepEqual(bedtime, { on: true, ...hours });
+        assert.deepEqual(bedtimeEvents, [{ at: begins, event: 'changed', on: true, ...hours }]);
+        assert.deepEqual(await ruleIds(page), [900_001, 900_002]);
+
+        // And it ends by the clock: the bedtime page says until when, and goes back to its page at that time.
+        const ends = Date.now() + 5000;
+        await page.evaluate((value) => chrome.storage.local.set({ bedtime: value }), { on: true, ...hours, next: { on: false, ...hours, asked: ends - DAY_MS, at: ends, why: 'Trying it out' } });
+        await open.page.waitForURL('http://allowed.test/writing', { timeout: 15_000 });
+        assert.ok(Date.now() >= ends, 'not before its time');
+        await second.page.waitForURL('http://allowed.test/second', { timeout: 15_000 });
+        await rulesInPlace(page, false);
+        assert.equal((await stored(page)).bedtime.on, false);
+        assert.equal((await visit(night.context, 'http://allowed.test/morning')).outcome, 'site loaded');
+        assert.deepEqual(page.errors, []);
+      } finally {
+        await reset(page);
+        await second?.page.close();
+        await open.page.close();
+        await page.close();
+      }
+    });
+
+    test('the bedtime page, with no bedtime in force, goes to the web page it stands in for, leaves a listed site to the block page, and opens nothing else', async () => {
+      const page = await night.context.newPage();
+      try {
+        await page.goto(bedtimePage('http://allowed.test/back?x=1'));
+        await page.waitForURL('http://allowed.test/back?x=1');
+        await page.goto(bedtimePage(BLOCKED_URL));
+        await page.waitForURL(BLOCK_PAGE);
+        for (const hash of ['', '#', '#javascript:alert(1)', '#file:///etc/hosts', `#chrome-extension://${night.extensionId}/options.html`, '#allowed.test']) {
+          await page.goto('about:blank');
+          await page.goto(`chrome-extension://${night.extensionId}/bedtime.html${hash}`);
+          await page.waitForFunction(() => document.getElementById('heading').textContent === 'Bedtime is over');
+          assert.equal(await page.locator('#words').innerText(), 'Sites open again.', hash);
+          assert.equal(await page.locator('#open').isVisible(), false, hash);
+          assert.match(page.url(), /\/bedtime\.html/, `${hash}: it stays where it is`);
+        }
       } finally {
         await page.close();
       }

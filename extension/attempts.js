@@ -9,6 +9,7 @@
 // and started from here. Like the settings page, this page only reads the record; nothing here can clear
 // it (see lib/attempts.js).
 import { ATTEMPTS, HISTORY_SCAN, bySite, summarize, toCsv } from './lib/attempts.js';
+import { BEDTIME_EVENTS, bedtimeEvents } from './lib/bedtime.js';
 import { LOCK_CHANGES, lockChanges } from './lib/lock.js';
 import { EVENTS, loadBox } from './lib/lockbox.js';
 import { element, everyTryShows, everyTryWords, offVisitsWords, offWords, plural, showVersion, visits, whenFormat } from './lib/page.js';
@@ -25,6 +26,7 @@ let pictures = []; // the pictures and videos hidden, as stored: oldest first (l
 let events = []; // the locked-away password's record (lib/lockbox.js), which Every try shows among the tries
 let lock = []; // the Firefox lock's record (lib/lock.js), which Every try shows among the tries too, for the file
 let waiting = []; // the pictures that waited long for a verdict (lib/pictures.js WAITING), for the saved file
+let bedtime = []; // the bedtime's record (lib/bedtime.js), which Every try shows among the tries too, for the file
 
 function renderSummary() {
   if (attempts.length === 0) {
@@ -127,11 +129,12 @@ let offShown = '';
 const offPart = (state) => JSON.stringify({ since: state?.since, atLeast: state?.atLeast, kept: state?.periods?.[0]?.from, off: state?.off ?? [] });
 
 async function render() {
-  const stored = await api.storage.local.get([ATTEMPTS, HISTORY_SCAN, UNLISTED, PICTURES, WATCHING, LOCK_CHANGES, WAITING]);
+  const stored = await api.storage.local.get([ATTEMPTS, HISTORY_SCAN, UNLISTED, PICTURES, WATCHING, LOCK_CHANGES, WAITING, BEDTIME_EVENTS]);
   attempts = Array.isArray(stored[ATTEMPTS]) ? stored[ATTEMPTS] : [];
   watching = stored[WATCHING] ?? null;
   lock = lockChanges(stored[LOCK_CHANGES]);
   waiting = waitingList(stored[WAITING]);
+  bedtime = bedtimeEvents(stored[BEDTIME_EVENTS]);
   ({ events } = await loadBox(api.storage.local));
   offShown = offPart(watching);
   renderSummary();
@@ -139,8 +142,8 @@ async function render() {
   renderHistoryScan(stored[HISTORY_SCAN]);
   $('save-file').hidden = attempts.length === 0;
   // Every try holds the tries, the times the extension was off, the pictures hidden, the password's record,
-  // the Firefox lock's and the pictures that waited for a verdict: its link shows whenever it has any of them, and the count is the tries.
-  $('every-try').hidden = !everyTryShows({ attempts, off: normalize(watching).off, events, pictures: Array.isArray(stored[PICTURES]) ? stored[PICTURES] : [], lock, waiting });
+  // the Firefox lock's, the pictures that waited for a verdict and the bedtime's record: its link shows whenever it has any of them, and the count is the tries.
+  $('every-try').hidden = !everyTryShows({ attempts, off: normalize(watching).off, events, pictures: Array.isArray(stored[PICTURES]) ? stored[PICTURES] : [], lock, waiting, bedtime });
   $('every-try').textContent = everyTryWords(attempts.length);
   $('sites').hidden = attempts.length === 0;
   renderSites();
@@ -153,7 +156,7 @@ function saveFile() {
   const pad = (n) => String(n).padStart(2, '0');
   const name = `family-site-blocker-record-${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}.csv`;
   const link = document.createElement('a');
-  link.href = URL.createObjectURL(new Blob([toCsv(attempts, watching, pictures, lock, waiting)], { type: 'text/csv' }));
+  link.href = URL.createObjectURL(new Blob([toCsv(attempts, watching, pictures, lock, waiting, bedtime)], { type: 'text/csv' }));
   link.download = name;
   document.body.append(link);
   link.click();
@@ -170,7 +173,7 @@ $('history-scan-now').addEventListener('click', () => {
 // Keep the record current while the page is open.
 api.storage.onChanged.addListener((changes, area) => {
   if (area !== 'local') return;
-  if (changes[ATTEMPTS] || changes[HISTORY_SCAN] || changes[UNLISTED] || changes[PICTURES] || changes[EVENTS] || changes[LOCK_CHANGES] || changes[WAITING]) render();
+  if (changes[ATTEMPTS] || changes[HISTORY_SCAN] || changes[UNLISTED] || changes[PICTURES] || changes[EVENTS] || changes[LOCK_CHANGES] || changes[WAITING] || changes[BEDTIME_EVENTS]) render();
   else if (changes[WATCHING] && offPart(changes[WATCHING].newValue) !== offShown) render();
 });
 

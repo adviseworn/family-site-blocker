@@ -36,12 +36,13 @@ export function buildRules(domains, firstId = 1) {
 
 /**
  * The domains a set of rules blocks, each once. Every domain lives on the redirect rules (the block rules
- * repeat the same list), and each is listed twice, with and without a trailing dot.
+ * repeat the same list), and each is listed twice, with and without a trailing dot. Bedtime's rules, which
+ * are kept among the person's own (bedtimeRules below), name no domains and are passed over.
  */
 export function domainsOf(rules) {
   return rules
-    .filter((rule) => rule.action.type === 'redirect')
-    .flatMap((rule) => rule.condition.requestDomains)
+    .filter((rule) => rule.action.type === 'redirect' && !isBedtimeRule(rule))
+    .flatMap((rule) => rule.condition.requestDomains ?? [])
     .filter((domain) => !domain.endsWith('.'));
 }
 
@@ -66,6 +67,59 @@ export function pageBlockRules(domains, firstId = PAGE_BLOCK_FIRST_ID) {
       priority: PAGE_BLOCK_PRIORITY,
       action: { type: 'block' },
       condition: { requestDomains: domains.slice(i, i + CHUNK_SIZE).flatMap((domain) => [domain, `${domain}.`]), resourceTypes: ['main_frame'] },
+    });
+  }
+  return rules;
+}
+
+/**
+ * Bedtime's rules (lib/bedtime.js, 1.30.0): while a bedtime lasts, every web page is sent to the bedtime
+ * page, and everything else a page could ask for (frames, scripts, pictures, fetches, sockets) is blocked
+ * outright, so that a page still open has nothing to go on with. The background script puts them in
+ * place when a bedtime begins and takes them off when it ends. They are kept with the person's own list,
+ * as dynamic rules, because those outlast a restart of the browser: a browser opened in the middle of a
+ * bedtime blocks from its first page, before the background script has started. Their ids start beyond
+ * any the person's list can reach (5,000 rules at most are allowed there) and below the page-blocking
+ * rules'.
+ *
+ * `page` is the bedtime page's whole address (runtime.getURL of BEDTIME_PAGE). The address being opened
+ * goes after its #, so that the bedtime page knows what it stands in for (lib/bedtime.js addressFrom): the
+ * rule matches the whole address and puts it there. At priority 3 they come before every other rule: a
+ * listed site shows the bedtime page too while a bedtime lasts, and the try is noted all the same
+ * (background.js notes tries from the navigation, not from the rule).
+ *
+ * Without access to websites a redirect is dropped and the page loads (see pageBlockRules): then a rule
+ * that blocks pages outright comes before the redirect, and the background script sends the tab to the
+ * bedtime page itself.
+ */
+export const BEDTIME_PAGE = '/bedtime.html';
+export const BEDTIME_FIRST_ID = 900_001;
+export const BEDTIME_PRIORITY = 3;
+
+/** Whether a rule is one of bedtime's, by its id. */
+export const isBedtimeRule = (rule) => rule.id >= BEDTIME_FIRST_ID && rule.id < PAGE_BLOCK_FIRST_ID;
+
+export function bedtimeRules(page, { access = true } = {}) {
+  const rules = [
+    {
+      id: BEDTIME_FIRST_ID,
+      priority: BEDTIME_PRIORITY,
+      action: { type: 'redirect', redirect: { regexSubstitution: `${page}#\\0` } },
+      condition: { regexFilter: '^https?://.*', resourceTypes: ['main_frame'] },
+    },
+    {
+      id: BEDTIME_FIRST_ID + 1,
+      priority: BEDTIME_PRIORITY,
+      action: { type: 'block' },
+      condition: { regexFilter: '^(?:https?|wss?)://', excludedResourceTypes: ['main_frame'] },
+    },
+  ];
+  if (!access) {
+    rules.push({
+      id: BEDTIME_FIRST_ID + 2,
+      priority: BEDTIME_PRIORITY + 1,
+      action: { type: 'block' },
+      condition: { regexFilter: '^https?://', resourceTypes: ['main_frame'] },
     });
   }
   return rules;

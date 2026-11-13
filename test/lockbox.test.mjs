@@ -9,7 +9,7 @@ import { webcrypto } from 'node:crypto';
 
 globalThis.crypto ??= webcrypto; // Node 18 has Web Crypto, but not on globalThis
 
-const { BOX, EVENTS, EVENTS_KEPT, EVENTS_SINCE, EVENT_NAMES, PROGRESS, WAITS, WAITS_KEPT, beginningOf, boxKey, describeBox, describeEvent, describeRecord, duration, fractionDone, isEvent, layerUnderWork, loadBox, longerWaitFor, noteBox, recordBegan, recordEvent, sinceOf, sinceText, thisPassword, times } =
+const { BOX, EVENTS, EVENTS_KEPT, EVENTS_SINCE, EVENT_NAMES, PROGRESS, WAITS, WAITS_KEPT, beginningOf, boxKey, describeBox, describeEvent, describeLocked, describeRecord, duration, fractionDone, isEvent, layerUnderWork, loadBox, longerWaitFor, noteBox, recordBegan, recordEvent, sinceOf, sinceText, thisPassword, times } =
   await import('../extension/lib/lockbox.js');
 const { lengthen, seal } = await import('../extension/lib/timelock.js');
 
@@ -242,6 +242,22 @@ test('the small words: times, and the keys the pages share', () => {
 
 // The wait lengthened (#76): a box inside a box, read layer by layer.
 
+test("the password's own page: where things stand, without the wait, which has a line of its own", async () => {
+  const box = await seal('secret', { steps: 6000, delay: 60, rate: 100 });
+  assert.equal(describeLocked({ box, events: [] }), `Locked away since ${day(box.lockedAt)}.`, 'no record: when the box says');
+  assert.equal(describeLocked({ box }), `Locked away since ${day(box.lockedAt)}.`, 'the record may be left out');
+  const locked = at(T.locked, 'locked', { delay: 60 });
+  assert.equal(describeLocked({ box, events: [locked] }), `Locked away since ${day(T.locked)}, never unlocked.`);
+  const once = [locked, at(T.started, 'started'), at(T.shown, 'shown'), at(T.shown, 'sealed', { delay: 60 })];
+  assert.equal(describeLocked({ box, events: once }), `Locked away since ${day(T.locked)}, unlocked once, last on ${day(T.shown)}.`);
+  const outer = await lengthen(box, { steps: 4000, delay: 100, rate: 100 });
+  assert.equal(
+    describeLocked({ box: outer, events: [locked, at(T.started, 'lengthened', { from: 60, to: 100 })] }),
+    `Locked away since ${day(T.locked)}, wait lengthened ${day(outer.lengthenedAt)}, never unlocked.`,
+    'lengthening is said, and is not an unlock',
+  );
+});
+
 test('a wait reads in words, rounded to what matters', () => {
   assert.equal(duration(0.4), '1 second');
   assert.equal(duration(45), '45 seconds');
@@ -249,6 +265,8 @@ test('a wait reads in words, rounded to what matters', () => {
   assert.equal(duration(12 * 60 + 20), '12 minutes');
   assert.equal(duration(3 * 3600 + 20 * 60), '3 hours 20 minutes');
   assert.equal(duration(47 * 3600), '47 hours');
+  assert.equal(duration(86400), '1 day', 'a whole day reads as the menus of waits put it, not as 24 hours');
+  assert.equal(duration(86400 + 3600), '25 hours', 'under two days and not whole days: hours, as before');
   assert.equal(duration(2 * 86400), '2 days');
   assert.equal(duration(2 * 86400 + 3600), '2 days 1 hour');
 });

@@ -6,12 +6,14 @@
 // access to websites (see "Access to websites" below), keeps the record of blocked attempts, and keeps
 // track of when it is running (lib/watching.js), so the record can say whether the extension was ever
 // off, and whether the Firefox lock was in force (lib/lock.js), so the record can say when it came and
-// went. Chrome, Edge and Brave run it as a service worker; Firefox runs it as an event page. Both load it
-// as a module (manifest.json: background.type).
+// went, and blocks every site while a bedtime lasts (lib/bedtime.js; see "Bedtime" below). Chrome, Edge and
+// Brave run it as a service worker; Firefox runs it as an event page. Both load it as a module
+// (manifest.json: background.type).
 import { ATTEMPTS, HISTORY_SCAN, bookmarksTo, hostOf, listedDomain, mergeVisits, record } from './lib/attempts.js';
+import { BEDTIME, BEDTIME_EVENTS, ask, beginsSoon, blockedAt, endOf, keep, minutesAt, nextChange, pageFor, recordBedtime, settingOf, settle, timeWords, undo } from './lib/bedtime.js';
 import { LOCK_CHANGES, locked, recordLock } from './lib/lock.js';
 import { COPIES, COPY_SIZE, PICTURES, PICTURE_LENGTH, SHOWN, STRICTNESS, URL_LENGTH, WAITING, bodyUpTo, copiesByKey, copyKey, hashOf, hideAgain, isPage, keepCopy, markAlike, noteLook, recordHidden, recordWaiting, sameHidden, settleWaiting, showAgain, shownAgain, strictnessOf, verdict } from './lib/pictures.js';
-import { BLOCK_PAGE, PAGE_BLOCK_FIRST_ID, domainsOf, pageBlockRules } from './lib/rules.js';
+import { BEDTIME_PAGE, BLOCK_PAGE, PAGE_BLOCK_FIRST_ID, bedtimeRules, domainsOf, isBedtimeRule, pageBlockRules } from './lib/rules.js';
 import { UNLISTED, tallyUnlisted } from './lib/suspects.js';
 import { BEAT_EVERY_MINUTES, WATCHING, beat, earliestLiveTry, gapsOf, normalize, noteGaps, started } from './lib/watching.js';
 import { backendInUse, judgeBytes } from './classifier.js';
@@ -26,6 +28,7 @@ api.runtime.onInstalled.addListener(({ reason }) => {
   if (reason === 'install' || reason === 'update') {
     firstStart(reason).then(() => scanHistory());
     sweepTabs().catch(() => {});
+    syncBedtime({ remake: true }); // a new version makes a bedtime's rules afresh, in case it writes them differently
   }
 });
 // Each time the browser starts, too: the history may hold visits from a time the extension was off (in
@@ -99,6 +102,16 @@ api.runtime.onMessage.addListener((message, sender, sendResponse) => {
     copiesIndex().then(sendResponse, (error) => sendResponse({ error: String(error?.message ?? error) }));
     return true;
   }
+  if (message?.type === 'bedtime-save' || message?.type === 'bedtime-keep' || message?.type === 'bedtime-undo') {
+    // The settings page changes the bedtime through here, so that the setting and its record are written in turn (changeBedtime).
+    changeBedtime(message).then(sendResponse, (error) => sendResponse({ error: String(error?.message ?? error) }));
+    return true;
+  }
+  if (message?.type === 'bedtime-state') {
+    // The bedtime page asks whether the bedtime still lasts, having looked at the clock afresh (bedtimeState).
+    bedtimeState(message.url).then(sendResponse, (error) => sendResponse({ error: String(error?.message ?? error) }));
+    return true;
+  }
   if (message?.type === 'copy-picture') {
     // The Every try page asks for a copy, made now, of a hidden picture that has none kept (lib/pictures.js).
     copyNow(message.url).then(sendResponse, (error) => sendResponse({ error: String(error?.message ?? error) }));
@@ -166,6 +179,8 @@ function noteRunning({ fromPage = false } = {}) {
 
 api.alarms.onAlarm.addListener(({ name }) => {
   if (name === HEARTBEAT) noteRunning();
+  // The clock is looked at for the bedtime at its own alarm, and each minute too, should that one come late (see "Bedtime" below).
+  if (name === HEARTBEAT || name === BEDTIME_ALARM) syncBedtime();
 });
 api.alarms
   .get(HEARTBEAT)
@@ -429,6 +444,9 @@ function syncAccess() {
 syncAccess(); // each time this script starts: the session's rules are gone after a restart, and the access may have changed
 api.permissions.onAdded?.addListener(syncAccess);
 api.permissions.onRemoved?.addListener(syncAccess);
+// Bedtime's rules depend on the access too (see "Bedtime" below).
+api.permissions.onAdded?.addListener(() => syncBedtime());
+api.permissions.onRemoved?.addListener(() => syncBedtime());
 
 // --- Tabs already showing a listed site ------------------------------------------------------------------
 // The rules act on page loads, so a page open before its site was listed would stay as it is until it was
@@ -453,6 +471,224 @@ async function sweepTabs() {
         }
       }),
   );
+}
+
+// --- Bedtime ---------------------------------------------------------------------------------------------
+// Between the two times set on the settings page, every site is blocked (lib/bedtime.js, 1.30.0). The
+// browser does the blocking, from rules this script puts in place when a bedtime begins and takes off
+// when it ends (lib/rules.js bedtimeRules): a page being opened goes to the bedtime page (bedtime.html)
+// with its own address after the #, and everything else a page could ask for is blocked. The rules are
+// kept across a restart, so a browser opened during a bedtime blocks from its first page. The rules act on
+// loads, so the tabs open are sent to the bedtime page as well, each with its address, to come back when
+// the bedtime is over; so is a page that comes up without a load (Back to one the browser kept whole).
+//
+// This script looks at the clock (syncBedtime) when it starts, at an alarm set for the next moment
+// anything changes (a bedtime's start, the warning before it, its end, a change that waits taking
+// effect), once a minute with the heartbeat in case that alarm comes late (after the computer slept, say),
+// and whenever the setting changes. For WARN_MS before a bedtime, the pages open say that it is coming, so
+// that nothing half-written is lost to it.
+//
+// The settings page changes the setting through this script (changeBedtime), which writes it and its
+// record in turn with the other writes. Nothing here stops someone changing the computer's clock.
+const BEDTIME_ALARM = 'bedtime';
+const BEDTIME_PAGE_URL = api.runtime.getURL(BEDTIME_PAGE);
+const isWebPage = (url) => /^https?:/i.test(url ?? '');
+// What the last look at the clock found: Promise<{ blocked, until, changes, soon }>, `until` when the blocking
+// ends (null when nothing is blocked), `changes` the next moment anything does (null when nothing will) and
+// `soon` the moment every site closes, when that is near enough for the pages open to be told (else null).
+let bedtime = null;
+let warnedOf = null; // the moment the pages open were last warned of, so the warning can be taken away
+
+/**
+ * Looks at the clock for the bedtime: see "Bedtime" above. Resolves to what it found. With { remake }, rules
+ * in place for a bedtime are taken off and put back, as this version writes them.
+ */
+function syncBedtime({ remake = false } = {}) {
+  bedtime = (async () => {
+    const now = Date.now();
+    let setting = settingOf(null);
+    // A change that has waited out its day takes effect, with its entry in the record, dated when it did.
+    await (writing = writing
+      .then(async () => {
+        const stored = await api.storage.local.get([BEDTIME, BEDTIME_EVENTS]);
+        const settled = settle(stored[BEDTIME], now);
+        setting = settled.setting;
+        if (settled.changed) await api.storage.local.set({ [BEDTIME]: setting, ...(settled.events.length ? { [BEDTIME_EVENTS]: recordBedtime(stored[BEDTIME_EVENTS], settled.events) } : {}) });
+      })
+      .catch(() => {}));
+    const blocked = blockedAt(setting, now);
+    await (syncing = syncing
+      .then(async () => {
+        const dnr = api.declarativeNetRequest;
+        const present = (await dnr.getDynamicRules()).filter(isBedtimeRule);
+        const wanted = blocked ? bedtimeRules(BEDTIME_PAGE_URL, { access: await hasAccess() }) : [];
+        const ids = (rules) => rules.map((rule) => rule.id).sort().join();
+        if (ids(present) !== ids(wanted) || (remake && wanted.length)) await dnr.updateDynamicRules({ removeRuleIds: present.map((rule) => rule.id), addRules: wanted });
+      })
+      .catch(() => {}));
+    const changes = nextChange(setting, now);
+    // A moment past the minute, so that the clock reads the new minute when the alarm comes.
+    if (changes === null) api.alarms.clear(BEDTIME_ALARM).catch(() => {});
+    else api.alarms.create(BEDTIME_ALARM, { when: changes + 250 });
+    const soon = blocked ? null : beginsSoon(setting, now);
+    if (blocked) await sweepForBedtime().catch(() => {});
+    // Each look tells the pages again, so that one opened since the last gets the line too.
+    if (soon !== null || warnedOf !== null) await warnOfBedtime(soon).catch(() => {});
+    return { blocked, until: blocked ? endOf(setting, now) : null, changes, soon };
+  })();
+  return bedtime;
+}
+syncBedtime(); // each time this script starts: a bedtime may have begun or ended while it wasn't running
+api.storage.onChanged.addListener((changes, area) => {
+  if (area === 'local' && changes[BEDTIME]) syncBedtime();
+});
+
+/** What the clock says of the bedtime now: the last look, or a fresh one when its time has passed. */
+async function bedtimeNow() {
+  const state = await (bedtime ?? syncBedtime());
+  return state.changes !== null && Date.now() >= state.changes ? syncBedtime() : state;
+}
+
+/** Sends a tab to the bedtime page in place of the page it shows, as sweepTabs sends one to the block page. */
+async function toBedtimePage(tabId, url) {
+  const page = pageFor(BEDTIME_PAGE_URL, url);
+  try {
+    await api.scripting.executeScript({ target: { tabId }, func: (to) => location.replace(to), args: [page] });
+  } catch {
+    await api.tabs.update(tabId, { url: page }).catch(() => {});
+  }
+}
+
+/**
+ * Sends every tab showing a web page to the bedtime page. A tab the browser has put to sleep (one not opened
+ * since the browser started, say) is left as it is: nothing is loaded in it, and opening it is a load, which
+ * the rules send to the bedtime page.
+ */
+async function sweepForBedtime() {
+  const tabs = await api.tabs.query({});
+  await Promise.all(tabs.filter((tab) => isWebPage(tab.url) && !tab.discarded).map((tab) => toBedtimePage(tab.id, tab.url)));
+}
+
+/**
+ * Tells the pages open that every site closes at `start` (a line along the foot of each, with how many
+ * minutes are left, which can be dismissed), or one tab's page alone, given `tabId`; or, with nothing about
+ * to close (`start` null: the change was undone, say), takes the line away again.
+ */
+async function warnOfBedtime(start, tabId = null) {
+  const tabs = tabId === null ? (await api.tabs.query({})).filter((tab) => isWebPage(tab.url) && !tab.discarded) : [{ id: tabId }];
+  const closes = start === null ? null : timeWords(minutesAt(start));
+  if (tabId === null) warnedOf = start;
+  await Promise.all(tabs.map((tab) => api.scripting.executeScript({ target: { tabId: tab.id }, func: bedtimeLine, args: [start, closes] }).catch(() => {})));
+}
+
+/**
+ * Runs in a page (warnOfBedtime): shows a line along the page's foot that says every site closes at
+ * `closes`, the time in words, and in how many minutes, counted down by the page itself until `start`,
+ * with a button that takes the line away for that bedtime; leaves a line already there for it as it is;
+ * or, with no `start`, takes the line away. A minute after `start` the line goes by itself, should the
+ * bedtime have been called off with nobody to say so. It is styled from here alone, so that the page's
+ * own styles leave it be.
+ */
+function bedtimeLine(start, closes) {
+  const ID = 'family-site-blocker-bedtime-line';
+  const state = (globalThis.familySiteBlockerBedtimeLine ??= { start: null, dismissed: null, timer: null });
+  const clear = () => {
+    clearInterval(state.timer);
+    state.timer = null;
+    state.start = null;
+    document.getElementById(ID)?.remove();
+  };
+  if (start === null || state.dismissed === start) {
+    clear();
+    return;
+  }
+  if (state.start === start && document.getElementById(ID)) return;
+  clear();
+  const words = () => {
+    const minutes = Math.max(1, Math.ceil((start - Date.now()) / 60_000));
+    return `Bedtime in ${minutes === 1 ? '1 minute' : `${minutes} minutes`}: every site closes at ${closes}.`;
+  };
+  const line = document.createElement('div');
+  line.id = ID;
+  line.setAttribute('role', 'status');
+  line.style.cssText =
+    'all: initial; position: fixed; z-index: 2147483647; left: 0; right: 0; bottom: 0; display: flex; gap: 12px; align-items: center; justify-content: center; padding: 10px 16px; background: #17302a; color: #ffffff; font: 600 16px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; box-shadow: 0 -2px 8px rgba(0, 0, 0, 0.3);';
+  const text = document.createElement('span');
+  text.style.cssText = 'all: initial; color: inherit; font: inherit;';
+  text.textContent = words();
+  const dismiss = document.createElement('button');
+  dismiss.type = 'button';
+  dismiss.textContent = 'Dismiss';
+  dismiss.style.cssText = 'all: initial; padding: 4px 12px; border: 1px solid #ffffff; border-radius: 6px; color: inherit; font: inherit; cursor: pointer;';
+  dismiss.addEventListener('click', () => {
+    state.dismissed = start;
+    clear();
+  });
+  line.append(text, dismiss);
+  document.documentElement.append(line);
+  state.start = start;
+  state.timer = setInterval(() => {
+    if (Date.now() > start + 60_000) clear();
+    else text.textContent = words();
+  }, 5000);
+}
+
+// A web page that comes up in a tab during a bedtime without a load the rules could stop (Back to a page
+// the browser kept whole) is sent to the bedtime page; and without access to websites, where the rules
+// can only stop a page (see "Access to websites" above), the tab is sent there as the load starts, unless
+// the site is a listed one, whose tab goes to the block page (tried, above).
+async function atBedtime(details, { loadStarting = false } = {}) {
+  if (details.frameId !== 0 || details.documentLifecycle === 'prerender' || !isWebPage(details.url)) return;
+  if (!(await bedtimeNow()).blocked) return;
+  if (loadStarting) {
+    if (!(await hasAccess()) && !(await listedSite(details))) api.tabs.update(details.tabId, { url: pageFor(BEDTIME_PAGE_URL, details.url) }).catch(() => {});
+  } else toBedtimePage(details.tabId, details.url);
+}
+api.webNavigation.onBeforeNavigate.addListener((details) => atBedtime(details, { loadStarting: true }));
+api.webNavigation.onCommitted.addListener((details) => atBedtime(details));
+// A page that finishes loading while the pages open are being told that every site closes soon is told too.
+api.webNavigation.onCompleted.addListener(async (details) => {
+  if (details.frameId !== 0 || !isWebPage(details.url)) return;
+  const { soon } = await bedtimeNow();
+  if (soon !== null) warnOfBedtime(soon, details.tabId).catch(() => {});
+});
+
+/**
+ * Changes the bedtime for the settings page: { type: 'bedtime-save', on, from, to, why } sets it or asks
+ * for the change (lib/bedtime.js ask), 'bedtime-keep' takes back a change that waits and 'bedtime-undo'
+ * undoes the last one that held at once. The setting and the record's entry are written here, in turn with
+ * the other writes, and the clock looked at before the answer goes back, so that the rules are in place
+ * by then. Answers { event: the entry's kind, or null } when something changed, { unchanged: true }, or
+ * { error } in words for the page.
+ */
+function changeBedtime({ type, on, from, to, why }) {
+  const now = Date.now();
+  const result = writing.then(async () => {
+    const stored = await api.storage.local.get([BEDTIME, BEDTIME_EVENTS]);
+    const settled = settle(stored[BEDTIME], now);
+    const outcome = type === 'bedtime-save' ? ask(settled.setting, { on, from, to }, { now, why }) : type === 'bedtime-keep' ? keep(settled.setting, { now }) : undo(settled.setting, { now });
+    if (!outcome.setting) return outcome;
+    const entries = [...settled.events, ...(outcome.event ? [outcome.event] : [])];
+    await api.storage.local.set({ [BEDTIME]: outcome.setting, ...(entries.length ? { [BEDTIME_EVENTS]: recordBedtime(stored[BEDTIME_EVENTS], entries) } : {}) });
+    return { event: outcome.event?.event ?? null };
+  });
+  writing = result.catch(() => {});
+  return result.then(async (answer) => {
+    await syncBedtime();
+    return answer;
+  });
+}
+
+/**
+ * For the bedtime page: whether the bedtime still lasts and until when, from a fresh look at the clock, which
+ * takes the rules off first when it is over, so that the page can go back to the address it stands in for;
+ * and whether that address is a listed site's, which the page then leaves to the block page.
+ */
+async function bedtimeState(url) {
+  const { blocked, until } = await syncBedtime();
+  const host = hostOf(url ?? '');
+  const listed = host ? Boolean(listedDomain(host, await listedDomains().catch(() => new Set()))) : false;
+  return { blocked, until, listed };
 }
 
 // --- The picture filter ----------------------------------------------------------------------------------

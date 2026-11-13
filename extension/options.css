@@ -542,6 +542,21 @@ code {
   color: var(--bad);
 }
 
+/* The bedtime's record among the tries (1.30.0): set, kept or undone in the colour of a blocked try; a change
+   that lets more through, asked for or come into force, in the colour of the locked-away password's rows. */
+.day tr.bedtime td:nth-child(2) {
+  color: var(--muted);
+}
+
+.day tr.bedtime td:last-child {
+  color: var(--ok);
+  white-space: normal;
+}
+
+.day tr.bedtime.looser td:last-child {
+  color: var(--latch);
+}
+
 /* A picture that waited long for its verdict (1.27.0): marked while none has come, ordinary once it has;
    under the words, the address, as on a hidden picture's row. */
 .day tr.waiting td:last-child {
@@ -794,6 +809,88 @@ button.small {
   font-weight: 600;
 }
 
+/* Bedtime (1.30.0): a tick, the two times on a line, the reason when the change waits, and Save. */
+#bedtime .tick {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+  font-weight: 600;
+}
+
+#bedtime .tick input {
+  width: 1.15rem;
+  height: 1.15rem;
+  margin: 0;
+  accent-color: var(--gate);
+}
+
+#bedtime .times {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.6rem;
+}
+
+#bedtime input[type="time"],
+#bedtime input[type="text"],
+#bedtime select {
+  max-width: 100%;
+  padding: 0.5rem 0.7rem;
+  border: 1px solid var(--edge);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+}
+
+#bedtime-hint {
+  margin: 0.6rem 0 0;
+}
+
+#bedtime-hint:empty {
+  display: none;
+}
+
+#bedtime-why-area label {
+  display: block;
+  margin: 1rem 0 0.35rem;
+  font-weight: 600;
+}
+
+#bedtime-why,
+#bedtime-why-other {
+  display: block;
+  width: 100%;
+  max-width: 28rem;
+}
+
+#bedtime-why-other {
+  margin-top: 0.5rem;
+}
+
+#bedtime-form {
+  margin-bottom: 1rem;
+}
+
+#bedtime-status,
+#bedtime-undo-until {
+  color: var(--muted);
+}
+
+/* An action that reads as a link, on a line of its own: taking back a change that waits, undoing the last one. */
+button.link {
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  color: var(--gate);
+  font: inherit;
+  font-weight: 600;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
 #copy-status {
   color: var(--muted);
 }
@@ -802,6 +899,18 @@ button.small {
   display: block;
   color: var(--latch);
   font-weight: 600;
+}
+
+/* The wait on a line of its own, first on the locked panel and larger than the text around it, so that its
+   length is found at a glance (1.30.0). */
+#lockbox-wait {
+  margin: 0;
+  font-size: 1.35rem;
+}
+
+#lockbox-summary {
+  margin-top: 0.15rem;
+  color: var(--muted);
 }
 
 #lockbox progress {

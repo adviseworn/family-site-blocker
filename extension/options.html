@@ -16,6 +16,7 @@
           <li><a href="#working">Is it working?</a></li>
           <li><a href="#mine">Your blocked sites</a></li>
           <li><a href="#pictures">Pictures</a></li>
+          <li><a href="#bedtime">Bedtime</a></li>
           <li><a href="#attempts">The record</a></li>
           <li><a href="#lockbox-section">Locked-away password</a></li>
         </ul>
@@ -75,6 +76,41 @@
       <label for="picture-strictness">Hide pictures and videos that show</label>
       <select id="picture-strictness"></select>
       <p>Every picture and video a page shows is judged on this computer before it shows, and kept hidden when it shows nudity or, under the first setting, anything suggestive; nothing leaves the computer. The judge is a machine’s and errs both ways, more so under the first setting. <a href="https://adviseworn.github.io/family-site-blocker-updates/#pictures" target="_blank" rel="noopener">What it judges and what it misses.</a></p>
+    </section>
+
+    <section id="bedtime" aria-labelledby="bedtime-heading">
+      <h2 id="bedtime-heading">Bedtime</h2>
+      <p id="bedtime-line" aria-live="polite">Loading…</p>
+      <p id="bedtime-waiting" hidden><button id="bedtime-keep" type="button" class="link">Keep bedtime as it is</button></p>
+      <form id="bedtime-form" novalidate>
+        <label class="tick" for="bedtime-on"><input id="bedtime-on" type="checkbox"> Block every site</label>
+        <div class="times">
+          <label for="bedtime-from">From</label>
+          <input id="bedtime-from" type="time">
+          <label for="bedtime-to">to</label>
+          <input id="bedtime-to" type="time">
+        </div>
+        <p id="bedtime-hint" class="muted" aria-live="polite"></p>
+        <div id="bedtime-why-area" hidden>
+          <label id="bedtime-why-label" for="bedtime-why">Why are you changing it? Your answer goes into the record.</label>
+          <select id="bedtime-why">
+            <option value="">Choose a reason</option>
+            <option>A special occasion</option>
+            <option>Work or study that can’t wait</option>
+            <option>Travelling</option>
+            <option>My sleep times changed</option>
+            <option>Trying it out</option>
+            <option value="other">Something else</option>
+          </select>
+          <input id="bedtime-why-other" type="text" maxlength="200" autocomplete="off" placeholder="Say why" aria-labelledby="bedtime-why-label" hidden>
+        </div>
+        <div class="actions">
+          <button id="bedtime-save" type="submit">Save bedtime</button>
+          <span id="bedtime-status" role="status"></span>
+        </div>
+      </form>
+      <p id="bedtime-undo-line" hidden><button id="bedtime-undo" type="button" class="link">Undo that change</button><span id="bedtime-undo-until"></span></p>
+      <p class="muted">Turning it off or making it shorter takes a day and a reason. <a href="https://adviseworn.github.io/family-site-blocker-updates/#bedtime" target="_blank" rel="noopener">How bedtime works.</a></p>
     </section>
 
     <section id="attempts" aria-labelledby="attempts-heading">

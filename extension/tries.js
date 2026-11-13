@@ -5,7 +5,9 @@
 // picture can be looked at (below); the locked-away password's record (lib/lockbox.js), a row each in
 // the words of the password's page; from 1.22.0 the Firefox lock's record (lib/lock.js), a row for
 // each time the add-on found the lock in force or not; and from 1.27.0 the pictures that waited long for a
-// verdict (lib/pictures.js WAITING), a row each, saying what the judge was doing and when the verdict came.
+// verdict (lib/pictures.js WAITING), a row each, saying what the judge was doing and when the verdict came;
+// and from 1.30.0 the bedtime's record (lib/bedtime.js), a row for each time it was set or a change to it
+// asked for, taken back, undone or come into force (tries.html#bedtime for those alone).
 // The record page (attempts.html) shows the record summed up and links here, for the whole record, for one
 // site (tries.html#site=<the site>, from the by-site table there) or for the times the add-on was off
 // alone (tries.html#off, from "Was it ever off?" there); the pictures page links here for the pictures
@@ -15,6 +17,7 @@
 // Like the other pages, this one only reads the records, apart from noting the looks at hidden pictures;
 // nothing here can clear them (see lib/attempts.js).
 import { ATTEMPTS, LABELS, offDuring, outcome, summarize, timeline, toCsv } from './lib/attempts.js';
+import { BEDTIME, BEDTIME_EVENTS, BEDTIME_NAME, bedtimeEvents, describeBedtime, eventWords, isLooser } from './lib/bedtime.js';
 import { LOCK_CHANGES, LOCK_NAME, lockChangeWords, lockChanges } from './lib/lock.js';
 import { EVENTS, EVENTS_SINCE, beginningOf, describeEvent, describeRecord, loadBox } from './lib/lockbox.js';
 import { dayFormat, element, hiddenWords, lockWords, lookWords, offVisitsWords, offWords, plural, showVersion, timeFormat, timeOn, tries as triesWord, waitingWords, whenFormat } from './lib/page.js';
@@ -31,16 +34,19 @@ let watching = null; // when the extension was running (lib/watching.js): places
 let lockbox = { events: [], since: null }; // the locked-away password's record: its entries, oldest first, and when it began
 let lock = []; // the Firefox lock's record (lib/lock.js): what each check that differed from the last found, oldest first
 let waiting = []; // the pictures that waited long for a verdict (lib/pictures.js WAITING), oldest first
+let bedtime = []; // the bedtime's record (lib/bedtime.js): what was done to it, oldest first
+let bedtimeSetting = null; // the bedtime itself, as stored: where it stands heads its record shown alone
 
 /**
  * What the address asks for: one site (tries.html#site=example.com), or null for every site; only the
  * times the add-on was off (tries.html#off); only the pictures hidden (tries.html#pictures, with a site
  * or not); only the locked-away password's record (tries.html#password); only the Firefox lock's
- * (tries.html#lock); or only the pictures that waited for a verdict (tries.html#waiting).
+ * (tries.html#lock); only the pictures that waited for a verdict (tries.html#waiting); or only the
+ * bedtime's record (tries.html#bedtime).
  */
 function asked() {
   const params = new URLSearchParams(location.hash.replace(/^#/, ''));
-  return { site: params.get('site') || null, onlyOff: params.has('off'), onlyPictures: params.has('pictures'), onlyPassword: params.has('password'), onlyLock: params.has('lock'), onlyWaiting: params.has('waiting') };
+  return { site: params.get('site') || null, onlyOff: params.has('off'), onlyPictures: params.has('pictures'), onlyPassword: params.has('password'), onlyLock: params.has('lock'), onlyWaiting: params.has('waiting'), onlyBedtime: params.has('bedtime') };
 }
 
 /** The pictures hidden as entries for the timeline, newest first: { at, picture: the record's entry }. */
@@ -48,6 +54,9 @@ const pictureEntries = (list) => list.map((picture) => ({ at: picture.at, pictur
 
 /** The Firefox lock's record as entries for the timeline, newest first: { at, lock: the record's entry }. */
 const lockEntries = (list) => list.map((entry) => ({ at: entry.at, lock: entry })).reverse();
+
+/** The bedtime's record as entries for the timeline, newest first: { at, bedtime: the record's entry }. */
+const bedtimeEntries = (list) => list.map((entry) => ({ at: entry.at, bedtime: entry })).reverse();
 
 /** The pictures that waited for a verdict as entries for the timeline, newest first: { at, waiting: the record's entry }. */
 const waitingEntries = (list) => list.map((entry) => ({ at: entry.at, waiting: entry })).reverse();
@@ -431,6 +440,13 @@ function renderDays(days) {
         body.append(row);
         continue;
       }
+      if (entry.bedtime) {
+        // The bedtime set, or a change to it (lib/bedtime.js): one that lets more through is marked as the password's rows are.
+        const row = element('tr', null, { class: isLooser(entry.bedtime) ? 'bedtime looser' : 'bedtime' });
+        row.append(element('td', timeFormat.format(entry.at)), element('td', BEDTIME_NAME), element('td', eventWords(entry.bedtime)));
+        body.append(row);
+        continue;
+      }
       const what = outcome(entry.attempt, watching);
       const row = element('tr', null, { class: entry.during ? `${what} within` : what });
       row.append(element('td', timeFormat.format(entry.at)), element('td', entry.attempt.site), element('td', LABELS[what]));
@@ -443,9 +459,13 @@ function renderDays(days) {
   $('days').replaceChildren(fragment);
 }
 
-function renderSummary(shown, { site, onlyOff, onlyPictures, onlyPassword, onlyLock, onlyWaiting }, off, tracked, hidden) {
+function renderSummary(shown, { site, onlyOff, onlyPictures, onlyPassword, onlyLock, onlyWaiting, onlyBedtime }, off, tracked, hidden) {
   const counts = summarize(shown, watching);
   const summary = $('summary');
+  if (onlyBedtime) {
+    summary.textContent = describeBedtime(bedtimeSetting, Date.now());
+    return;
+  }
   if (onlyWaiting) {
     summary.textContent = waitingWords(waiting) || 'No picture has waited long for a verdict.';
     return;
@@ -486,7 +506,7 @@ let offShown = '';
 const offPart = (state) => JSON.stringify(normalize(state).off);
 
 async function render() {
-  const stored = await api.storage.local.get([ATTEMPTS, PICTURES, WATCHING, LOCK_CHANGES, WAITING]);
+  const stored = await api.storage.local.get([ATTEMPTS, PICTURES, WATCHING, LOCK_CHANGES, WAITING, BEDTIME, BEDTIME_EVENTS]);
   attempts = Array.isArray(stored[ATTEMPTS]) ? stored[ATTEMPTS] : [];
   pictures = Array.isArray(stored[PICTURES]) ? stored[PICTURES] : [];
   watching = stored[WATCHING] ?? null;
@@ -494,37 +514,41 @@ async function render() {
   lockbox = await loadBox(api.storage.local);
   lock = lockChanges(stored[LOCK_CHANGES]);
   waiting = waitingList(stored[WAITING]);
+  bedtime = bedtimeEvents(stored[BEDTIME_EVENTS]);
+  bedtimeSetting = stored[BEDTIME] ?? null;
   const { off, periods } = normalize(watching);
-  const { site, onlyOff, onlyPictures, onlyPassword, onlyLock, onlyWaiting } = asked();
-  const alone = onlyPictures || onlyPassword || onlyLock || onlyWaiting; // one part of the record by itself, without the tries
+  const { site, onlyOff, onlyPictures, onlyPassword, onlyLock, onlyWaiting, onlyBedtime } = asked();
+  const alone = onlyPictures || onlyPassword || onlyLock || onlyWaiting || onlyBedtime; // one part of the record by itself, without the tries
   let shown = site ? attempts.filter((attempt) => attempt.site === site) : attempts;
   if (onlyOff) shown = shown.filter((attempt) => offDuring(off, attempt.at));
   if (alone) shown = [];
   // The pictures hidden go in among every try and among one site's tries, and are shown alone; the
   // password's entries and the lock's go in among every try and are shown alone; the times off are shown with the tries alone.
-  const hidden = onlyOff || onlyPassword || onlyLock || onlyWaiting ? [] : site ? pictures.filter((picture) => picture.site === site) : pictures;
+  const hidden = onlyOff || onlyPassword || onlyLock || onlyWaiting || onlyBedtime ? [] : site ? pictures.filter((picture) => picture.site === site) : pictures;
   const everything = !site && !onlyOff && !alone;
   const password = onlyPassword || everything ? passwordEntries(lockbox) : [];
   const changes = onlyLock || everything ? lockEntries(lock) : [];
+  const bedtimes = onlyBedtime || everything ? bedtimeEntries(bedtime) : []; // among every try, and alone (1.30.0)
   // The pictures that waited go in among every try and among one site's tries, and are shown alone (1.27.0).
   const waited = onlyWaiting || everything ? waitingEntries(waiting) : site && !onlyOff && !alone ? waitingEntries(waiting.filter((entry) => entry.site === site)) : [];
-  const only = [onlyOff ? 'the times the add-on was off' : '', onlyPictures ? 'the pictures hidden' : '', onlyPassword ? 'the locked-away password' : '', onlyLock ? 'the Firefox lock' : '', onlyWaiting ? 'the pictures that waited for a verdict' : ''].filter(Boolean);
+  const only = [onlyOff ? 'the times the add-on was off' : '', onlyPictures ? 'the pictures hidden' : '', onlyPassword ? 'the locked-away password' : '', onlyLock ? 'the Firefox lock' : '', onlyWaiting ? 'the pictures that waited for a verdict' : '', onlyBedtime ? 'the bedtime' : ''].filter(Boolean);
   $('filter').hidden = !site && only.length === 0;
   $('filter-site').textContent = [site, ...only].filter(Boolean).join(', ');
   $('filter-clear').textContent = site ? 'Show every site' : 'Show every try';
-  document.title = `Family Site Blocker record: ${site ?? (onlyOff ? 'while the add-on was off' : onlyPictures ? 'the pictures hidden' : onlyPassword ? 'the locked-away password' : onlyLock ? 'the Firefox lock' : onlyWaiting ? 'the pictures that waited' : 'every try')}`;
-  renderSummary(shown, { site, onlyOff, onlyPictures, onlyPassword, onlyLock, onlyWaiting }, off, periods.length > 0, hidden);
+  document.title = `Family Site Blocker record: ${site ?? (onlyOff ? 'while the add-on was off' : onlyPictures ? 'the pictures hidden' : onlyPassword ? 'the locked-away password' : onlyLock ? 'the Firefox lock' : onlyWaiting ? 'the pictures that waited' : onlyBedtime ? 'the bedtime' : 'every try')}`;
+  renderSummary(shown, { site, onlyOff, onlyPictures, onlyPassword, onlyLock, onlyWaiting, onlyBedtime }, off, periods.length > 0, hidden);
   $('pictures-intro').hidden = hidden.length === 0;
   $('check-line').hidden = hidden.length === 0;
   $('pictures-alone').hidden = onlyPictures;
   $('password-intro').hidden = password.length === 0 || onlyPassword;
   $('lock-intro').hidden = changes.length === 0 || onlyLock;
   $('waiting-intro').hidden = waited.length === 0 || onlyWaiting;
+  $('bedtime-intro').hidden = bedtimes.length === 0 || onlyBedtime;
   $('save-file').hidden = attempts.length === 0;
   // A site with neither tries nor pictures shows nothing, not even the times the add-on was off; every
   // other view lays those in, except the pictures', the password's and the lock's alone.
   const nothing = site && shown.length === 0 && hidden.length === 0 && waited.length === 0;
-  const days = nothing ? [] : timeline(shown, alone ? null : watching, [...pictureEntries(hidden), ...password, ...changes, ...waited]);
+  const days = nothing ? [] : timeline(shown, alone ? null : watching, [...pictureEntries(hidden), ...password, ...changes, ...waited, ...bedtimes]);
   $('all').hidden = days.length === 0;
   const back = placeInRow();
   renderDays(days);
@@ -553,13 +577,13 @@ function saveFile() {
   const pad = (n) => String(n).padStart(2, '0');
   const name = `family-site-blocker-record-${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}.csv`;
   const link = document.createElement('a');
-  link.href = URL.createObjectURL(new Blob([toCsv(attempts, watching, pictures, lock, waiting)], { type: 'text/csv' }));
+  link.href = URL.createObjectURL(new Blob([toCsv(attempts, watching, pictures, lock, waiting, bedtime)], { type: 'text/csv' }));
   link.download = name;
   document.body.append(link);
   link.click();
   link.remove();
   setTimeout(() => URL.revokeObjectURL(link.href), 60_000);
-  const parts = [pictures.length ? 'the pictures hidden' : '', lock.length ? 'the Firefox lock’s rows' : '', waiting.length ? 'the pictures that waited for a verdict' : ''].filter(Boolean);
+  const parts = [pictures.length ? 'the pictures hidden' : '', lock.length ? 'the Firefox lock’s rows' : '', waiting.length ? 'the pictures that waited for a verdict' : '', bedtime.length ? 'the bedtime’s rows' : ''].filter(Boolean);
   const among = parts.length > 1 ? `${parts.slice(0, -1).join(', ')} and ${parts[parts.length - 1]}` : parts.join('');
   $('save-status').textContent = `Saved ${name} to your downloads: the whole record, oldest first${among ? `, ${among} among the tries` : ''}.`;
 }
@@ -571,7 +595,7 @@ window.addEventListener('hashchange', () => render().catch(() => {}));
 // differently, so only a change in the times off counts.)
 api.storage.onChanged.addListener((changes, area) => {
   if (area !== 'local') return;
-  if (changes[ATTEMPTS] || changes[PICTURES] || changes[EVENTS] || changes[EVENTS_SINCE] || changes[LOCK_CHANGES] || changes[WAITING]) render();
+  if (changes[ATTEMPTS] || changes[PICTURES] || changes[EVENTS] || changes[EVENTS_SINCE] || changes[LOCK_CHANGES] || changes[WAITING] || changes[BEDTIME_EVENTS]) render();
   else if (changes[WATCHING] && offPart(changes[WATCHING].newValue) !== offShown) render();
 });
 

@@ -19,10 +19,12 @@ export const everyTryWords = (count) => (count ? `See every try (${count})` : 'S
 /**
  * Whether Every try (tries.html) has anything to show, so that the links to it show: a try, a time the
  * add-on was off (lib/watching.js's `off`), a picture hidden (lib/pictures.js), an entry in the
- * locked-away password's record (lib/lockbox.js), one in the Firefox lock's (lib/lock.js, 1.22.0) or a
- * picture that waited for a verdict (lib/pictures.js WAITING, 1.27.0).
+ * locked-away password's record (lib/lockbox.js), one in the Firefox lock's (lib/lock.js, 1.22.0), a
+ * picture that waited for a verdict (lib/pictures.js WAITING, 1.27.0) or an entry in the bedtime's record
+ * (lib/bedtime.js, 1.30.0).
  */
-export const everyTryShows = ({ attempts, off, events, pictures = [], lock = [], waiting = [] }) => attempts.length > 0 || off.length > 0 || events.length > 0 || pictures.length > 0 || lock.length > 0 || waiting.length > 0;
+export const everyTryShows = ({ attempts, off, events, pictures = [], lock = [], waiting = [], bedtime = [] }) =>
+  attempts.length > 0 || off.length > 0 || events.length > 0 || pictures.length > 0 || lock.length > 0 || waiting.length > 0 || bedtime.length > 0;
 
 export const whenFormat = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' });
 export const dayFormat = new Intl.DateTimeFormat(undefined, { dateStyle: 'full' });
