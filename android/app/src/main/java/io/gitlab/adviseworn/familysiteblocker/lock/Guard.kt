@@ -97,9 +97,7 @@ object Guard {
         if (texts.any { text -> forEveryApp.any { text.contains(it, ignoreCase = true) } }) return true
         if (texts.any { it.equals(FORCE_STOP_QUESTION, ignoreCase = true) } && mayNeedAllowing()) return true
         if (texts.any { it.contains("stop $appName", ignoreCase = true) }) return true
-        val serviceScreen = (own != null && texts.any { it.contains(own.accessibility) }) ||
-            texts.any { text -> listOf("use $appName", "$appName shortcut").any { text.contains(it, ignoreCase = true) } }
-        if (serviceScreen) return !shortcutSet()
+        if (isServiceScreen(texts, appName, own)) return !shortcutSet()
         val listed = texts.any { it.trim().equals(ALL_APPS, ignoreCase = true) }
         if (!names(texts, appName, listed, emptySet())) return false
         // The page that clears the app's storage, with or without its buttons ([storagePage]).
@@ -111,6 +109,76 @@ object Guard {
             if (texts.any { undoes(it) }) return true
         }
         return texts.any { text -> usageAccessNames.any { text.contains(it, ignoreCase = true) } } && usageAccess()
+    }
+
+    /**
+     * Whether a screen showing [texts] is the accessibility service's own, where it is switched on and off, or
+     * the one that sets the accessibility shortcut to it: it shows the service's description ([own]), or the
+     * switch "Use …" or the row "… shortcut" with the app's name.
+     */
+    private fun isServiceScreen(texts: List<String>, appName: String, own: OwnWords?): Boolean =
+        (own != null && texts.any { it.contains(own.accessibility) }) ||
+            texts.any { text -> listOf("use $appName", "$appName shortcut").any { text.contains(it, ignoreCase = true) } }
+
+    /** For how long what the lock was given on a screen counts as given there just now, in milliseconds ([givenThere]). */
+    const val GIVEN_JUST_NOW = 10_000L
+
+    /**
+     * Whether a screen showing [texts], one that offers to undo the lock, is where the lock was given just
+     * now what it lacked: the accessibility service's own screen, [sinceWatchOn] milliseconds after the watch
+     * came on, or the app's usage access, [sinceUsageMissing] after a look last found it open with the access
+     * still missing; each null where that has not been, or has been answered already. With the lock on, such
+     * a screen is closed as soon as the thing is given, as it would be a minute later: what was given there
+     * can be taken away there. But nobody has tried to undo anything. So the watch brings up the app's Lock
+     * page, where the thing now says Done, and not the lock screen, and writes nothing into the record. A
+     * build before this one showed "The lock holds this setting" over the switch that had just been turned
+     * on, and wrote that down as a try. The question that switches the watch off is never this screen.
+     */
+    fun givenThere(texts: List<String>, appName: String, own: OwnWords?, sinceWatchOn: Long?, sinceUsageMissing: Long?): Boolean = when {
+        texts.any { it.contains("stop $appName", ignoreCase = true) || it.trimStart().startsWith("turn off", ignoreCase = true) } -> false
+        isServiceScreen(texts, appName, own) -> sinceWatchOn != null && sinceWatchOn in 0..GIVEN_JUST_NOW
+        texts.any { text -> usageAccessNames.any { text.contains(it, ignoreCase = true) } } ->
+            sinceUsageMissing != null && sinceUsageMissing in 0..GIVEN_JUST_NOW
+        else -> false
+    }
+
+    /** Whether [title], a window's, is that of the screen that gives and takes an app's usage access, or of the list that leads to it ([usageAccessNames]). */
+    fun namesUsageAccess(title: CharSequence?): Boolean =
+        title != null && usageAccessNames.any { title.toString().trim().equals(it, ignoreCase = true) }
+
+    /** What becomes of a usage access screen that shows the watch nothing ([hiddenUsagePage]). */
+    enum class HiddenUsagePage { LEAVE, WAIT, CLOSE, GIVEN }
+
+    /** For how long a usage access screen that the watch has never read is given to show itself, in milliseconds ([hiddenUsagePage]). */
+    const val UNREAD_FOR = 1500L
+
+    /**
+     * What becomes of a window in front that carries the title of the usage access screen
+     * ([namesUsageAccess]) and shows the watch nothing. On Android 17 that is every app's such screen from
+     * the moment its switch has been turned, for as long as the screen stays open: Settings then keeps the
+     * whole of it, not only the switch, for accessibility tools. The switch is still there to tap, and on
+     * the app's own it takes away what the lock reads Android's record of app use with. Such a screen can
+     * also lie among the recent apps from before the lock was on, to be brought back later.
+     *
+     * [readAsOurs] is what the watch made of the window while it could read it: the app's own page, another
+     * app's, or null when it never read it. Another app's is left alone. So is any while the app lacks its
+     * usage access ([usageGiven]): that is where it is given back. Given just now, [sinceUsageMissing]
+     * milliseconds after a look last found it missing, the screen is closed as [givenThere] closes one.
+     * Otherwise the app's own is closed. One the watch never read is first given [UNREAD_FOR] to show itself,
+     * under the shield, [unreadFor] being how long it has had: a window that has only just come up shows
+     * nothing either, and it may be another app's. [inAGuardedApp] says whether the window is known to be
+     * Settings': one that is not, by Android's record of app use, is waited for as long and then left alone.
+     */
+    fun hiddenUsagePage(readAsOurs: Boolean?, usageGiven: Boolean, inAGuardedApp: Boolean, sinceUsageMissing: Long?, unreadFor: Long): HiddenUsagePage {
+        val waits = unreadFor in 0 until UNREAD_FOR
+        return when {
+            readAsOurs == false || !usageGiven -> HiddenUsagePage.LEAVE
+            !inAGuardedApp -> if (waits) HiddenUsagePage.WAIT else HiddenUsagePage.LEAVE
+            sinceUsageMissing != null && sinceUsageMissing in 0..GIVEN_JUST_NOW -> HiddenUsagePage.GIVEN
+            readAsOurs == true -> HiddenUsagePage.CLOSE
+            waits -> HiddenUsagePage.WAIT
+            else -> HiddenUsagePage.CLOSE
+        }
     }
 
     /** What tells an app's App info from the screens it leads to: its title, and its Force stop button. */
@@ -238,6 +306,29 @@ object Guard {
      */
     fun sendsBack(sinceBack: Long, broughtForwardAt: Long?, backWentTo: Long?): Boolean =
         sinceBack !in 0..BACK_ONCE_IN && (broughtForwardAt == null || broughtForwardAt != backWentTo)
+
+    /**
+     * The same screen gets a new line in the record at the earliest this long after its last one, and after
+     * [RECORD_AT_LATEST] whatever has been in front since, in milliseconds.
+     */
+    const val RECORD_ONCE_IN = 3000L
+    const val RECORD_AT_LATEST = 30_000L
+
+    /**
+     * Whether a turning away is written into the record. One turning away is one line, however many looks
+     * find the screen before the lock screen is up. So a screen that is the same as the last one written down
+     * ([sameAsLast], [sinceLast] milliseconds ago) gets a new line only after [RECORD_ONCE_IN], and only when
+     * one of the app's own screens has come to the front in between ([ownScreenSince]): that is the lock screen
+     * having come up, and the screen having been opened again. A slow phone takes seconds to bring the lock
+     * screen up, and every look in that time finds the same screen and sends for it again; an earlier build
+     * wrote down each of those that came three seconds after the last line, two lines for one try. After
+     * [RECORD_AT_LATEST] the screen is written down whatever has been in front: a lock screen that cannot come
+     * up must not hide the tries that follow.
+     */
+    fun writesDown(sameAsLast: Boolean, sinceLast: Long, ownScreenSince: Boolean): Boolean = when {
+        !sameAsLast || sinceLast < 0 || sinceLast > RECORD_AT_LATEST -> true
+        else -> sinceLast > RECORD_ONCE_IN && ownScreenSince
+    }
 
     /**
      * How long after Back the lock screen follows it, in milliseconds, where the record of app use does not

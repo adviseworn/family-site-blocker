@@ -13,7 +13,6 @@
         android:minHeight="56dp"
         app:title="@string/tabs_title"
         app:titleTextColor="@color/fsb_toolbar_text"
-        app:navigationIconTint="@color/fsb_toolbar_text"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toTopOf="parent" />

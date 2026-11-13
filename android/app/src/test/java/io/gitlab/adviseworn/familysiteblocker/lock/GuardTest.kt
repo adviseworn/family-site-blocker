@@ -244,6 +244,76 @@ class GuardTest {
     }
 
     @Test
+    fun `a screen where the lock was given something just now gets the Lock page, and only then`() {
+        val service = listOf(app, "Navigate up", app, "Use $app", "Options", "$app shortcut", "Off", "Settings", own.accessibility)
+        // The switch has just been turned on: the watch came on two seconds ago.
+        assertTrue(Guard.givenThere(service, app, own, sinceWatchOn = 2_000, sinceUsageMissing = null))
+        // Told by the description alone, on a phone that speaks German.
+        assertTrue(Guard.givenThere(listOf(app, "Verknüpfung", own.accessibility), app, own, sinceWatchOn = 300, sinceUsageMissing = null))
+        // Opened a minute later, or once the Lock page has come up and the watch has forgotten when it came on: a try like any other.
+        assertFalse(Guard.givenThere(service, app, own, sinceWatchOn = 60_000, sinceUsageMissing = null))
+        assertFalse(Guard.givenThere(service, app, own, sinceWatchOn = null, sinceUsageMissing = null))
+        assertTrue(Guard.givenThere(service, app, own, Guard.GIVEN_JUST_NOW, null))
+        assertFalse(Guard.givenThere(service, app, own, Guard.GIVEN_JUST_NOW + 1, null))
+        // The question that switches the watch off again is never it, in either wording.
+        assertFalse(Guard.givenThere(listOf("Stop $app?", "Cancel", "Stop"), app, own, sinceWatchOn = 2_000, sinceUsageMissing = null))
+        assertFalse(Guard.givenThere(listOf("Turn off $app?", "Cancel", "Turn off"), app, own, sinceWatchOn = 2_000, sinceUsageMissing = null))
+        // Usage access given on its own page: a look found it missing there a second ago.
+        val usage = listOf("App usage data", "Navigate up", "App usage data", app, "1.30.0", "Permit access to app usage data")
+        assertTrue(Guard.givenThere(usage, app, own, sinceWatchOn = null, sinceUsageMissing = 1_000))
+        assertTrue("as Android 15 calls it", Guard.givenThere(listOf("Usage access", app, "Permit usage access"), app, own, null, 1_000))
+        assertFalse("it was on when the page was opened", Guard.givenThere(usage, app, own, sinceWatchOn = null, sinceUsageMissing = null))
+        assertFalse(Guard.givenThere(usage, app, own, sinceWatchOn = 2_000, sinceUsageMissing = 45_000))
+        // What was given on one screen does not open another: App info, the administrator's screen.
+        assertFalse(Guard.givenThere(listOf("App info", app, "Uninstall", "Force stop"), app, own, 2_000, 1_000))
+        assertFalse(Guard.givenThere(listOf(app, own.administrator, "Deactivate this device admin app"), app, own, 2_000, 1_000))
+        // Every one of these screens still offers to undo the lock: it is closed either way.
+        assertTrue(Guard.undoesTheLock(service, app, own))
+        assertTrue(Guard.undoesTheLock(usage, app, own, usageAccess = { true }))
+    }
+
+    @Test
+    fun `a usage access screen that shows the watch nothing is closed by its title, the app's own and one never read`() {
+        // Android 17 keeps the whole screen from the watch once its switch has been turned. Its window still has its title.
+        assertTrue(Guard.namesUsageAccess("App usage data"))
+        assertTrue("as Android 15 calls it", Guard.namesUsageAccess("Usage access"))
+        assertTrue(Guard.namesUsageAccess(" app usage data "))
+        assertFalse(Guard.namesUsageAccess("App usage data access for Chrome"))
+        assertFalse(Guard.namesUsageAccess("Special app access"))
+        assertFalse(Guard.namesUsageAccess(null))
+
+        val leave = Guard.HiddenUsagePage.LEAVE
+        val wait = Guard.HiddenUsagePage.WAIT
+        val close = Guard.HiddenUsagePage.CLOSE
+        val given = Guard.HiddenUsagePage.GIVEN
+        // The app's own page, read while the access was missing and left open for it to be given there: given
+        // a second ago, it gets the Lock page; found like that a minute later, the lock screen.
+        assertEquals(given, Guard.hiddenUsagePage(readAsOurs = true, usageGiven = true, inAGuardedApp = true, sinceUsageMissing = 1_000, unreadFor = 0))
+        assertEquals(given, Guard.hiddenUsagePage(true, true, true, Guard.GIVEN_JUST_NOW, 0))
+        assertEquals(close, Guard.hiddenUsagePage(true, true, true, Guard.GIVEN_JUST_NOW + 1, 0))
+        assertEquals(close, Guard.hiddenUsagePage(true, true, true, sinceUsageMissing = null, unreadFor = 0))
+        // While the access is missing the page stays: that is where it is given back, however long it has shown nothing.
+        assertEquals(leave, Guard.hiddenUsagePage(true, usageGiven = false, inAGuardedApp = true, sinceUsageMissing = 0, unreadFor = 60_000))
+        assertEquals(leave, Guard.hiddenUsagePage(null, usageGiven = false, inAGuardedApp = true, sinceUsageMissing = 0, unreadFor = 60_000))
+        // Another app's page is nobody's way round the lock, whatever was done on it.
+        assertEquals(leave, Guard.hiddenUsagePage(readAsOurs = false, usageGiven = true, inAGuardedApp = true, sinceUsageMissing = null, unreadFor = 60_000))
+        assertEquals(leave, Guard.hiddenUsagePage(false, true, true, sinceUsageMissing = 1_000, unreadFor = 0))
+        // One the watch never read, brought back from the recent apps, say: it may only be coming up, so it
+        // waits under the shield, and is closed once it has shown nothing for long enough.
+        assertEquals(wait, Guard.hiddenUsagePage(readAsOurs = null, usageGiven = true, inAGuardedApp = true, sinceUsageMissing = null, unreadFor = 0))
+        assertEquals(wait, Guard.hiddenUsagePage(null, true, true, null, Guard.UNREAD_FOR - 1))
+        assertEquals(close, Guard.hiddenUsagePage(null, true, true, null, Guard.UNREAD_FOR))
+        assertEquals("a clock that went back", close, Guard.hiddenUsagePage(null, true, true, null, -5))
+        assertTrue("longer than a page of Settings takes to come up, shorter than a person takes to find the switch under a blank screen", Guard.UNREAD_FOR in 1_000..3_000)
+        // The access was missing a moment ago and is there now: it was given on this page, read or not.
+        assertEquals(given, Guard.hiddenUsagePage(null, true, true, sinceUsageMissing = 1_200, unreadFor = 200))
+        // A window that Android's record does not put in Settings: waited for as long, then left alone.
+        assertEquals(wait, Guard.hiddenUsagePage(null, true, inAGuardedApp = false, sinceUsageMissing = null, unreadFor = 100))
+        assertEquals(wait, Guard.hiddenUsagePage(null, true, inAGuardedApp = false, sinceUsageMissing = 1_000, unreadFor = 100))
+        assertEquals(leave, Guard.hiddenUsagePage(null, true, inAGuardedApp = false, sinceUsageMissing = null, unreadFor = Guard.UNREAD_FOR))
+    }
+
+    @Test
     fun `the lock's own screens are not taken for a way to undo it`() {
         val lockScreen = listOf(
             string("lock_screen_settings_title"), string("lock_screen_settings_body"), string("lock_screen_open"),
@@ -405,6 +475,21 @@ class GuardTest {
         assertFalse(Guard.sendsBack(Guard.BACK_ONCE_IN, null, null))
         assertTrue(Guard.sendsBack(Guard.BACK_ONCE_IN + 1, null, 1000))
         assertTrue("a clock that went back does not hold Back up", Guard.sendsBack(-5, null, null))
+    }
+
+    @Test
+    fun `one turning away is one line in the record`() {
+        assertTrue("another screen", Guard.writesDown(false, 100, false))
+        assertFalse("the same screen, found again at once", Guard.writesDown(true, 400, true))
+        // The Android 17 test phone took seven seconds to bring the lock screen up, and wrote two lines.
+        assertFalse("the lock screen is still on its way", Guard.writesDown(true, 7000, false))
+        assertTrue("opened again after the lock screen came up", Guard.writesDown(true, 7000, true))
+        assertFalse(Guard.writesDown(true, Guard.RECORD_ONCE_IN, true))
+        assertTrue(Guard.writesDown(true, Guard.RECORD_ONCE_IN + 1, true))
+        // A lock screen that never comes up does not hide the tries that follow.
+        assertFalse(Guard.writesDown(true, Guard.RECORD_AT_LATEST, false))
+        assertTrue(Guard.writesDown(true, Guard.RECORD_AT_LATEST + 1, false))
+        assertTrue("a clock that went back", Guard.writesDown(true, -5, false))
     }
 
     @Test

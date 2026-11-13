@@ -12,7 +12,6 @@
         android:layout_height="?attr/actionBarSize"
         android:background="@color/fsb_toolbar"
         app:navigationIcon="@drawable/mozac_ic_back_24"
-        app:navigationIconTint="@color/fsb_toolbar_text"
         app:title="@string/lock_title"
         app:titleTextColor="@color/fsb_toolbar_text" />
 
@@ -283,6 +282,30 @@
                 android:layout_height="wrap_content"
                 android:layout_marginTop="8dp"
                 android:text="@string/lock_turn_off" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="24dp"
+                android:text="@string/bedtime_heading"
+                android:textAppearance="?attr/textAppearanceTitleMedium"
+                android:textColor="@color/fsb_toolbar_text" />
+
+            <TextView
+                android:id="@+id/bedtimeStatus"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:textAppearance="?attr/textAppearanceBodyLarge"
+                android:textColor="@color/fsb_toolbar_text" />
+
+            <Button
+                android:id="@+id/bedtimeApps"
+                style="@style/Widget.Material3.Button.OutlinedButton"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:text="@string/bedtime_turn_apps_on" />
 
             <TextView
                 android:layout_width="match_parent"

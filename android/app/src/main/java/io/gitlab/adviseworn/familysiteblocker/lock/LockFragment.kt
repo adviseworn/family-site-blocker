@@ -29,6 +29,7 @@ import io.gitlab.adviseworn.familysiteblocker.BrowserFragment
 import io.gitlab.adviseworn.familysiteblocker.BuildConfig
 import io.gitlab.adviseworn.familysiteblocker.R
 import io.gitlab.adviseworn.familysiteblocker.databinding.FragmentLockBinding
+import io.gitlab.adviseworn.familysiteblocker.ext.tintIcons
 import mozilla.components.support.base.feature.UserInteractionHandler
 import java.text.DateFormat
 import java.util.Date
@@ -49,6 +50,7 @@ class LockFragment : Fragment(), UserInteractionHandler {
     private var _binding: FragmentLockBinding? = null
     private val binding get() = _binding!!
     private lateinit var state: LockState
+    private lateinit var bedtime: BedtimeOnLockPage
     private val onChange = SharedPreferences.OnSharedPreferenceChangeListener { _, _ -> if (_binding != null) render() }
     private var pendingWhy: String? = null
     // Whatever the answer, the unlocking goes ahead: without the leave the work still runs, only unseen.
@@ -72,7 +74,9 @@ class LockFragment : Fragment(), UserInteractionHandler {
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
+        binding.toolbar.tintIcons()
         binding.toolbar.setNavigationOnClickListener { close() }
+        bedtime = BedtimeOnLockPage(requireContext(), state, binding.bedtimeStatus, binding.bedtimeApps) { if (_binding != null) render() }
 
         // The waits as the computer's menu names them, in the same order as LockState.waits.
         binding.waitChooser.adapter = ArrayAdapter(requireContext(), android.R.layout.simple_spinner_dropdown_item, resources.getStringArray(R.array.lock_waits))
@@ -242,6 +246,8 @@ class LockFragment : Fragment(), UserInteractionHandler {
             }
         }
         binding.startUnlocking.setText(if (progress != null) R.string.lock_carry_on_unlocking else R.string.lock_start_unlocking)
+
+        bedtime.render()
 
         val events = state.events().takeLast(12).reversed()
         binding.record.text = if (events.isEmpty()) getString(R.string.lock_record_empty) else events.joinToString("\n") { state.describe(it) }

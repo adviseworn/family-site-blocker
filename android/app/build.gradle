@@ -97,16 +97,21 @@ android {
 // The add-on goes into the APK's assets, from where GeckoView installs it as a built-in extension
 // (resource://android/assets/extensions/family-site-blocker/). Same change as scripts/package-firefox.mjs:
 // background.service_worker is for Chrome, Edge and Brave; Firefox runs background.scripts.
+// The app's copy gets one more background script, its line to the app (src/main/extension/android-bridge.js,
+// heard by AddOnBridge.kt), and the two permissions GeckoView wants before an add-on may send to its app.
 def copyExtension = tasks.register('copyExtension', Sync) {
-    description = "Copies the add-on into the app's assets with Firefox's manifest."
+    description = "Copies the add-on into the app's assets with Firefox's manifest and the app's bridge script."
     from(extensionDir) {
         exclude '_metadata/**', '**/.DS_Store'
     }
+    from('src/main/extension')
     into layout.buildDirectory.dir('generated/extension/extensions/family-site-blocker')
     doLast {
         def manifestFile = new File(destinationDir, 'manifest.json')
         def manifest = new JsonSlurper().parse(manifestFile)
         manifest.background?.remove('service_worker')
+        manifest.background.scripts = (manifest.background.scripts + ['android-bridge.js']).unique()
+        manifest.permissions = (manifest.permissions + ['nativeMessaging', 'geckoViewAddons']).unique()
         manifestFile.text = JsonOutput.prettyPrint(JsonOutput.toJson(manifest)) + '\n'
     }
 }

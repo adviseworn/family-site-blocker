@@ -177,6 +177,26 @@ lock that closed App info then could never be completed. Force stop is on App in
 question is turned away, whichever app it is about. None of these states can be brought about with the lock
 whole: each screen that would take something away is one the watch closes.
 
+With the lock on, the screen where such a thing is given closes as soon as it is given, because there it could
+be taken away again. That holds for the accessibility service's own screen the moment the watch comes on, and
+for the app's usage access. Nobody has tried to undo anything then, so the app's Lock page comes up in the
+screen's place, with the thing marked Done, and the record gets no line (`Guard.givenThere`). The screen gets
+one Back for it: read once more while the Lock page is on its way, as a slow phone does, it gets no second one,
+which would land on the page and close that. Opened again, the screen is turned away like any other.
+
+The usage access screen needs a rule of its own on Android 17. From the moment its switch has been turned,
+for any app and either way, Settings shows that screen to accessibility tools only, for as long as it stays
+open: the watch is shown a window with the title "App usage data" and nothing in it. The switch is still
+there to tap, and such a screen can be left among the recent apps from before the lock was on and brought
+back later. So the watch remembers which windows with that title it has read, and whose page each was, and
+a window in front with that title that shows it nothing is treated by that (`Guard.hiddenUsagePage`): the
+app's own is closed, with the Lock page where the access was given there just now and with the lock screen
+otherwise; another app's is left alone; one the watch never read waits under the shield for a second and a
+half to show itself, since a window that is only just coming up shows nothing either, and is closed if it
+does not. While the app has no usage access all of them stay open. The watch forgets what it read when it
+is started again, as after an update, so another app's page that had its switch turned before that, and is
+brought back from the recent apps after it, is closed once.
+
 What the watch sees and does can be read on a phone with a cable: `adb shell setprop log.tag.FsbLock DEBUG`,
 then `adb logcat -s FsbLock`. An emulator without hardware acceleration is many times slower than a phone,
 and the watch's waits are then too short to show anything: `adb shell setprop log.tag.FsbLockSlow DEBUG`
@@ -210,6 +230,45 @@ computer's menu of waits):
 The lock cannot reach Safe mode, a factory reset, a second user, a Private space or a work profile that was
 set up before the lock was on, or pages opened inside other apps' own in-app browsers; Family Link cannot
 either.
+
+### Bedtime
+
+The add-on's bedtime (its settings page, Bedtime: every site blocked between two times of day) is the add-on's
+to keep: the hours, the day's wait and the reason for loosening it, and its record are all in
+`extension/lib/bedtime.js`. The app does the phone's part of it, while the lock is on:
+
+- **The add-on tells the app its bedtime.** The app's copy of the add-on carries one more background script,
+  `app/src/main/extension/android-bridge.js`, which `copyExtension` adds with the two permissions GeckoView wants
+  for it (`nativeMessaging`, `geckoViewAddons`). It sends the setting when the add-on starts and whenever it
+  changes; `AddOnBridge` hears it and `lock/BedtimeSetting` keeps it, so the app knows the hours without the
+  add-on being awake (`lock/Bedtime` works them out, a change that waits its day included).
+- **Other apps are turned away**, once that is switched on from the Lock page ("Turn other apps away at
+  bedtime"). From the bedtime's start to its end the watch covers every app that has an icon with the lock
+  screen ("It's bedtime"), except this one, the home screen, the phone app, the clock, Settings, the keyboard and
+  the phone's safety apps (`lock/BedtimeApps` finds them on the phone). The lock's watch does the covering,
+  where it decides everything else, in `lookAtTheFront`; `lock/BedtimeWatch` tells it which apps and when,
+  asks it every 20 seconds of a bedtime to look for an app that was in front already (not while the screen is
+  off), and says ten minutes ahead that bedtime is coming. Anyone can switch this on; once the lock is on it
+  comes off only while the lock is off.
+- **The clock is held.** While a bedtime is set, the Settings screens that set the date, the time and the time
+  zone are closed and covered like the screens that undo the lock, since the bedtime goes by the phone's clock.
+  The watch tells them by Android's own English words, as it tells the screens about this app
+  (`ClockScreen.shows`): Date & time by its title with one of its lines, the time zone's screens by the region
+  or by the zone's distance from Greenwich, and a list of time zones by its lines. So the words of Date & time
+  and the time zone are one more thing the watch looks for in Settings, and the description Android shows
+  before the watch is switched on says so.
+
+Out of its reach at bedtime, besides the lock's own limits: a video already playing in a small window, sound
+from an app in the background, what a notification shows and an answer typed into it, the camera opened from
+the phone's lock screen, and a call or an alarm in an app that did not come with the phone (its sound goes on;
+its screen is covered). Setting the clock from a computer over adb is out of reach too.
+
+A build that changes what `copyExtension` packs needs no new add-on version to take effect on a phone. Tried on
+the emulator: app build 3, with the bridge script added, installed over app build 2 without it, both 1.30.0,
+and the app heard the add-on at its next start. Gecko notes the app's install path in its profile
+(`compatibility.ini`) and Android gives every update a new one, which is when Gecko throws its startup caches
+away. `AddOnBridge` answers the add-on with a plain true or false on purpose: GeckoView cannot hand a JSON
+object back, and the add-on's message would never be answered.
 
 ## Versions
 
@@ -279,6 +338,13 @@ Firefox releases every four weeks. Each release needs `android-components` bumpe
 `gradle/libs.versions.toml` (the matching GeckoView comes with it) and a new build. Google Play's `targetSdk`
 rule moves once a year; `compileSdk`, `targetSdk` and the AndroidX versions follow Mozilla's
 `gradle/libs.versions.toml` at the release tag.
+
+A raised `targetSdk` changes how Android treats the app, but only on phones that run that Android or a later
+one. At 36, Back stopped reaching an activity's `onBackPressed`: from 1.29.0 to 1.30.0 build 25, Back closed
+the app from every page on Android 16 and 17, and an Android 15 test phone showed nothing of it. The one
+activity now takes Back through an `OnBackPressedCallback` (`BrowserActivity`) and hands it to the page shown.
+So after a raise, walk the app on a test phone with the newest Android: Back in the browser, on the tabs grid
+and on the Lock page.
 
 ## Not in the first version
 

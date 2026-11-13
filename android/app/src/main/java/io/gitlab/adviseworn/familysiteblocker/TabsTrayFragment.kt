@@ -9,6 +9,7 @@ import androidx.recyclerview.widget.GridLayoutManager
 import com.google.android.material.snackbar.Snackbar
 import io.gitlab.adviseworn.familysiteblocker.databinding.FragmentTabstrayBinding
 import io.gitlab.adviseworn.familysiteblocker.ext.components
+import io.gitlab.adviseworn.familysiteblocker.ext.tintIcons
 import mozilla.components.browser.state.state.TabSessionState
 import mozilla.components.browser.tabstray.TabsAdapter
 import mozilla.components.browser.tabstray.TabsTray
@@ -33,6 +34,7 @@ class TabsTrayFragment : Fragment(), UserInteractionHandler {
         binding.toolbar.setNavigationIcon(iconsR.drawable.mozac_ic_back_24)
         binding.toolbar.setNavigationOnClickListener { closeTabsTray() }
         binding.toolbar.inflateMenu(R.menu.tabstray_menu)
+        binding.toolbar.tintIcons()
         binding.toolbar.setOnMenuItemClickListener { item ->
             if (item.itemId == R.id.newTab) {
                 components.tabsUseCases.addTab("about:blank", selectTab = true)

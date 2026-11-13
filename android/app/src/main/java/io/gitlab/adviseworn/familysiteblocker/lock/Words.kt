@@ -103,6 +103,10 @@ object Words {
             "blocked-browser" -> entry.optString("app").let { if (it.isBlank()) "An app that opens web links was turned away" else "$it was turned away" }
             "blocked-settings" -> "A Settings screen for the lock was turned away"
             "blocked-security" -> "Security & privacy was turned away"
+            "blocked-bedtime" -> entry.optString("app").let { if (it.isBlank()) "An app was turned away at bedtime" else "$it was turned away at bedtime" }
+            "blocked-clock" -> "A Settings screen for the phone’s clock was turned away"
+            "bedtime-apps-on" -> "Other apps are turned away at bedtime from now on"
+            "bedtime-apps-off" -> "Other apps are left open at bedtime from now on"
             else -> entry.optString("event")
         }
     }
