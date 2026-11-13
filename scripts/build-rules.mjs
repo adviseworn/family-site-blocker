@@ -2,15 +2,17 @@
 // Builds the blocking rules from every .txt file in blocklists/ but never.txt: extension/rules/adult-1.json,
 // adult-2.json, … (each a ruleset of its own, listed in manifest.json, which this script keeps up to
 // date), and extension/rules/domains.json, the same domains as a plain list, which the background script
-// and the settings page read. never.txt names the sites to leave out (ordinary sites the community list
-// sweeps up); a line there takes out that one domain, not the hosts listed under it. The rules repeat each
-// domain four times (two rules, with and without a trailing dot), so they are split into files of at most
-// MAX_RULESET_BYTES: Mozilla's add-on linter, which runs before Mozilla signs a version, won't read a file
-// over 4 MB.
+// and the settings page read. It also writes the two rulesets that come from the code, not from a list:
+// safe-search.json (lib/safesearch.js) and proxies.json (lib/proxies.js). never.txt names the sites to
+// leave out (ordinary sites the community list sweeps up); a line there takes out that one domain, not the
+// hosts listed under it. The rules repeat each domain four times (two rules, with and without a trailing
+// dot), so they are split into files of at most MAX_RULESET_BYTES: Mozilla's add-on linter, which runs
+// before Mozilla signs a version, won't read a file over 4 MB.
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { parseDomainList } from '../extension/lib/domains.js';
+import { proxyRules } from '../extension/lib/proxies.js';
 import { buildRules } from '../extension/lib/rules.js';
 import { safeSearchRules } from '../extension/lib/safesearch.js';
 
@@ -22,6 +24,8 @@ export const RULES_DIR = join(EXTENSION_DIR, 'rules');
 export const DOMAINS_PATH = join(RULES_DIR, 'domains.json');
 export const SAFE_SEARCH_FILE = 'safe-search.json'; // the safe-search ruleset (lib/safesearch.js), next to the adult ones
 export const SAFE_SEARCH_PATH = join(RULES_DIR, SAFE_SEARCH_FILE);
+export const PROXIES_FILE = 'proxies.json'; // the ruleset for the shape of web proxies' addresses (lib/proxies.js)
+export const PROXIES_PATH = join(RULES_DIR, PROXIES_FILE);
 export const MAX_RULESET_BYTES = 3 * 1024 * 1024;
 export const NEVER_FILE = 'never.txt'; // the sites to leave out of the built-in list, with their reasons
 const RULESET = /^adult-\d+\.json$/;
@@ -82,14 +86,18 @@ export function renderDomains(domains) {
   return `[\n${domains.map((domain) => `  ${JSON.stringify(domain)}`).join(',\n')}\n]\n`;
 }
 
-/** manifest.json's rule_resources: the adult rulesets in these files, then the safe-search ruleset. */
+/** manifest.json's rule_resources: the adult rulesets in these files, then the safe-search ruleset and the web proxies'. */
 export const ruleResources = (files) => [
   ...files.map(({ id, file }) => ({ id, enabled: true, path: `rules/${file}` })),
   { id: 'safe-search', enabled: true, path: `rules/${SAFE_SEARCH_FILE}` },
+  { id: 'proxies', enabled: true, path: `rules/${PROXIES_FILE}` },
 ];
 
 /** The safe-search ruleset as written to rules/safe-search.json. */
 export const renderSafeSearch = () => `${JSON.stringify(safeSearchRules(), null, 2)}\n`;
+
+/** The web proxies' ruleset as written to rules/proxies.json. */
+export const renderProxies = () => `${JSON.stringify(proxyRules(), null, 2)}\n`;
 
 /** manifest.json as it is kept: two-space JSON, with short lists of strings on one line. */
 export function formatManifest(manifest) {
@@ -118,6 +126,7 @@ function main() {
   for (const { file, text } of rulesets) writeFileSync(join(RULES_DIR, file), text);
   writeFileSync(DOMAINS_PATH, renderDomains(domains));
   writeFileSync(SAFE_SEARCH_PATH, renderSafeSearch());
+  writeFileSync(PROXIES_PATH, renderProxies());
   const manifest = JSON.parse(readFileSync(MANIFEST_PATH, 'utf8'));
   manifest.declarative_net_request.rule_resources = ruleResources(rulesets);
   writeFileSync(MANIFEST_PATH, formatManifest(manifest));

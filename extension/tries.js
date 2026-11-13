@@ -16,7 +16,7 @@
 // and for the pictures that waited alone (tries.html#waiting).
 // Like the other pages, this one only reads the records, apart from noting the looks at hidden pictures;
 // nothing here can clear them (see lib/attempts.js).
-import { ATTEMPTS, LABELS, offDuring, outcome, summarize, timeline, toCsv } from './lib/attempts.js';
+import { ATTEMPTS, LABELS, offDuring, outcome, roadWords, summarize, timeline, toCsv } from './lib/attempts.js';
 import { BEDTIME, BEDTIME_EVENTS, BEDTIME_NAME, bedtimeEvents, describeBedtime, eventWords, isLooser } from './lib/bedtime.js';
 import { LOCK_CHANGES, LOCK_NAME, lockChangeWords, lockChanges } from './lib/lock.js';
 import { EVENTS, EVENTS_SINCE, beginningOf, describeEvent, describeRecord, loadBox } from './lib/lockbox.js';
@@ -449,7 +449,7 @@ function renderDays(days) {
       }
       const what = outcome(entry.attempt, watching);
       const row = element('tr', null, { class: entry.during ? `${what} within` : what });
-      row.append(element('td', timeFormat.format(entry.at)), element('td', entry.attempt.site), element('td', LABELS[what]));
+      row.append(element('td', timeFormat.format(entry.at)), element('td', entry.attempt.site), element('td', `${LABELS[what]}${roadWords(entry.attempt)}`));
       body.append(row);
     }
     table.append(body);

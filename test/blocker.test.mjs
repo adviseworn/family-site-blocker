@@ -17,6 +17,7 @@ import { addToMyList, myList, saveMyList } from '../extension/lib/mylist.js';
 import { BLOCK_PAGE, CHUNK_SIZE, PAGE_BLOCK_FIRST_ID, PAGE_BLOCK_PRIORITY, buildRules, domainsOf, pageBlockRules } from '../extension/lib/rules.js';
 import { BLOCKLIST_DIR, DOMAINS_PATH, MANIFEST_PATH, MAX_RULESET_BYTES, NEVER_FILE, RULES_DIR, SAFE_SEARCH_PATH, formatManifest, listFiles, loadBlocklists, loadNever, loadRules, renderDomains, renderRulesets, renderSafeSearch, ruleResources } from '../scripts/build-rules.mjs';
 import { ENGINES, FIRST_ID, safeSearchAddress, safeSearchRules } from '../extension/lib/safesearch.js';
+import { FIRST_ID as PROXIES_FIRST_ID } from '../extension/lib/proxies.js';
 import { BANDS, COMMUNITY_PATH, COMMUNITY_URL, LINKS_URL, POPULAR_PATH, POPULAR_SIZE, POPULAR_URL, communityList, inOrder, linkRanks, looksAdult as nameLooksAdult, popularList, rankSites, worthALook } from '../scripts/update-blocklist.mjs';
 import { firefoxManifest, packageFirefox } from '../scripts/package-firefox.mjs';
 import { ADDON_PROFILE_PATH, AGENT_LABEL, AGENT_PATH, FILTER_LIMIT, PROFILE_PATH, SAFE_MODE_KEY_VARIABLE, STAMP_PATH, VERSION as LOCK_VERSION, WHOLE_DOMAINS, XPI_URL, addonStamp, digestOf, filterEntries, filterPattern, filterSites, firefoxPolicies, launchAgent, lockSettings, lockStamp, mobileconfig, onWholeDomain } from '../scripts/firefox-lock.mjs';
@@ -29,7 +30,7 @@ import { LATEST_NAME, LATEST_URL, SITE_README, SITE_URL, UPDATES_URL, buildSite,
 const EXT = resolve(dirname(fileURLToPath(import.meta.url)), '..', 'extension');
 const manifest = JSON.parse(readFileSync(join(EXT, 'manifest.json'), 'utf8'));
 const ALL_RULES = loadRules();
-const rules = ALL_RULES.filter((rule) => rule.id < FIRST_ID); // the adult rulesets; the safe-search rules have their own tests
+const rules = ALL_RULES.filter((rule) => rule.id < FIRST_ID); // the adult rulesets; the safe-search rules have their own tests, and the web proxies' theirs (test/proxies.test.mjs)
 
 // A stand-in for the browser's matcher that follows the documented behaviour of requestDomains:
 // the request's host is the listed domain or one of its subdomains, whatever the scheme, port or path.
@@ -343,6 +344,7 @@ test('renderRulesets packs whole rules into files under the size limit, in order
     { id: 'adult-1', enabled: true, path: 'rules/adult-1.json' },
     { id: 'adult-2', enabled: true, path: 'rules/adult-2.json' },
     { id: 'safe-search', enabled: true, path: 'rules/safe-search.json' },
+    { id: 'proxies', enabled: true, path: 'rules/proxies.json' },
   ]);
   assert.equal(renderRulesets(['one.example']).length, 1);
 });
@@ -364,7 +366,7 @@ test('domainsOf reads back the domains a set of rules was built from, each once'
 test('safe search: each engine gets an allow rule for addresses already strict and a redirect that adds the setting; YouTube is left alone', () => {
   const safe = safeSearchRules();
   assert.deepEqual(readFileSync(SAFE_SEARCH_PATH, 'utf8'), renderSafeSearch(), 'rules/safe-search.json is up to date (run npm run build)');
-  assert.deepEqual(ALL_RULES.filter((rule) => rule.id >= FIRST_ID), safe, 'the manifest loads exactly these');
+  assert.deepEqual(ALL_RULES.filter((rule) => rule.id >= FIRST_ID && rule.id < PROXIES_FIRST_ID), safe, 'the manifest loads exactly these');
   assert.equal(safe.length, ENGINES.length * 2, 'two rules an engine, and nothing else: the YouTube header rule went in 1.26.0');
   ENGINES.forEach((engine, i) => {
     const [allow, redirect] = safe.slice(i * 2, i * 2 + 2);
@@ -411,7 +413,7 @@ test('safe search: each engine gets an allow rule for addresses already strict a
   // Until 1.25.0 a last rule set the YouTube-Restrict header on every request to YouTube, which kept it in Restricted Mode and hid ordinary videos; no rule touches YouTube now.
   assert.ok(safe.every((rule) => rule.action.type !== 'modifyHeaders'), 'no header rule');
   assert.ok(!safe.some((rule) => JSON.stringify(rule).toLowerCase().includes('youtube')), 'nothing about YouTube');
-  assert.deepEqual(manifest.declarative_net_request.rule_resources.at(-1), { id: 'safe-search', enabled: true, path: 'rules/safe-search.json' });
+  assert.deepEqual(manifest.declarative_net_request.rule_resources.at(-2), { id: 'safe-search', enabled: true, path: 'rules/safe-search.json' }, "the last but one: the web proxies' ruleset follows it");
 });
 
 test('blocked attempts: the host of an address, and the listed domain that covers it', () => {

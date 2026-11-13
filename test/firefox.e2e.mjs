@@ -15,6 +15,7 @@ import { dirname, join } from 'node:path';
 import { parseDomainList } from '../extension/lib/domains.js';
 import { BLOCKLIST_DIR } from '../scripts/build-rules.mjs';
 import { filterEntries, filterSites } from '../scripts/firefox-lock.mjs';
+import { SHAPES } from '../extension/lib/proxies.js';
 import { packageFirefox } from '../scripts/package-firefox.mjs';
 import { EXTENSION_DIR, startStubInternet } from './helpers/browser.mjs';
 import { findFirefox, launchFirefox } from './helpers/firefox.mjs';
@@ -24,6 +25,14 @@ const VERSION = JSON.parse(readFileSync(join(EXTENSION_DIR, 'manifest.json'), 'u
 const BUILT_IN = JSON.parse(readFileSync(join(EXTENSION_DIR, 'rules', 'domains.json'), 'utf8')).length;
 const SITE = 'exampleadultsite.com';
 const BLOCKED_URL = `http://${SITE}/`;
+// The address a person reported as getting through (1.31.0): a CroxyProxy server at a bare IP address. Its
+// "r" holds, in base64, the address the server sends the browser on to, and that one holds the site in its
+// "__cpo", in base64 again. Its "s" the proxy makes for one visit, so a made-up one of the same shape stands
+// in. Firefox reaches the stand-in internet by http, so the page it is sent on to (PROXIED) is the http one
+// here.
+const PROXY = '208.87.240.203';
+const REPORTED = `https://${PROXY}/__cpi.php?s=UVNCdFlXUmxMWFZ3SUhSdmEyVnVJRzltSUhSb1pTQnphR0Z3WlNCMGFHVWdjSEp2ZUhrZ1oybDJaWE1nYjI1bElIWnBjMmwwT2lCdWIzUm9hVzVuSUc5bUlHRWdjbVZoYkNCMmFYTnBkQzQ9&r=aHR0cHM6Ly8yMDguODcuMjQwLjIwMy8%2FX19jcG89YUhSMGNITTZMeTlsZUdGdGNHeGxZV1IxYkhSemFYUmxMbU52YlE%3D&__cpo=1`;
+const PROXIED = `http://${PROXY}/?__cpo=aHR0cHM6Ly9leGFtcGxlYWR1bHRzaXRlLmNvbQ`;
 const test = (name, fn) => it(name, { timeout: 60_000 }, fn);
 const sleep = (ms) => new Promise((done) => setTimeout(done, ms));
 
@@ -1363,6 +1372,425 @@ describe('Firefox', { skip: findFirefox() ? false : 'no Firefox found (set FIREF
     });
   });
 
+  describe('web proxies (1.31.0)', () => {
+    // A listed site opened by another road (extension/lib/proxies.js): through a web proxy, a translation
+    // or an archive, each of which fetches the site's pages and shows them under an address of its own.
+    // A Firefox of its own, with a record of its own, and one without the add-on for the controls. Both
+    // let a page keep a script in the browser (a service worker) on the stand-in internet's plain-http
+    // addresses, which Firefox otherwise allows over https alone: the stand-in for a proxy that makes its
+    // pages in the browser needs one.
+    const UNLISTED = 'http://allowed.test/';
+    const WORKERS = { 'dom.serviceWorkers.testing.enabled': true, 'network.proxy.testing_localhost_is_secure_when_hijacked': true };
+    const WORKER_HOST = 'sw.localhost';
+    const WORKER_SERVED = 'served by the worker';
+    const byHttp = (url) => url.replace(/^https:/, 'http:');
+    const base64 = (text) => Buffer.from(text).toString('base64');
+    const base64url = (text) => Buffer.from(text).toString('base64url');
+    /** An address as Ultraviolet's default coding writes it: every second letter changed, then percent-coded. */
+    const ultraviolet = (text) => encodeURIComponent([...text].map((letter, index) => (index % 2 ? String.fromCharCode(letter.charCodeAt(0) ^ 2) : letter)).join(''));
+    const asked = () => JSON.stringify(stub.requests.map(({ host, path, search }) => `${host}${path}${search ?? ''}`));
+    let proxied; // the Firefox with the add-on
+    let plain; // and the one without
+    let settings; // the settings page's tab in the first, which Firefox opened after the install
+    let host; // the add-on's own address there
+    let page; // and a tab for the pages the tests open
+
+    before(async () => {
+      proxied = await launchFirefox(stub, { prefs: WORKERS });
+      plain = await launchFirefox(stub, { extension: false, prefs: WORKERS });
+      const tab = (await proxied.tabs()).find(({ url }) => url.endsWith('/options.html'));
+      assert.ok(tab, 'the settings page opened after the install');
+      settings = tab.handle;
+      host = new URL(tab.url).host;
+      page = await proxied.newTab();
+      // As the real proxy does: __cpi.php sets its cookies and sends the browser on to the address in "r".
+      stub.page(`${PROXY}/__cpi.php`, '', { status: 302, headers: { location: PROXIED } });
+      stub.page('allowed.test/proxy-link', `<!doctype html><title>links</title><h1>SITE LOADED</h1><a id="go" href="${byHttp(REPORTED).replaceAll('&', '&amp;')}">go</a>`);
+      stub.page(
+        'allowed.test/pictures-proxied',
+        `<!doctype html><title>pictures</title><h1>SITE LOADED</h1><img id="plain" src="http://cdn.allowed.test/pixel.gif">
+        ${SHAPES.map(({ example }, index) => `<img id="shape${index}" src="${byHttp(example).replaceAll('&', '&amp;')}">`).join('\n')}`,
+      );
+      stub.page(
+        'allowed.test/app',
+        `<!doctype html><title>app</title><h1>SITE LOADED</h1>
+        <button id="push" onclick="history.pushState({}, '', '/app/view?url=' + encodeURIComponent('https://${SITE}/'))">push</button>
+        <button id="hash" onclick="location.hash = 'https://${SITE}/'">hash</button>
+        <button id="other" onclick="history.pushState({}, '', '/app/view?url=' + encodeURIComponent('${UNLISTED}'))">other</button>`,
+      );
+      stub.page(
+        'allowed.test/frames-proxied',
+        `<!doctype html><title>frames</title><h1>SITE LOADED</h1>
+        <iframe id="named" src="http://cdn.allowed.test/view?url=${encodeURIComponent(`https://${SITE}/`)}"></iframe>
+        <iframe id="other" src="http://cdn.allowed.test/view?url=${encodeURIComponent(UNLISTED)}"></iframe>`,
+      );
+      stub.page(
+        `${WORKER_HOST}/`,
+        `<!doctype html><title>front</title><h1>FRONT</h1><script>
+          navigator.serviceWorker.register('/sw.js').then(() => navigator.serviceWorker.ready).then(() => { document.title = 'ready'; }, (error) => { document.title = 'failed: ' + error.message; });
+        </script>`,
+      );
+      stub.page(
+        `${WORKER_HOST}/sw.js`,
+        `self.addEventListener('install', () => self.skipWaiting());
+        self.addEventListener('activate', (event) => event.waitUntil(self.clients.claim()));
+        self.addEventListener('fetch', (event) => {
+          if (new URL(event.request.url).pathname.startsWith('/service/')) event.respondWith(new Response('<!doctype html><title>worker</title><h1>SITE LOADED</h1><p>${WORKER_SERVED}</p>', { headers: { 'content-type': 'text/html' } }));
+        });`,
+        { headers: { 'content-type': 'text/javascript' } },
+      );
+      stub.page(`${WORKER_HOST}/framed`, `<!doctype html><title>framed</title><h1>FRONT</h1><iframe id="f" src="/service/${ultraviolet(UNLISTED)}"></iframe>`);
+    });
+
+    after(async () => {
+      await proxied?.close();
+      await plain?.close();
+    });
+
+    const switchTo = (handle) => proxied.fx.send('WebDriver:SwitchToWindow', { handle });
+    /** Runs a script on the settings page; the script calls done(result) when it has finished. Leaves the tests' own tab current. */
+    async function onSettings(script, ...args) {
+      await switchTo(settings);
+      try {
+        return await proxied.fx.send('WebDriver:ExecuteAsyncScript', { script: `const done = arguments[arguments.length - 1]; ${script}`, args });
+      } finally {
+        await switchTo(page);
+      }
+    }
+    const storedAttempts = () => onSettings("browser.storage.local.get('attempts').then((got) => done(got.attempts ?? []), () => done([]));");
+    /** The record's entries without their times. */
+    const roads = (list) => list.map(({ at, ...rest }) => rest);
+    async function until(look, passes, ms = 10_000) {
+      const end = Date.now() + ms;
+      let seen = await look();
+      while (!passes(seen) && Date.now() < end) {
+        await sleep(150);
+        seen = await look();
+      }
+      return seen;
+    }
+
+    /**
+     * Opens an address that is a road to a site rather than the site's own and checks that the tab ends at the
+     * block page, with nothing asked of the hosts in `unreached`. The tab starts from an empty page each time,
+     * so that the block page it shows is this address's. Such a load is stopped twice over, by a rule and by
+     * the background script sending the tab on, so Firefox may report the load itself as dropped.
+     */
+    async function assertStopped(url, unreached = [], target = proxied) {
+      await target.fx.send('WebDriver:Navigate', { url: 'about:blank' });
+      stub.clear();
+      await target.fx.send('WebDriver:Navigate', { url }).catch(() => {});
+      await showsBlockPage(target);
+      for (const name of unreached) assert.equal(stub.reached(name), false, `${url}: a request reached ${name}: ${asked()}`);
+    }
+
+    /**
+     * Waits for the current tab to show the block page, address and words. The block page can be loaded twice
+     * on the way (the rule's, then the one the background script sends the tab to), so a look that falls
+     * between the two, with no page to read, is taken again.
+     */
+    async function showsBlockPage(target = proxied) {
+      const look = async () => ({
+        at: await target.currentUrl().catch(() => ''),
+        text: (await target.run('return document.body ? document.body.innerText : ""').catch(() => '')) ?? '',
+      });
+      const seen = await until(look, (now) => /\/blocked\.html$/.test(now.at) && /This site is blocked/.test(now.text));
+      assert.match(seen.at, /^moz-extension:\/\/[0-9a-f-]+\/blocked\.html$/, `the tab shows ${seen.at}`);
+      assert.match(seen.text, /This site is blocked/);
+    }
+
+    /** Opens an address that should open as ever. */
+    async function assertOpens(url, target = proxied) {
+      const result = await target.visit(url);
+      assert.equal(result.outcome, 'site loaded', `${url} ended at ${result.finalUrl}${result.error ? ` (${result.error})` : ''}`);
+      return result;
+    }
+
+    describe('test case: navigate to the reported address', () => {
+      test('Actual, with no add-on: the site opens through the proxy (so this test can see a failure)', async () => {
+        stub.clear();
+        const result = await assertOpens(byHttp(REPORTED), plain);
+        assert.equal(result.finalUrl, PROXIED, 'the proxy sends the browser on to the address in "r"');
+        assert.equal(stub.reached(PROXY), true);
+        assert.equal(stub.reached(SITE), false, 'the site itself is never asked: the proxy fetches it, which is why a rule on the site’s name saw nothing');
+      });
+
+      test('Expected, with the add-on: blocked, with nothing asked of the proxy', () => assertStopped(REPORTED, [PROXY, SITE]));
+      test('by http as well', () => assertStopped(byHttp(REPORTED), [PROXY, SITE]));
+      test('the page the proxy sends the browser on to is blocked too', () => assertStopped(PROXIED, [PROXY, SITE]));
+
+      test('a link to it ends at the block page, and Go back returns to the page the link was on', async () => {
+        await assertOpens('http://allowed.test/proxy-link');
+        stub.clear();
+        await proxied.run("document.getElementById('go').click()");
+        await showsBlockPage();
+        assert.equal(stub.reached(PROXY), false, `a request reached the proxy: ${asked()}`);
+        await sleep(500); // the background script sends the tab to the block page as well: let that settle
+        await showsBlockPage();
+        await proxied.run("document.getElementById('back').click()");
+        assert.equal(await proxied.waitForUrl((at) => at === 'http://allowed.test/proxy-link'), 'http://allowed.test/proxy-link');
+      });
+    });
+
+    describe('the addresses the common proxy programs make are blocked on any host, whatever site they lead to', () => {
+      for (const { name, example } of SHAPES) {
+        test(`${name}: ${example.length > 70 ? `${example.slice(0, 70)}…` : example}`, async () => {
+          const { hostname } = new URL(example);
+          await assertOpens(byHttp(example), plain);
+          await assertStopped(example, [hostname]);
+          await assertStopped(byHttp(example), [hostname]);
+        });
+      }
+
+      test('Firefox takes every pattern, and the rules alone stop a picture at each such address, where the background script does nothing', async () => {
+        for (const { pattern } of SHAPES) {
+          assert.deepEqual(await onSettings('browser.declarativeNetRequest.isRegexSupported({ regex: arguments[0] }).then(done, (error) => done({ error: String(error) }));', pattern), { isSupported: true }, pattern);
+        }
+        const hosts = [...new Set(SHAPES.map(({ example }) => new URL(example).hostname))];
+        // Control, without the add-on: the page asks each address for its picture.
+        stub.clear();
+        await assertOpens('http://allowed.test/pictures-proxied', plain);
+        await sleep(500);
+        for (const name of ['cdn.allowed.test', ...hosts]) assert.equal(stub.reached(name), true, `without the add-on ${name} is asked: ${asked()}`);
+        stub.clear();
+        await assertOpens('http://allowed.test/pictures-proxied');
+        await sleep(500);
+        assert.equal(stub.reached('cdn.allowed.test'), true, 'the page’s other picture is fetched');
+        assert.equal(await proxied.run("return document.getElementById('plain').naturalWidth > 0"), true);
+        for (const name of hosts) assert.equal(stub.reached(name), false, `a request reached ${name}: ${asked()}`);
+      });
+
+      test('addresses that only look like them open as before', async () => {
+        for (const url of [
+          'http://allowed.test/page?cpo=1&x__cpo=2',
+          'http://allowed.test/__cpi.phtml',
+          'http://allowed.test/browse.php?id=7',
+          'http://allowed.test/browse.php?u=short&b=1',
+          'http://allowed.test/service/hvtr',
+          'http://allowed.test/0123456789abcdef0123456789abcdef/page',
+          'http://allowed.test/photos/_rhs.jpg',
+          'http://allowed.test/cgi-bin/proxy.cgi',
+        ]) {
+          await assertOpens(url);
+        }
+      });
+    });
+
+    describe('a listed site named inside another address is blocked, however it is written', () => {
+      const roadsTo = (site) => [
+        ['as it is', `http://allowed.test/fetch?url=http://${site}/`],
+        ['percent-coded', `http://allowed.test/fetch?url=${encodeURIComponent(`https://www.${site}/page?x=1`)}`],
+        ['in the path, as /https/site/', `http://allowed.test/proxy/https/${site}/gallery`],
+        ['after the #', `http://allowed.test/reader#https://${site}/`],
+        ['in base64 for addresses, in the path', `http://allowed.test/go/${base64url(`https://${site}/a/b`)}`],
+        ['in base64 twice', `http://allowed.test/go/${base64url(base64(`https://${site}/`))}`],
+        ['its name alone in base64', `http://allowed.test/open?site=${base64(site)}`],
+        ['in a Google translation’s own host name', `http://${site.replaceAll('-', '--').replaceAll('.', '-')}.translate.goog/?_x_tr_sl=auto&_x_tr_tl=en`],
+        ['in a Google translation', `http://translate.google.com/translate?sl=auto&tl=en&u=${site}`],
+        ['in the Wayback Machine', `http://web.archive.org/web/2020/${site}/`],
+        ['in archive.today', `http://archive.ph/newest/${site}`],
+      ];
+
+      for (const [name, url] of roadsTo(SITE)) {
+        test(`${name}: ${url.length > 90 ? `${url.slice(0, 90)}…` : url}`, () => assertStopped(url, [SITE]));
+      }
+
+      test('control: the same addresses for a site on no list open as before, and so does an address that merely mentions a listed site', async () => {
+        for (const [, url] of roadsTo('allowed-site.test')) await assertOpens(url);
+        for (const url of [`http://allowed.test/search?q=${SITE}`, `http://allowed.test/login?next=${SITE}`, `http://allowed.test/whois/${SITE}`, `http://allowed.test/fetch?url=https://not${SITE}/`, `http://web.archive.org/web/2020/not${SITE}/`]) {
+          await assertOpens(url);
+        }
+        await assertOpens(roadsTo(SITE)[0][1], plain);
+      });
+    });
+
+    describe('what a tab comes to show without a page load', () => {
+      test('an address the page writes for itself is read too: one that names a listed site is replaced by the block page', async () => {
+        for (const button of ['push', 'hash']) {
+          await assertOpens('http://allowed.test/app');
+          await proxied.run("document.getElementById('other').click()");
+          await sleep(500);
+          assert.match(await proxied.currentUrl(), /^http:\/\/allowed\.test\/app\/view\?url=/, 'an address for a site on no list stays');
+          stub.clear();
+          await proxied.run('document.getElementById(arguments[0]).click()', button);
+          await showsBlockPage();
+          assert.equal(stub.reached(SITE), false);
+        }
+      });
+
+      test('a frame that shows a listed site by another road is emptied, the page around it stays, and nothing is noted', async () => {
+        const before = (await storedAttempts()).length;
+        await assertOpens('http://allowed.test/frames-proxied');
+        const frameAt = async (index) => {
+          await proxied.fx.send('WebDriver:SwitchToFrame', { id: index });
+          try {
+            return await proxied.run('return location.href');
+          } finally {
+            await proxied.fx.send('WebDriver:SwitchToParentFrame');
+          }
+        };
+        assert.equal(await until(() => frameAt(0), (at) => at === 'about:blank'), 'about:blank');
+        assert.equal(await frameAt(1), `http://cdn.allowed.test/view?url=${encodeURIComponent(UNLISTED)}`, 'a frame for a site on no list stays');
+        assert.equal(await proxied.currentUrl(), 'http://allowed.test/frames-proxied');
+        await sleep(500);
+        assert.equal((await storedAttempts()).length, before, 'only a page opened in a tab is a try');
+      });
+
+      test('a proxy that makes its pages in the browser: a tab ends at the block page and a frame does not show the page', async () => {
+        const shaped = `http://${WORKER_HOST}/service/${ultraviolet(UNLISTED)}`; // known by the shape of its address
+        const naming = `http://${WORKER_HOST}/service/${encodeURIComponent(`https://${SITE}/`)}`; // known by the listed site it names
+        const withTheWorker = async (target) => {
+          await target.fx.send('WebDriver:Navigate', { url: `http://${WORKER_HOST}/` });
+          const end = Date.now() + 15_000;
+          let title = await target.run('return document.title');
+          while (title === 'front' && Date.now() < end) {
+            await sleep(150);
+            title = await target.run('return document.title');
+          }
+          assert.equal(title, 'ready', 'the stand-in proxy’s worker is in place');
+        };
+        // Control, without the add-on: the worker makes the page, and nothing is asked of any server for it.
+        await withTheWorker(plain);
+        for (const url of [shaped, naming]) {
+          stub.clear();
+          const result = await plain.visit(url);
+          assert.match(result.text, new RegExp(WORKER_SERVED), url);
+          assert.deepEqual(stub.requests.filter(({ path }) => path.startsWith('/service/')).map(({ path }) => path), [], 'the page came from the worker');
+        }
+
+        await withTheWorker(proxied);
+        for (const url of [shaped, naming]) {
+          await proxied.fx.send('WebDriver:Navigate', { url: `http://${WORKER_HOST}/` });
+          await proxied.fx.send('WebDriver:Navigate', { url }).catch(() => {});
+          await showsBlockPage();
+        }
+        // In a frame: the page around it stays, and the frame does not show the worker's page.
+        await proxied.fx.send('WebDriver:Navigate', { url: `http://${WORKER_HOST}/framed` });
+        const inFrame = async () => {
+          await proxied.fx.send('WebDriver:SwitchToFrame', { id: 0 });
+          try {
+            return await proxied.run('return { at: location.href, text: document.body ? document.body.innerText : "" }');
+          } catch (error) {
+            return { at: 'unreadable', text: '', error: error.message };
+          } finally {
+            await proxied.fx.send('WebDriver:SwitchToParentFrame');
+          }
+        };
+        const frame = await until(inFrame, (seen) => !seen.at.includes('/service/') || !seen.text.includes(WORKER_SERVED));
+        assert.doesNotMatch(frame.text, new RegExp(WORKER_SERVED), JSON.stringify(frame));
+        assert.equal(await proxied.currentUrl(), `http://${WORKER_HOST}/framed`);
+      });
+    });
+
+    describe('the record says which road was tried', () => {
+      test('"Blocked, through" the proxy for a listed site, and "Blocked, a web proxy" for a proxy’s address that leads elsewhere; neither is marked as opened', async () => {
+        await sleep(2100); // more than the two seconds that make two notes one try
+        const before = (await storedAttempts()).length;
+        await assertStopped(REPORTED, [PROXY]);
+        await assertStopped(PROXIED, [PROXY]); // straight after: the same try
+        await sleep(2100);
+        await assertStopped(`http://203.0.113.7/page?__cpo=${base64url(UNLISTED)}`, ['203.0.113.7']);
+        await sleep(2100);
+        await assertStopped(`http://web.archive.org/web/2020/${SITE}/`, [SITE]);
+        await sleep(1000); // long enough for a page that loaded after all to be marked as opened
+        const list = await until(storedAttempts, (seen) => seen.length >= before + 3);
+        assert.deepEqual(roads(list.slice(before)), [{ site: SITE, via: PROXY }, { site: '203.0.113.7', proxy: true }, { site: SITE, via: 'web.archive.org' }]);
+
+        // The settings page: the latest three, newest first.
+        const rows = () => onSettings("done([...document.querySelectorAll('#attempts-table tbody tr')].map((row) => [...row.cells].slice(1).map((cell) => cell.textContent)));");
+        const expected = [[SITE, 'Blocked, through web.archive.org'], ['203.0.113.7', 'Blocked, a web proxy'], [SITE, `Blocked, through ${PROXY}`]];
+        assert.deepEqual(await until(rows, (seen) => JSON.stringify(seen) === JSON.stringify(expected)), expected);
+        assert.doesNotMatch(await onSettings("done(document.getElementById('attempts-summary').textContent);"), /opened/);
+        // And the saved file, by the same function the record page uses.
+        const csv = await onSettings("import(browser.runtime.getURL('lib/attempts.js')).then((lib) => browser.storage.local.get('attempts').then(({ attempts }) => done(lib.toCsv(attempts))), (error) => done('error: ' + error));");
+        assert.deepEqual(
+          csv.trim().split('\n').slice(-3).map((line) => line.replace(/^[^,]+,/, '')),
+          [`${SITE},"Blocked, through ${PROXY}",,,,`, '203.0.113.7,"Blocked, a web proxy",,,,', `${SITE},"Blocked, through web.archive.org",,,,`],
+        );
+      });
+
+      test("a visit through a proxy from before the add-on was watching is found in Firefox's history, added with its road and its own date, and taken out of the history", async () => {
+        const threeDaysAgo = Date.now() - 3 * 86_400_000;
+        const kept = `http://allowed.test/fetch?url=${encodeURIComponent(UNLISTED)}`;
+        const inHistory = () => onSettings("browser.history.search({ text: '', startTime: 0, maxResults: 10000 }).then((items) => done(items.map((item) => item.url)), (error) => done(['error: ' + error]));");
+        assert.equal(await onSettings("Promise.all(arguments[0].map((url) => browser.history.addUrl({ url, visitTime: arguments[1] }))).then(() => done('ok'), (error) => done('error: ' + error));", [PROXIED, kept], threeDaysAgo), 'ok');
+        assert.ok((await inHistory()).includes(PROXIED));
+        assert.equal(await onSettings("browser.runtime.sendMessage({ type: 'scan-history' }).then(() => done('ok'), (error) => done('error: ' + error));"), 'ok');
+        const found = (list) => list.find((entry) => entry.from === 'history' && entry.via === PROXY && Math.abs(entry.at - threeDaysAgo) < 120_000);
+        const list = await until(storedAttempts, (seen) => Boolean(found(seen)));
+        assert.ok(found(list), `dated when the visit was made: ${JSON.stringify(list.slice(-5))}`);
+        assert.deepEqual(roads([found(list)]), [{ site: SITE, via: PROXY, from: 'history' }]);
+        const history = await until(inHistory, (urls) => !urls.includes(PROXIED));
+        assert.equal(history.includes(PROXIED), false, 'the proxied page is out of the history');
+        assert.ok(history.includes(kept), 'a page for a site on no list stays');
+        // Every try says so, on the day of the visit.
+        await proxied.fx.send('WebDriver:Navigate', { url: `moz-extension://${host}/tries.html` });
+        const words = await until(
+          () => proxied.run("return [...document.querySelectorAll('.day tbody tr:not(.band)')].map((row) => row.cells[2]?.textContent ?? '')"),
+          (seen) => seen.some((text) => text.includes('through')),
+        );
+        assert.ok(words.includes(`Visited before the add-on, through ${PROXY}`), JSON.stringify(words));
+      });
+    });
+
+    describe('without access to websites, as Firefox for Android can leave it', () => {
+      const changeAccess = (way) =>
+        proxied.inFirefox(
+          `const done = arguments[arguments.length - 1];
+           const { ExtensionPermissions } = ChromeUtils.importESModule('resource://gre/modules/ExtensionPermissions.sys.mjs');
+           const policy = WebExtensionPolicy.getByID(arguments[0]);
+           ExtensionPermissions[arguments[1]](arguments[0], { permissions: [], origins: ['<all_urls>'] }, policy.extension).then(() => done('ok'), (error) => done('error: ' + error));`,
+          proxied.addonId,
+          way,
+        );
+      const sessionRules = () => onSettings('browser.declarativeNetRequest.getSessionRules().then((rules) => done(rules.map((rule) => rule.id)), () => done([-1]));');
+
+      test('a proxy’s address is stopped by a rule that needs no access, a listed site named in another address by the background script, and the tab shows the block page either way', async () => {
+        try {
+          assert.equal(await changeAccess('remove'), 'ok');
+          assert.equal((await proxied.grants()).origins.includes('<all_urls>'), false, 'the access is gone');
+          const ids = await until(sessionRules, (seen) => seen.some((id) => id >= 2_000_001));
+          assert.deepEqual(ids.filter((id) => id >= 2_000_001), SHAPES.map((_, index) => 2_000_001 + index), 'a rule for each shape, among the rules that stop listed pages outright');
+          for (const url of [byHttp(REPORTED), PROXIED, byHttp(SHAPES[2].example)]) {
+            await switchTo(page);
+            await proxied.fx.send('WebDriver:Navigate', { url: 'about:blank' });
+            stub.clear();
+            await proxied.run('location.assign(arguments[0])', url); // the request is stopped, and the tab then sent to the block page
+            await showsBlockPage();
+            assert.equal(stub.reached(new URL(url).hostname), false, `${url}: a request reached the proxy: ${asked()}`);
+          }
+          // No rule can read a site's name out of an address, and no script can be put into a page without access: the tab is sent on.
+          await proxied.fx.send('WebDriver:Navigate', { url: 'about:blank' });
+          stub.clear();
+          await proxied.run('location.assign(arguments[0])', `http://allowed.test/fetch?url=http://${SITE}/`);
+          await showsBlockPage();
+          assert.equal(stub.reached(SITE), false);
+        } finally {
+          assert.equal(await changeAccess('add'), 'ok');
+        }
+        assert.equal((await proxied.grants()).origins.includes('<all_urls>'), true, 'the access is back');
+        assert.deepEqual(await until(sessionRules, (seen) => seen.length === 0), [], 'the rules that stop pages outright came off');
+        await switchTo(page);
+        await assertStopped(REPORTED, [PROXY]);
+      });
+    });
+
+    describe('the web proxies on the built-in list are blocked by name', () => {
+      for (const proxy of ['croxyproxy.com', 'proxyium.com', 'hideproxy.me']) {
+        test(proxy, async () => {
+          stub.clear();
+          const result = await proxied.visit(`http://www.${proxy}/`);
+          assert.equal(result.outcome, 'blocked page', `ended at ${result.finalUrl}`);
+          assert.equal(stub.reached(proxy), false, 'a request reached the proxy');
+        });
+      }
+
+      test('archives and translators are not on it: they are stopped only for a listed site', async () => {
+        for (const url of ['http://web.archive.org/', 'http://archive.ph/', 'http://translate.google.com/', 'http://translate.yandex.com/']) await assertOpens(url);
+      });
+    });
+  });
+
   describe('without access to websites, as Firefox for Android can leave it', () => {
     // Firefox drops a redirect rule on a site the add-on has no access to and tries no other, so until 1.21.1
     // a listed page loaded there. The access is taken away and given back from Firefox itself, as the
@@ -1535,9 +1963,9 @@ describe('Firefox', { skip: findFirefox() ? false : 'no Firefox found (set FIREF
         assert.equal(await night.run("return document.getElementById('heading').textContent"), 'It’s bedtime');
         assert.equal(await night.run('return document.title'), 'Bedtime');
 
-        // A page being opened lands there too, by http or https, listed or not, and nothing is asked of its site.
+        // A page being opened lands there too, by http or https, listed or not, a web proxy's (1.31.0) or not, and nothing is asked of its site.
         await switchTo(other);
-        for (const url of ['http://allowed.test/new?a=1&b=2', 'https://www.google.com/search?q=cats', BLOCKED_URL]) {
+        for (const url of ['http://allowed.test/new?a=1&b=2', 'https://www.google.com/search?q=cats', BLOCKED_URL, PROXIED, `http://allowed.test/fetch?url=${BLOCKED_URL}`]) {
           stub.clear();
           const result = await night.visit(url);
           assert.equal(result.finalUrl, bedtimePage(url), `${url}${result.error ? ` (${result.error})` : ''}`);
