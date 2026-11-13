@@ -4,7 +4,6 @@
     <item
         android:id="@+id/newTab"
         android:icon="@drawable/mozac_ic_plus_24"
-        android:iconTint="@color/fsb_toolbar_text"
         android:title="@string/menu_new_tab"
         app:showAsAction="ifRoom" />
 </menu>

@@ -12,7 +12,6 @@
         android:layout_height="?attr/actionBarSize"
         android:background="@color/fsb_toolbar"
         app:navigationIcon="@drawable/mozac_ic_back_24"
-        app:navigationIconTint="@color/fsb_toolbar_text"
         app:title="@string/lock_title"
         app:titleTextColor="@color/fsb_toolbar_text" />
 

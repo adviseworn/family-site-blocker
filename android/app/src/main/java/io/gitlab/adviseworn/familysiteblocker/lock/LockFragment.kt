@@ -29,6 +29,7 @@ import io.gitlab.adviseworn.familysiteblocker.BrowserFragment
 import io.gitlab.adviseworn.familysiteblocker.BuildConfig
 import io.gitlab.adviseworn.familysiteblocker.R
 import io.gitlab.adviseworn.familysiteblocker.databinding.FragmentLockBinding
+import io.gitlab.adviseworn.familysiteblocker.ext.tintIcons
 import mozilla.components.support.base.feature.UserInteractionHandler
 import java.text.DateFormat
 import java.util.Date
@@ -73,6 +74,7 @@ class LockFragment : Fragment(), UserInteractionHandler {
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
+        binding.toolbar.tintIcons()
         binding.toolbar.setNavigationOnClickListener { close() }
         bedtime = BedtimeOnLockPage(requireContext(), state, binding.bedtimeStatus, binding.bedtimeApps) { if (_binding != null) render() }
 

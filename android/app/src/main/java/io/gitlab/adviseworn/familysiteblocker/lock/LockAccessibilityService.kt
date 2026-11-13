@@ -35,6 +35,7 @@ import android.view.accessibility.AccessibilityWindowInfo
 import android.widget.TextView
 import androidx.core.content.ContextCompat
 import androidx.core.os.HandlerCompat
+import io.gitlab.adviseworn.familysiteblocker.BrowserActivity
 import io.gitlab.adviseworn.familysiteblocker.R
 import org.json.JSONObject
 
@@ -111,6 +112,27 @@ class LockAccessibilityService : AccessibilityService() {
     private var lastCoverAt = 0L
     private var lastCovered: String? = null
 
+    /**
+     * What the lock was given on a screen just now ([Guard.givenThere]): when the watch came on, when a look
+     * last found the app's usage access open with the access still missing, and when the Lock page was sent
+     * for in place of the lock screen. Each is null where that has not been; all three are once the Lock page
+     * has come up, so that the same screen opened again is turned away like any other.
+     */
+    private var watchOnAt: Long? = null
+    private var usageMissingAt: Long? = null
+    private var lockPageSentAt: Long? = null
+
+    /**
+     * The windows that carried the title of the usage access screen when the watch read them, by their
+     * numbers: whose app each one is, and whether it was the app's own page. Android 17 shows the watch
+     * nothing of such a window once its switch has been turned ([hiddenUsagePage]).
+     */
+    private val usagePagesRead = LinkedHashMap<Int, UsagePage>()
+
+    /** The usage access window in front that shows the watch nothing, and since when it has been found so ([hiddenUsagePage]). */
+    private var hiddenUsageWindow: Int? = null
+    private var hiddenUsageSince = 0L
+
     /** When Back was last sent, and when the screen it went to was brought to the front ([Guard.sendsBack]). */
     private var lastBackAt = 0L
     private var backWentTo: Long? = null
@@ -142,6 +164,9 @@ class LockAccessibilityService : AccessibilityService() {
     /** The plain screen put over everything while a screen is being closed ([raiseShield]), and what takes it down. */
     private var shield: View? = null
     private val shieldDown = Any()
+
+    /** The shield that is up is the one over a usage access screen that has not shown itself yet ([shieldWhileUnread]). */
+    private var shieldIsForUnread = false
 
     /** The covers over the windows of other browsers that are on a screen ([coverWhatShows]), by the window's number. */
     private val covers = HashMap<Int, Cover>()
@@ -251,6 +276,7 @@ class LockAccessibilityService : AccessibilityService() {
         runCatching {
             (getSystemService(APP_OPS_SERVICE) as AppOpsManager).startWatchingMode(AppOpsManager.OPSTR_SYSTEM_ALERT_WINDOW, null, leaveChanged)
         }.onFailure { note { "no word when the leave to display over other apps changes: $it" } }
+        watchOnAt = SystemClock.elapsedRealtime()
         state.record("watch-on", JSONObject())
         state.noteUsageAccess(Permissions.usageOn(this))
         // Whatever is in front as the watch starts has sent it nothing yet.
@@ -343,6 +369,12 @@ class LockAccessibilityService : AccessibilityService() {
             if (cameToFront && event.className?.startsWith(packageName) == true) {
                 ownScreenAt = SystemClock.elapsedRealtime()
                 lowerShield()
+                // The Lock page has come up where the lock was given something: that giving is answered.
+                if (lockPageSentAt != null) {
+                    watchOnAt = null
+                    usageMissingAt = null
+                    lockPageSentAt = null
+                }
                 if (event.className?.toString() == LockScreenActivity::class.java.name) lockScreenWindow = event.windowId
                 // The lock screen is up: a cover over what it has hidden comes off, and one over what it has not, stays.
                 if (covers.isNotEmpty()) coverWhatShows()
@@ -491,6 +523,8 @@ class LockAccessibilityService : AccessibilityService() {
             } else {
                 drawsFirst = false
                 val again = lookAtTheFront()
+                // The wait for a usage access screen to show itself is over, and this look closed nothing.
+                if (shieldIsForUnread && hiddenUsageWindow == null) lowerShield()
                 val atTheFront = SystemClock.elapsedRealtime() - began
                 // Whatever the window in front is, another browser's window may be on a screen beside it. A
                 // cover or the shield that this look has put up is drawn first: the windows are gone through at
@@ -521,6 +555,7 @@ class LockAccessibilityService : AccessibilityService() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) clearCache()
         val root: AccessibilityNodeInfo? = rootInActiveWindow
         val inFront = root?.packageName?.toString()
+        if (inFront != null) hiddenUsageWindow = null
         // Another browser's window is the one in front: its screen is covered before anything else is read.
         // The window's own word may still be on its way to the watch.
         if (inFront != null && inFront != packageName && (inFront in browsers || inFront in Browsers.setUpOfAWorkProfile)) {
@@ -583,6 +618,8 @@ class LockAccessibilityService : AccessibilityService() {
                 cover(last!!.packageName, LockScreenActivity.REASON_BROWSER)
                 return false
             }
+            // Nor does the usage access screen show anything once its switch has been turned.
+            if (hiddenUsagePage(last)) return false
             // At bedtime the same goes for an app that is turned away then.
             val hidden = last?.packageName
             if (hidden == null || !bedtime.turnsAway(hidden)) {
@@ -623,6 +660,12 @@ class LockAccessibilityService : AccessibilityService() {
             return false
         }
         val shown = last?.takeIf { it.packageName == inFront }
+        val appName = getString(R.string.app_name)
+        if (Guard.namesUsageAccess(title)) {
+            usagePagesRead.remove(root.windowId)
+            usagePagesRead[root.windowId] = UsagePage(inFront, texts.any { it.contains(appName, ignoreCase = true) })
+            if (usagePagesRead.size > USAGE_PAGES_KEPT) usagePagesRead.remove(usagePagesRead.keys.first())
+        }
         wayRound(null, title, texts)?.let { way ->
             note { "look: $inFront shows a way round the lock, $way: window \"$title\", ${texts.take(3)}" }
             turnAway(inFront, LockScreenActivity.REASON_WAY_ROUND, shown)
@@ -636,11 +679,10 @@ class LockAccessibilityService : AccessibilityService() {
                 return false
             }
         }
-        val appName = getString(R.string.app_name)
         val undoes = Guard.undoesTheLock(
             texts, appName, ownWords,
             administrator = { Permissions.adminOn(this) },
-            usageAccess = { Permissions.usageOn(this) },
+            usageAccess = { usageGiven() },
             mayNeedAllowing = { Permissions.mayNeedAllowing(this) },
             shortcutSet = { Permissions.shortcutOn(this) },
             rows = rows,
@@ -656,6 +698,7 @@ class LockAccessibilityService : AccessibilityService() {
             "look: $inFront, ${texts.size} texts, undoes the lock: $undoes$where: ${texts.take(40)}"
         }
         val reason = when {
+            undoes && givenThere(texts, appName) -> GIVEN_THERE
             undoes -> LockScreenActivity.REASON_SETTINGS
             bedtime.holdsClock() && ClockScreen.shows(texts + textsBehind(root)) -> LockScreenActivity.REASON_CLOCK
             else -> {
@@ -665,6 +708,70 @@ class LockAccessibilityService : AccessibilityService() {
         }
         turnAway(inFront, reason, shown)
         return false
+    }
+
+    /**
+     * Whether the app has its usage access, asked while the screen that gives it is the one shown. Found
+     * missing there, it can be given there, and the watch notes when ([Guard.givenThere]).
+     */
+    private fun usageGiven(): Boolean = Permissions.usageOn(this).also { given ->
+        if (!given) usageMissingAt = SystemClock.elapsedRealtime()
+    }
+
+    /** Whether the screen showing [texts] is where the lock was given just now what it lacked ([Guard.givenThere]). */
+    private fun givenThere(texts: List<String>, appName: String): Boolean {
+        val now = SystemClock.elapsedRealtime()
+        return Guard.givenThere(texts, appName, ownWords, watchOnAt?.let { (now - it) / slow() }, usageMissingAt?.let { (now - it) / slow() })
+    }
+
+    /**
+     * A window in front that shows the watch nothing and carries the title of the usage access screen
+     * ([Guard.hiddenUsagePage]): the app's own is closed, with the Lock page where the access was given there
+     * just now and with the lock screen otherwise, and one the watch never read waits under the shield to
+     * show itself first. Whose app the window is, the watch knows from having read it, or from Android's
+     * record of app use ([last]). Says whether the window has been seen to; false leaves it to the looks
+     * that every other window gets that shows the watch nothing.
+     */
+    private fun hiddenUsagePage(last: Front.Screen?): Boolean {
+        val window = runCatching {
+            windows.firstOrNull { (it.isActive || it.isFocused) && it.type == AccessibilityWindowInfo.TYPE_APPLICATION && Guard.namesUsageAccess(it.title) }
+        }.getOrNull()
+        if (window == null) {
+            hiddenUsageWindow = null
+            return false
+        }
+        val now = SystemClock.elapsedRealtime()
+        if (hiddenUsageWindow != window.id) {
+            hiddenUsageWindow = window.id
+            hiddenUsageSince = now
+        }
+        val read = usagePagesRead[window.id]
+        val app = read?.app ?: last?.packageName?.takeIf { it in Browsers.guarded }
+        val given = usageGiven()
+        val what = Guard.hiddenUsagePage(read?.ours, given, app != null, usageMissingAt?.let { (now - it) / slow() }, (now - hiddenUsageSince) / slow())
+        note {
+            "look: window ${window.id} \"${window.title}\" shows the watch nothing: read before as ${read?.let { if (it.ours) "the app's own" else "another app's" } ?: "nothing"}, " +
+                "usage access ${if (given) "given" else "missing"}, ${now - hiddenUsageSince} ms so: $what"
+        }
+        return when (what) {
+            Guard.HiddenUsagePage.LEAVE -> {
+                if (shieldIsForUnread) lowerShield()
+                false
+            }
+            Guard.HiddenUsagePage.WAIT -> {
+                shieldWhileUnread()
+                HandlerCompat.postDelayed(main, { watchClosely() }, looks, LOOK_FOR_ITS_WINDOW_EVERY)
+                true
+            }
+            Guard.HiddenUsagePage.GIVEN -> {
+                turnAway(app!!, GIVEN_THERE, last?.takeIf { it.packageName == app })
+                true
+            }
+            Guard.HiddenUsagePage.CLOSE -> {
+                turnAway(app!!, LockScreenActivity.REASON_SETTINGS, last?.takeIf { it.packageName == app })
+                true
+            }
+        }
     }
 
     /**
@@ -917,6 +1024,9 @@ class LockAccessibilityService : AccessibilityService() {
 
     /** The apps' windows on every screen ([windows]), and the screen that has the focus ([focused]). */
     private class Screens(val windows: List<Guard.Shown>, val focused: Int)
+
+    /** A usage access window as the watch read it ([usagePagesRead]): whose app it is ([app]), and whether it named this app ([ours]). */
+    private class UsagePage(val app: String, val ours: Boolean)
 
     /**
      * Reads the windows on the phone's screens for [Guard.showing]: the apps' own, and the ones an app floats
@@ -1324,14 +1434,18 @@ class LockAccessibilityService : AccessibilityService() {
         raiseShield()
         if (covering) return
         val now = SystemClock.elapsedRealtime()
-        if (!Guard.sendsBack((now - lastBackAt) / slow(), screen?.at, backWentTo)) {
+        // One Back for one giving. The Lock page is on its way then, and a second Back, sent because the
+        // closed screen was read once more, would land on the page and close that. A page sent for longer ago
+        // than a giving counts for has come or will not: what is given after that is a giving of its own.
+        val lockPageComing = reason == GIVEN_THERE && lockPageSentAt?.let { (now - it) / slow() in 0..Guard.GIVEN_JUST_NOW } == true
+        if (lockPageComing || !Guard.sendsBack((now - lastBackAt) / slow(), screen?.at, backWentTo)) {
             cover(packageName, reason)
             return
         }
         lastBackAt = now
         backWentTo = screen?.at
         covering = true
-        note { "turned away ($reason): back, then the lock screen" }
+        note { "turned away ($reason): back, then the ${if (reason == GIVEN_THERE) "Lock page" else "lock screen"}" }
         performGlobalAction(GLOBAL_ACTION_BACK)
         coverOnceClosed(packageName, reason, screen, seen)
     }
@@ -1360,6 +1474,7 @@ class LockAccessibilityService : AccessibilityService() {
      * under a blank screen. [atLatest] is that time, counted afresh each time the shield is raised.
      */
     private fun raiseShield(atLatest: Long = SHIELD_FOR) {
+        shieldIsForUnread = false
         main.removeCallbacksAndMessages(shieldDown)
         HandlerCompat.postDelayed(main, { lowerShield() }, shieldDown, atLatest * slow())
         if (shield != null) return
@@ -1384,7 +1499,22 @@ class LockAccessibilityService : AccessibilityService() {
         }.onFailure { note { "no shield: $it" } }
     }
 
+    /**
+     * The shield over a usage access screen that has not shown the watch anything yet
+     * ([Guard.hiddenUsagePage]): a tap must not reach its switch while the watch waits to learn whose page
+     * it is. It stays for the whole of that wait, also when a look is held up, and is taken down by the look
+     * that finds the wait over without a screen to close ([look]): a page that turns out to be another app's
+     * is free again at once. Should no look come, it comes down by itself [SHIELD_WHILE_UNREAD] after the
+     * wait's end. A shield that is up for a turning away is left as it is.
+     */
+    private fun shieldWhileUnread() {
+        if (shield != null && !shieldIsForUnread) return
+        raiseShield(Guard.UNREAD_FOR + SHIELD_WHILE_UNREAD)
+        shieldIsForUnread = true
+    }
+
     private fun lowerShield() {
+        shieldIsForUnread = false
         main.removeCallbacksAndMessages(shieldDown)
         val view = shield ?: return
         shield = null
@@ -1403,6 +1533,17 @@ class LockAccessibilityService : AccessibilityService() {
         if (what == lastCovered && now - lastCoverAt in 0 until COVER_ONCE_IN) return
         lastCoverAt = now
         lastCovered = what
+        if (reason == GIVEN_THERE) {
+            // Nobody tried to undo anything: the Lock page, where what was given now says Done, and no line in the record.
+            note { "the Lock page over $packageName: the lock was given there just now what it lacked" }
+            lockPageSentAt = now
+            val lockPage = Intent(this, BrowserActivity::class.java)
+                .putExtra(BrowserActivity.EXTRA_OPEN_LOCK, true)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+            runCatching { startActivity(lockPage) }.onFailure { note { "no Lock page: $it" } }
+            if (shield != null) raiseShield()
+            return
+        }
         note { "the lock screen ($reason) over $packageName" }
         if (Guard.writesDown(what == lastRecorded, now - lastRecordAt, ownScreenAt > lastRecordAt)) {
             lastRecordAt = now
@@ -1460,6 +1601,9 @@ class LockAccessibilityService : AccessibilityService() {
         const val TAG = "FsbLock"
         const val SLOW_TAG = "FsbLockSlow"
         const val NO_CABLE_TAG = "FsbLockNoCable"
+
+        /** In place of a lock screen's reason: the screen is closed for the app's Lock page ([Guard.givenThere]). */
+        const val GIVEN_THERE = "given"
         const val SLOW_BY = 8L
 
         /** How often the watch asks whether a screen that was sent Back has closed, in milliseconds. */
@@ -1476,6 +1620,12 @@ class LockAccessibilityService : AccessibilityService() {
          * milliseconds: a phone opens a screen of Settings well within that, also when it is busy.
          */
         const val SHIELD_AFTER_A_TAP = 2500L
+
+        /** How much longer than the wait itself the shield may stay over a usage access screen that has not shown itself, counted from the last look that waited, in milliseconds. */
+        const val SHIELD_WHILE_UNREAD = 300L
+
+        /** How many usage access windows the watch remembers having read ([usagePagesRead]). */
+        const val USAGE_PAGES_KEPT = 16
 
         /** The lock screen is started for one screen at most once in this long, in milliseconds: it takes about that long to come up. */
         const val COVER_ONCE_IN = 300L
