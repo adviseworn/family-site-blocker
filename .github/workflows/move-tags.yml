@@ -1,53 +1,326 @@
-# Moves the release tags onto the rewritten commits of main (the history rewrite of 2026-10-31), which have
-# the same content as the commits the tags point at now. Start it by hand from the Actions tab; it pushes with
-# the workflow's own token, so it needs no git on a Mac. Running it again is harmless: a tag already in place
-# is a no-op. Delete this file once the tags are moved.
+# Finishes the history rewrite of 2026-11-13, which replaced old commits by copies with the same files, the
+# same dates and reworded messages. Every branch has been pushed again; this workflow does the two things
+# that a push from outside cannot. It points each release tag at its rewritten commit, which has the same
+# files as the commit the tag points at now, so every release keeps its tag, its page and its files. And it
+# deletes the records of old runs that describe the replaced commits, with the four runs that started by
+# themselves during the rewrite and were stopped.
+#
+# Start it from the Actions tab with "Run workflow", choosing this branch. With "yes" in the box it changes
+# things; with anything else it only checks and says what it would do. Running it again is harmless: a tag
+# already in place and a record already gone are skipped.
 name: Move tags
 
 on:
   workflow_dispatch:
+    inputs:
+      go:
+        description: 'yes: move the tags and delete the run records. Anything else: only check.'
+        required: false
+        default: 'no'
 
 permissions:
-  contents: write
+  contents: write # to move the tags
+  actions: write # to delete run records
+
+concurrency:
+  group: move-tags
 
 jobs:
-  move:
+  tags:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0 # every branch and tag, so both ends of each move are at hand
 
-      - name: Point each release tag at its rewritten commit
+      - name: Check each release tag and point it at its rewritten commit
+        env:
+          GO: ${{ inputs.go }}
         run: |
-          set -e
-          git fetch origin main
+          set -euo pipefail
+          git ls-remote --tags origin > remote-tags.txt
+          leases=(); specs=(); failed=0; done_already=0
           while read -r tag old new; do
-            case "$tag" in '#'*|'') continue ;; esac
-            git push --force origin "$new:refs/tags/$tag"
+            [ -n "$tag" ] || continue
+            now=$(awk -v r="refs/tags/$tag" '$2 == r { print $1 }' remote-tags.txt)
+            if [ "$now" = "$new" ]; then
+              echo "$tag is already at $new"
+              done_already=$((done_already + 1))
+              continue
+            fi
+            if [ "$now" != "$old" ]; then
+              echo "::error::$tag is at ${now:-nothing}, not at $old as expected; left alone"
+              failed=1
+              continue
+            fi
+            if ! git cat-file -e "$new^{commit}" 2>/dev/null; then
+              echo "::error::$tag: the rewritten commit $new is not in the repository"
+              failed=1
+              continue
+            fi
+            if [ "$(git rev-parse "$old^{tree}")" != "$(git rev-parse "$new^{tree}")" ]; then
+              echo "::error::$tag: $new does not have the same files as $old"
+              failed=1
+              continue
+            fi
+            if [ -z "$(git branch -r --contains "$new" | head -1)" ]; then
+              echo "::error::$tag: $new is not on any branch"
+              failed=1
+              continue
+            fi
+            echo "$tag: $old -> $new, same files"
+            leases+=("--force-with-lease=refs/tags/$tag:$old")
+            specs+=("$new:refs/tags/$tag")
           done <<'MAP'
-          v1.1.2 b89f84751b87792d13ce5b9b099f52edf48e9027 90ad38458957716767fda5b913455f6cc94a11a4
-          v1.2.0 b9d248bf4055f972e1d0ae037d2402ed6208ed9a de1c0b4aeb42580f3c20e5af431a190c3db5bf89
-          v1.2.1 a61cad69a88f55f939f8f325e719be7e3fa1187a 2fc17932e87022878ef0aa22625eb2dcb4f390ab
-          v1.3.0 5d7bda8f7b472db893d1af9f38cb0b4be7eac066 0de434780ea464cb4cb782e56a145f2240bf9892
-          v1.3.1 cb4591a7f4c7d52f5e085b19b08cf9454e99a4dd 8bea55d69a894aaaa3c548c068b60c5df087cb75
-          v1.3.2 312a815846e382524393014f776603f0d56eb26b 37aa09ac04de2ad2d94d441b42363fa69f748c8e
-          v1.3.3 974cbfd3d6cd87e2247603c80c2dcc81822d76e5 e8a4b1a89eb1e12d2d7c8c7ea5f4cdb468a660f2
-          v1.3.4 b4fb3545ced2f66cdf6925329624477c27cf7e7d a78767d826b8fe6886a16e95c3936766b6ba874e
-          v1.3.5 110a088499d3cb53503b46d18b5962f8209cf72f aafa5e08024f7483cca35c14853b323575ca4a5c
-          v1.3.6 f1d62a1968a8d433e6d719ef328ae0d098d3a3ad 094581ebf60c5de7193e273af8446ec40e1f4281
-          v1.3.7 4fecf063f782900bc495a7e16a1339b74794572c ad021e28ee4af6681167dcf4193f3f4538ee3d29
-          v1.4.0 ffb8e7971dd55d838c22d467a7a6aa404409b53b ef04fb6aa12a18e87c717758f125d825f3eaf64c
-          v1.4.1 27aaa42f8e2f1c03059e71186797c8017c7a91a0 45bb558c4d1b84668dd7a99461896f7de5390ac3
-          v1.5.0 e0012547ded3b8db9a961e2cadacd97404a2deba 740f9ee691cc1a865cf16a289d182e051a9ad4c7
-          v1.5.1 fa58beac1c7045d99efa98c08612e2b19e6e1db8 72b1bdb3b14aeeabc18a3f509624c160be53a3a8
-          v1.5.2 fabbbfa874e70e2eda0c3c2d1fa219f368711916 614d8af0b0389877471a751f40ed187d8105b4df
-          v1.5.3 0267896aa8551666221e926aecd2eaeeae90d963 427068ff37338d11f1b12852acea315f33837559
-          v1.5.4 f6b181f325da1d61fe83088e91d4bd41c43b491e db2bde73221c5129bc0e23b265a5a6bf62523027
-          v1.5.5 8e12c78b813d633ee2f86b3f000af768419f7813 bc1cf6a3b7e9d0e509c0e8c9b0fa435d8d3f1a5d
-          v1.6.0 e23470813b39713b5a368538e902de5674a19196 800a3d9a01a3640c8fad706f4210ccd31e51ef09
-          v1.7.0 01e815057b30c68517b6a965294483d0901e0559 cd804c61b6189169d357326f826d243bc99c59b5
-          v1.9.0 9ed823e11fa5d5e55de2fdf54fe9f6c8b36b5e1d 22e73d409aa29e3acfd67ee5d5c7aa2c2f893b1f
-          v1.10.5 aa90cc1866e8c3bc3e297523376280d62321e942 5780c38fe74e926e777c0cf73fd3df1c8443077d
-          v1.11.0 4afa7c717a9331dd59cc0faf6f762d951f3a8757 b4bf8e96fd30ea8e3e6de9dd57fad3f947c8cbfb
+          v1.3.0 5d7bda8f7b472db893d1af9f38cb0b4be7eac066 84d528bc95f505fe553afe91990c1aeff7e12944
+          v1.3.1 cb4591a7f4c7d52f5e085b19b08cf9454e99a4dd 5a2bab2fb8f9068c9def0c7d24d45fb468f5a776
+          v1.3.2 312a815846e382524393014f776603f0d56eb26b 42a5d97c28f3dd98c1465a41f5ce7ede88a048e1
+          v1.3.3 974cbfd3d6cd87e2247603c80c2dcc81822d76e5 8360abfcb92df22e1c043811a8d6a52a609cf838
+          v1.3.4 b4fb3545ced2f66cdf6925329624477c27cf7e7d 618652e555826d2eaa21556d2185cb45de7ecc1b
+          v1.3.5 110a088499d3cb53503b46d18b5962f8209cf72f c6cfc2daf7fef5bc25093d7b59a534a5255b7478
+          v1.3.6 f1d62a1968a8d433e6d719ef328ae0d098d3a3ad 1cb7ed86159ce3007bbbdf0c91cf31088e131bee
+          v1.3.7 4fecf063f782900bc495a7e16a1339b74794572c c4ea3c87d6c47ac0c80bfb2d26c161f2ec6d30f1
+          v1.4.0 ffb8e7971dd55d838c22d467a7a6aa404409b53b e4a8c6e55fb7559cc9027331096ae721e11c14d8
+          v1.4.1 27aaa42f8e2f1c03059e71186797c8017c7a91a0 524294a5b4c15fe88c0551f2d04edb2708bdf1ac
+          v1.5.0 e0012547ded3b8db9a961e2cadacd97404a2deba 36339bd9016ed83c3f3b56c4315c08514ff02252
+          v1.5.1 fa58beac1c7045d99efa98c08612e2b19e6e1db8 f9a34ff3960d210e6e2111530e101696a4becd8d
+          v1.5.2 fabbbfa874e70e2eda0c3c2d1fa219f368711916 1a9fe5741c4579fd33dc604081e729f9bcb464f1
+          v1.5.3 0267896aa8551666221e926aecd2eaeeae90d963 65998d238fe56401f2577120fc80af551a368923
+          v1.5.4 f6b181f325da1d61fe83088e91d4bd41c43b491e a94e705153e410060f1c1e44ab9e8a38e0a9ae02
+          v1.5.5 8e12c78b813d633ee2f86b3f000af768419f7813 0c6f72f0d6fc9a809e79df70407a9cc6bf0e4ea8
+          v1.6.0 e23470813b39713b5a368538e902de5674a19196 c3841af9de122e0283bfb5af066be2851c2130d7
+          v1.7.0 01e815057b30c68517b6a965294483d0901e0559 3fdb1f5bfb91775df5f6b00ce6d6916e1886a75a
+          v1.9.0 9ed823e11fa5d5e55de2fdf54fe9f6c8b36b5e1d 711176a9e9e26b9fe7dcdbcfe1ee386f64650787
+          v1.10.5 aa90cc1866e8c3bc3e297523376280d62321e942 1b73bb9134e682db3503ccf7b5c7ef16ee53c6b2
+          v1.11.0 4afa7c717a9331dd59cc0faf6f762d951f3a8757 cb0c3e810502ae1aa7e52835ded72fb1cf3221d9
+          v1.13.1 157a3e9c70dda653ec69abcf47896364db919db9 aee0ca0a5e205dfb65fc9fe4b4aa0409e6058328
+          v1.13.2 433a703ec494f2ad4748a835dfd78c8b48b70ddb 931d5aad654d7e5a47de33846858cf5420621a85
+          v1.14.0 5e70944e856f1237bc36db651ad8a68d64a7e497 5d24499fd0a66104ce0f759addb9f8c774853432
+          v1.15.0 2cb7cb82dcf58ad64c18d6f2293aed86aa02fe48 6231f337d10e5536a9614ff29811fe91356d98e4
+          v1.15.1 ca2e6268cf3e2a7ebe1816a23e175d4262889f5a ea4840793cac1a96e28cab23cc3ba458de32c783
+          v1.16.0 2be4d5b2fb5aeb7d00a1dfb0040cba713c9431db fac1cd658dbe65379cc11a426af8f0f845a73aaa
+          v1.17.0 d8af41bf9479527e9c2f3478bac2532e02c08325 cc603fc77db38953a297f8b6194faa455e1e10d8
+          v1.17.1 8bb2be33c70d50ae6834471768715d4916eb6f02 77b3942d0248ffb3ad4f09caa6e8e5b21eeb3acb
+          v1.17.3 0febfad5c2f43ee2e71f1b309249c09f7359118c a2181a74f385ff039d984d8b1d4c8bf9e9e0cbaf
+          v1.17.4 79ba48d3b7134bb49babdfec4b824a02e36300d0 53ac3b719a87cb545af803de41d0326d57ccf35a
+          v1.18.0 59163c6e1534010b8632762c5345ac7147a1837b af2421c2aece24bd091ac2d28f38149d8e04f2ef
+          v1.18.1 36adf891aba382f7fd8709c0113dc840ef6cd7b5 b0580cc649ca19ab429eac19077601cc10914fa0
+          v1.18.2 288539e0a5f6d46ca7494a47e5460cf9e121264a 8d4013d349a95e78398599c28df332ca7489a03e
+          v1.18.3 fdf83ddd092b9cc835f4364b157c53f3b3e86106 878e4f8b881cef70495e8e576ce7c362a08e9cc1
+          v1.19.0 81c4e1ce24c412bd1943068f7c801e7d0fa13c25 f3c4799e934f1ee4a47208e6554febcfa326bf89
+          v1.20.0 b53272c4b6144a14c0f11b4a3b0aa2a231c4c14a faf808f8bbe33f7ff9a2cb83ead5de69c481c22c
+          v1.21.0 337a46fda8f9e70e8661c2384e5dc70f60091221 d566b5b3ca716ab2e1b59952b0b508b459e90016
+          v1.21.1 ef7263323cf054909773e957cb8ecf5186744ec1 75394590744b59ec9adac215b42e3d511906c181
+          v1.22.0 4841644b357a7ebe4189f1aacc9b7863bf309c31 8d9fa40c8c76fd56c496f6553dbeed696e135e38
+          v1.23.0 d485a3f7fc7854e19061139a595e926d58314b9d d4341cdccadb763c176511c68743e234ac4e2bb2
           MAP
-          echo "Tags moved."
+          if [ "$failed" != 0 ]; then
+            echo "Nothing was moved."
+            exit 1
+          fi
+          echo "${#specs[@]} tags to move, $done_already already in place."
+          if [ "${#specs[@]}" = 0 ]; then
+            exit 0
+          fi
+          if [ "$GO" != yes ]; then
+            echo "Only checking: nothing was moved."
+            exit 0
+          fi
+          git push --atomic "${leases[@]}" origin "${specs[@]}"
+          git ls-remote --tags origin > remote-tags-after.txt
+          wrong=0
+          for spec in "${specs[@]}"; do
+            new=${spec%%:*}; ref=${spec#*:}
+            now=$(awk -v r="$ref" '$2 == r { print $1 }' remote-tags-after.txt)
+            [ "$now" = "$new" ] || { echo "::error::$ref is at $now after the push, not at $new"; wrong=1; }
+          done
+          [ "$wrong" = 0 ] && echo "Tags moved: ${#specs[@]}."
+          exit "$wrong"
+
+  runs:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Delete the run records that describe the replaced commits
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GO: ${{ inputs.go }}
+        run: |
+          set -uo pipefail
+          found=0; gone=0; deleted=0; failed=0
+          while read -r id; do
+            [ -n "$id" ] || continue
+            if ! line=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$id" --jq '[.status, .name, .head_sha[0:10]] | join(" ")' 2>/dev/null); then
+              gone=$((gone + 1))
+              continue
+            fi
+            found=$((found + 1))
+            case "$line" in
+              completed*) ;;
+              *) echo "::error::run $id is not finished ($line); left alone"; failed=1; continue ;;
+            esac
+            if [ "$GO" != yes ]; then
+              continue
+            fi
+            if gh api -X DELETE "repos/$GITHUB_REPOSITORY/actions/runs/$id" >/dev/null 2>err.txt; then
+              deleted=$((deleted + 1))
+            else
+              echo "::error::run $id could not be deleted: $(cat err.txt)"
+              failed=1
+            fi
+            sleep 2
+          done <<'IDS'
+          38988145111
+          38988392267
+          38988777537
+          38989607181
+          38990059214
+          38990488308
+          38995339078
+          38996159663
+          40215829665
+          40215829680
+          40215829787
+          40216469705
+          40216469710
+          40216469781
+          40216489979
+          40216489994
+          40216490007
+          40216842084
+          40216842097
+          40216842133
+          40217214368
+          40217214383
+          40217214398
+          41249470365
+          41249470406
+          41249470484
+          41250181686
+          41250181710
+          41250181736
+          41343998845
+          41343998889
+          41343998937
+          41344560579
+          41344560580
+          41344560581
+          41344560597
+          41350423963
+          41350423964
+          41350424003
+          41351217275
+          41351217336
+          41351217369
+          41351217453
+          41351846021
+          41351846044
+          41351846065
+          41352428405
+          41352428417
+          41352428468
+          41352428483
+          41356634257
+          41356634259
+          41356634363
+          41357387849
+          41357387854
+          41357387929
+          41357388167
+          41360874949
+          41360874981
+          41360875082
+          41361600022
+          41361600161
+          41361600176
+          41361600209
+          41374888433
+          41374888447
+          41374888464
+          41375676808
+          41375676811
+          41375676866
+          41375676867
+          41378330695
+          41378330735
+          41378330783
+          41379116572
+          41379116575
+          41379116598
+          41379116761
+          41381117684
+          41381117765
+          41381117876
+          41381148100
+          41381148123
+          41381148125
+          41381405386
+          41381405394
+          41381405476
+          41383369876
+          41383369885
+          41383369927
+          41383370037
+          41385598631
+          41385598663
+          41385598707
+          41385598781
+          41763184309
+          41763184343
+          41763184347
+          41763184388
+          41766945683
+          41766945757
+          41766945782
+          41953046974
+          41953046988
+          41953046996
+          41954537806
+          41954537832
+          41954537845
+          41954537881
+          41958243542
+          41958243738
+          41958243913
+          41958285119
+          41959683622
+          41959683638
+          41959683646
+          41959683696
+          42333780728
+          42333780771
+          42333780777
+          42334318218
+          42334318257
+          42334318269
+          42334318480
+          42336650205
+          42336650223
+          42336650254
+          42337339593
+          42337339616
+          42337339631
+          42337339741
+          42338561217
+          42338561263
+          42338561272
+          42339116649
+          42339116700
+          42339116720
+          42339544940
+          42339545000
+          42339545003
+          42339545096
+          42340156571
+          42340156591
+          42340156613
+          42340156655
+          43483102781
+          43483102968
+          43483927477
+          43483928864
+          IDS
+          echo "Run records still there: $found. Already gone: $gone. Deleted now: $deleted."
+          [ "$GO" = yes ] || echo "Only checking: nothing was deleted."
+          exit "$failed"
