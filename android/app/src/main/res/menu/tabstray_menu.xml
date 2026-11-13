@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<menu xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto">
+    <item
+        android:id="@+id/newTab"
+        android:icon="@drawable/mozac_ic_plus_24"
+        android:iconTint="@color/fsb_toolbar_text"
+        android:title="@string/menu_new_tab"
+        app:showAsAction="ifRoom" />
+</menu>

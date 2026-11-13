@@ -7,8 +7,9 @@
 // deleted or replaced (#75): this page sums it up in a line, and its entries are rows among every try on
 // tries.html (tries.html#password shows them alone). The boxes that
 // have held each password are noted too (WAITS), with the wait last set for it, so that a backup file
-// saved before the wait was lengthened is lengthened to it as it is restored here (1.13.0).
-import { BOX, PROGRESS, describeRecord, duration, fractionDone, layerUnderWork, loadBox, longerWaitFor, noteBox, recordEvent, sinceText } from './lib/lockbox.js';
+// saved before the wait was lengthened is lengthened to it as it is restored here (1.13.0). A pause (the
+// page closed with unlocking under way) goes on the record as the work is carried on or stopped (recordPause).
+import { BOX, PROGRESS, describeBox, describeRecord, duration, fractionDone, isTime, layerUnderWork, loadBox, longerWaitFor, noteBox, recordEvent } from './lib/lockbox.js';
 import { element, showVersion } from './lib/page.js';
 import { START, isBox, lengthen, modulusOf, open, seal, secondsOf, stepsOf, waitOf } from './lib/timelock.js';
 
@@ -24,28 +25,69 @@ const OLD_BACKUPS =
   'A backup file saved before this still opens after the old wait anywhere but here: delete it (and empty the Trash) or make up a new password, and save a new backup file.';
 // How the password shown leaves the page, said under it: Hide and Lock it away again clear it from the clipboard
 // (clearClipboard); closing the page can't, since the browser only lets the page write to the clipboard after a click.
-const STAYS = 'It stays on this page until you click Hide or close the page. Hide and Lock it away again also clear it from the clipboard if it was copied here; closing the page doesn’t.';
+const STAYS = 'Hide and Lock it away again take it off this page and the clipboard; closing the page only takes it off the page.';
 
 let worker = null;
 let lastSaved = 0;
 let startedAt = null; // when the unlocking under way was started, for the progress record and the `shown` entry
-let why = null; // why it was started, as typed when it began: kept with the progress and given with the `shown` entry (1.13.2)
+let why = null; // why it was started, as chosen or typed when it began: kept with the progress and given with the `shown` entry (1.13.2)
 let latestDone = 0; // the squarings done so far by the worker, over every layer, which is ahead of the progress saved
 // Whether the password is on the clipboard from this page (Copy, or ⌘C/Ctrl+C on one of its boxes) and hasn't been
 // cleared from it since: what clearClipboard() goes by, since reading the clipboard would take a permission of its own.
 let onClipboard = false;
-// A failure to write the record must not stop what the person asked for; it is noted in the console.
-const record = (event, details) =>
-  recordEvent(store, event, details).catch((error) => {
+// A failure to write the record must not stop what the person asked for; it is noted in the console. `at` dates
+// the entry when it isn't now (a pause, lib/lockbox.js recordEvent).
+const record = (event, details, at = new Date().toISOString()) =>
+  recordEvent(store, event, details, at).catch((error) => {
     console.warn(`Family Site Blocker: couldn’t record "${event}" for the locked-away password: ${error.message}`);
-    return { at: new Date().toISOString(), event, ...details };
+    return { at, event, ...details };
   });
+
+/**
+ * Puts the pause on the record before what is done with the paused work (1.29.0): unlocking under way when this page
+ * was last closed (or the browser quit, or the add-on updated) paused where its progress was last saved, within
+ * SAVE_EVERY_MS of the pause, so the entry is dated then. It is written as the work is carried on or stopped, since
+ * a page closing can't be sure of writing anything. Nothing is written when the record already reaches that time: the
+ * page was closed again before any more progress was saved, so that pause is on the record already.
+ */
+async function recordPause({ box, progress, events }) {
+  const pausedAt = progress?.workedAt;
+  if (!isTime(pausedAt)) return;
+  const last = events.at(-1);
+  if (last && Date.parse(last.at) >= Date.parse(pausedAt)) return;
+  await record('paused', { done: progress.before + progress.done, steps: stepsOf(box) }, pausedAt);
+}
 // Likewise noting a box among those that have held its password (lib/lockbox.js noteBox).
 const note = (box, details) =>
   noteBox(store, box, details).catch((error) => console.warn(`Family Site Blocker: couldn’t note the locked-away password’s box: ${error.message}`));
 
 function say(text) {
   $('lockbox-status').textContent = text;
+}
+
+// The last choice on the menu of reasons for unlocking, "Something else", which opens a box for the reason to be
+// typed in (lockbox.html). The others go into the record as they read; the menu starts on "Choose a reason", whose
+// value is empty.
+const OTHER = 'other';
+
+/** The reason given for unlocking: the menu's choice, or what was typed under Something else, trimmed; '' when none yet. */
+function reasonGiven() {
+  const choice = $('lockbox-why').value;
+  return choice === OTHER ? $('lockbox-why-other').value.trim() : choice;
+}
+
+/** Puts the question back as it was: the menu on "Choose a reason", the box for typing empty and away. */
+function clearReason() {
+  $('lockbox-why').value = '';
+  $('lockbox-why-other').value = '';
+  $('lockbox-why-other').hidden = true;
+}
+
+/** Shows the box for typing when Something else is chosen, and puts the keyboard in it; takes it away for any other choice. */
+function offerOther() {
+  const other = $('lockbox-why').value === OTHER;
+  $('lockbox-why-other').hidden = !other;
+  if (other) $('lockbox-why-other').focus();
 }
 
 /**
@@ -125,7 +167,7 @@ function showProgress(box, progress, rate) {
   $('lockbox-progress').value = fraction;
   // The rest of this layer at the rate seen, then the layers inside it at the rates they were timed at.
   const toGo = (layer.steps - progress.done) / rate + secondsOf(layer.inside ?? []);
-  $('lockbox-progress-text').textContent = `${Math.floor(fraction * 100)}% done, about ${duration(toGo)} to go.`;
+  $('lockbox-progress-text').textContent = `${Math.floor(fraction * 100)}% done, about ${duration(toGo)} to go with this page open and the computer awake. If the page is closed or the computer sleeps, the work pauses and carries on later.`;
 }
 
 /** The record summed up in a line (lib/lockbox.js describeRecord), with a link to its entries among every try; nothing with no record. */
@@ -147,10 +189,7 @@ async function render() {
     return;
   }
   showOnly('lockbox-locked');
-  $('lockbox-summary').textContent =
-    `A password is locked away (${sinceText({ box, events })}). Getting it back takes about ${duration(waitOf(box))} ` +
-    'of computing with this page open and the computer awake. If the page is closed or the computer sleeps, ' +
-    'the work pauses and carries on where it left off.';
+  $('lockbox-summary').textContent = describeBox({ box, progress: null, events });
 
   const running = worker !== null;
   $('lockbox-start').hidden = running;
@@ -222,28 +261,31 @@ async function lengthenWait() {
 }
 
 async function startUnlocking() {
-  const { box, progress } = await load();
+  const loaded = await load();
+  const { box, progress } = loaded;
   if (!box || worker) return;
-  // Starting needs a reason, which goes into the record (1.13.2); carrying on paused work was given one when it began.
-  const reason = $('lockbox-why').value.trim();
+  // Starting needs a reason, which goes into the record (1.13.2): one chosen from the menu, or typed under Something
+  // else (1.28.0); carrying on paused work was given one when it began.
+  const reason = reasonGiven();
   if (!progress && !reason) {
     say('Say why you’re unlocking it first. Your answer goes into the record.');
-    $('lockbox-why').focus();
+    ($('lockbox-why').value === OTHER ? $('lockbox-why-other') : $('lockbox-why')).focus();
     return;
   }
   worker = startWorker();
-  // The record says it was started, or carried on and from where. Work carried on keeps the time it was
-  // first started (progress saved before 1.9.0 has none: then the time it was carried on stands in) and the
+  // The record says it was started, or paused and carried on and from where. Work carried on keeps the time it
+  // was first started (progress saved before 1.9.0 has none: then the time it was carried on stands in) and the
   // reason it was started for (none before 1.13.2).
   latestDone = progress ? progress.before + progress.done : 0;
   if (progress) {
+    await recordPause(loaded);
     const resumed = await record('resumed', { done: latestDone, steps: stepsOf(box) });
     startedAt = typeof progress.startedAt === 'string' ? progress.startedAt : resumed.at;
     why = typeof progress.why === 'string' ? progress.why : null;
   } else {
     why = reason;
     startedAt = (await record('started', { why })).at;
-    $('lockbox-why').value = '';
+    clearReason();
   }
   say('');
   await render();
@@ -318,7 +360,7 @@ async function reveal(box, secret) {
   try {
     await lockAway(secret, box.delay, { previous: box });
     await record('sealed', { delay: box.delay });
-    $('lockbox-again').textContent = `It’s already locked away again with the same wait (${duration(box.delay)}). ${STAYS}`;
+    $('lockbox-again').textContent = `Locked away again already, with the same wait of ${duration(box.delay)}. ${STAYS}`;
     say('');
   } catch (error) {
     // The old box is still stored, so the password stays locked away, but unlocking it starts from the beginning.
@@ -354,11 +396,15 @@ async function relock() {
 }
 
 async function stopUnlocking() {
-  const { box, progress } = await load();
+  const loaded = await load();
+  const { box, progress } = loaded;
   const sofar = progress || worker ? ' The work done so far will be lost.' : '';
   if (!confirm(`Stop unlocking?${sofar}`)) return;
+  // Paused work being stopped (no worker running): the record gets the pause first, as carrying on would.
+  const paused = worker === null && box !== null && progress !== null;
   stopWorker();
   await store.remove(PROGRESS);
+  if (paused) await recordPause(loaded);
   await record('stopped', { done: Math.max(progress ? progress.before + progress.done : 0, latestDone), steps: box ? stepsOf(box) : 0 });
   await render();
   say('Unlocking stopped. The password is still locked away.');
@@ -470,6 +516,7 @@ async function copy() {
 $('lockbox-lock').addEventListener('click', lock);
 $('lockbox-make').addEventListener('click', makeOne);
 $('lockbox-lengthen').addEventListener('click', lengthenWait);
+$('lockbox-why').addEventListener('change', offerOther);
 $('lockbox-start').addEventListener('click', startUnlocking);
 $('lockbox-stop').addEventListener('click', stopUnlocking);
 $('lockbox-delete').addEventListener('click', remove);

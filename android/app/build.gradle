@@ -1,0 +1,174 @@
+import groovy.json.JsonOutput
+import groovy.json.JsonSlurper
+
+plugins {
+    alias(libs.plugins.android.application)
+}
+
+// One version for the add-on and the app: the add-on's manifest.json is the source of truth.
+// 1.23.0 becomes versionName "1.23.0" and versionCode 1023000.
+def extensionDir = rootProject.file('../extension')
+def extensionManifest = new JsonSlurper().parse(new File(extensionDir, 'manifest.json'))
+def extensionVersion = extensionManifest.version as String
+def versionParts = extensionVersion.tokenize('.').collect { it as int }
+def computedVersionCode = versionParts[0] * 1_000_000 + versionParts[1] * 1_000 + versionParts[2]
+
+// A release key comes from Gradle properties (CI variables). Without one, the debug key signs the APK,
+// which still installs on a phone but cannot be uploaded to Google Play.
+def releaseKeystore = providers.gradleProperty('fsbKeystore').orNull
+
+android {
+    namespace = 'io.gitlab.adviseworn.familysiteblocker'
+    compileSdk { version = release(37) { minorApiLevel = 2 } }
+
+    defaultConfig {
+        applicationId = 'io.gitlab.adviseworn.familysiteblocker'
+        minSdk = 26
+        targetSdk = 37
+        versionCode = computedVersionCode
+        versionName = extensionVersion
+    }
+
+    signingConfigs {
+        if (releaseKeystore != null) {
+            release {
+                storeFile = file(releaseKeystore)
+                storePassword = providers.gradleProperty('fsbKeystorePassword').get()
+                keyAlias = providers.gradleProperty('fsbKeyAlias').get()
+                keyPassword = providers.gradleProperty('fsbKeyPassword').get()
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            // R8 shrinks and renames the app's own code; GeckoView and Android Components keep what they
+            // need through the rules in their own libraries. The engine's native libraries and omni.ja are
+            // the bulk of the APK and are not touched. Resource shrinking stays off: it cannot be combined
+            // with per-ABI APK splits and the app bundle in one build (AGP issue 402800800), and the code
+            // shrink is where the saving is.
+            minifyEnabled = true
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            signingConfig = releaseKeystore != null ? signingConfigs.release : signingConfigs.debug
+        }
+    }
+
+    // One APK per processor type; the phone takes arm64-v8a. Google Play takes the bundle (bundleRelease) instead.
+    splits {
+        abi {
+            enable = true
+            reset()
+            include 'arm64-v8a', 'armeabi-v7a', 'x86_64'
+            universalApk = false
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
+
+    buildFeatures {
+        buildConfig = true
+        viewBinding = true
+    }
+
+    lint {
+        checkReleaseBuilds = false
+        abortOnError = false
+    }
+
+    sourceSets {
+        main {
+            assets.srcDir(layout.buildDirectory.dir('generated/extension').get().asFile)
+        }
+    }
+}
+
+// The add-on goes into the APK's assets, from where GeckoView installs it as a built-in extension
+// (resource://android/assets/extensions/family-site-blocker/). Same change as scripts/package-firefox.mjs:
+// background.service_worker is for Chrome, Edge and Brave; Firefox runs background.scripts.
+def copyExtension = tasks.register('copyExtension', Sync) {
+    description = "Copies the add-on into the app's assets with Firefox's manifest."
+    from(extensionDir) {
+        exclude '_metadata/**', '**/.DS_Store'
+    }
+    into layout.buildDirectory.dir('generated/extension/extensions/family-site-blocker')
+    doLast {
+        def manifestFile = new File(destinationDir, 'manifest.json')
+        def manifest = new JsonSlurper().parse(manifestFile)
+        manifest.background?.remove('service_worker')
+        manifestFile.text = JsonOutput.prettyPrint(JsonOutput.toJson(manifest)) + '\n'
+    }
+}
+tasks.named('preBuild') { dependsOn(copyExtension) }
+
+// GeckoView (geckoview-omni) ships Glean's native code; the Glean library Android Components pull in
+// ships it too. Pick GeckoView's copy, as Mozilla's Reference Browser does.
+project.configurations.configureEach {
+    resolutionStrategy.capabilitiesResolution.withCapability('org.mozilla.telemetry:glean-native') {
+        def fromGeckoView = candidates.find { it.id instanceof ModuleComponentIdentifier && it.id.module.contains('geckoview') }
+        if (fromGeckoView != null) {
+            select(fromGeckoView)
+        }
+        because 'use the Glean inside GeckoView instead of the standalone one'
+    }
+}
+
+dependencies {
+    testImplementation(libs.junit)
+    testImplementation(libs.org.json) // Android's org.json is a stub in unit tests
+    implementation libs.androidx.activity
+    implementation libs.androidx.appcompat
+    implementation libs.androidx.constraintlayout
+    implementation libs.androidx.coordinatorlayout
+    implementation libs.androidx.core.ktx
+    implementation libs.androidx.fragment
+    implementation libs.androidx.lifecycle.process
+    implementation libs.androidx.recyclerview
+    implementation libs.androidx.swiperefreshlayout
+    implementation libs.google.material
+    implementation libs.kotlinx.coroutines.android
+
+    implementation libs.mozilla.browser.domains
+    implementation libs.mozilla.browser.engine.gecko
+    implementation libs.mozilla.browser.errorpages
+    implementation libs.mozilla.browser.icons
+    implementation libs.mozilla.browser.menu
+    implementation libs.mozilla.browser.session.storage
+    implementation libs.mozilla.browser.state
+    implementation libs.mozilla.browser.storage.sync
+    implementation libs.mozilla.browser.tabstray
+    implementation libs.mozilla.browser.thumbnails
+    implementation libs.mozilla.browser.toolbar
+    implementation libs.mozilla.concept.base
+    implementation libs.mozilla.concept.engine
+    implementation libs.mozilla.concept.fetch
+    implementation libs.mozilla.concept.menu
+    implementation libs.mozilla.concept.storage
+    implementation libs.mozilla.concept.tabstray
+    implementation libs.mozilla.concept.toolbar
+    implementation libs.mozilla.feature.contextmenu
+    implementation libs.mozilla.feature.downloads
+    implementation libs.mozilla.feature.findinpage
+    implementation libs.mozilla.feature.intent
+    implementation libs.mozilla.feature.prompts
+    implementation libs.mozilla.feature.search
+    implementation libs.mozilla.feature.session
+    implementation libs.mozilla.feature.sitepermissions
+    implementation libs.mozilla.feature.tabs
+    implementation libs.mozilla.feature.toolbar
+    implementation libs.mozilla.feature.webcompat
+    implementation libs.mozilla.lib.publicsuffixlist
+    implementation libs.mozilla.lib.state
+    implementation libs.mozilla.service.location
+    implementation libs.mozilla.support.appservices
+    implementation libs.mozilla.support.base
+    implementation libs.mozilla.support.ktx
+    implementation libs.mozilla.support.utils
+    implementation libs.mozilla.support.webextensions
+    implementation libs.mozilla.ui.colors
+    implementation libs.mozilla.ui.icons
+    implementation libs.mozilla.ui.tabcounter
+    implementation libs.mozilla.ui.widgets
+}

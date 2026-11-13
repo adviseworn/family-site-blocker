@@ -15,7 +15,7 @@
 // The lock installs the add-on from an address on the update site; here the stand-in internet serves the
 // signed file at a stand-in address, which the lock under test names instead.
 // Skipped without a signed .xpi or a way to set policies. The parts that need OLDER_XPI (an earlier signed
-// version of this add-on) or OTHER_XPI (the GitHub workflow uses LeechBlock NG, a site blocker from
+// version of this add-on) or OTHER_XPI (the lock-check job uses LeechBlock NG, a site blocker from
 // addons.mozilla.org) are skipped without them.
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';

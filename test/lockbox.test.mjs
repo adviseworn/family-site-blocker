@@ -77,6 +77,13 @@ test('recording adds the entry with the time, oldest first, drops the oldest onc
   const kept = fakeStore({ [EVENTS]: [at(T.started, 'started')], [EVENTS_SINCE]: T.locked });
   await recordEvent(kept, 'shown');
   assert.equal(kept.data[EVENTS_SINCE], T.locked, 'the time stored stays, before the entries left');
+
+  // A pause is known only afterwards, so its entry is dated when the progress was last saved (1.29.0).
+  const dated = fakeStore({ [EVENTS]: [at(T.started, 'started')] });
+  const pause = await recordEvent(dated, 'paused', { done: 1, steps: 2 }, T.shown);
+  assert.deepEqual(pause, { at: T.shown, event: 'paused', done: 1, steps: 2 });
+  assert.deepEqual(dated.data[EVENTS].at(-1), pause);
+  assert.equal(dated.data[EVENTS_SINCE], T.started);
 });
 
 test("when the record began, and the table's last row that says so (1.11.4; a row from 1.13.1)", async () => {
@@ -192,6 +199,8 @@ test('every entry has words, with its times and its share of the work', () => {
   assert.equal(describeEvent(at(T.started, 'started')), 'Unlocking started.');
   assert.equal(describeEvent(at(T.started, 'resumed', { done: 2400, steps: 6000 })), 'Unlocking carried on, from 40% done.');
   assert.equal(describeEvent(at(T.started, 'resumed', { done: 0, steps: 6000 })), 'Unlocking carried on, from 0% done.');
+  assert.equal(describeEvent(at(T.started, 'paused', { done: 2400, steps: 6000 })), 'Unlocking paused at 40% done.', 'the pause before the work was carried on or stopped (1.29.0)');
+  assert.equal(describeEvent(at(T.started, 'paused', { done: 2400, steps: 6000 }), { brief: true }), 'Unlocking paused at 40% done.');
   assert.equal(describeEvent(at(T.started, 'stopped', { done: 5999, steps: 6000 })), 'Unlocking stopped at 99% done; the work was thrown away.');
   assert.equal(describeEvent(at(T.started, 'stopped', { done: 7000, steps: 6000 })), 'Unlocking stopped at 100% done; the work was thrown away.', 'never over 100');
   assert.equal(describeEvent(at(T.started, 'stopped', { done: 3, steps: 0 })), 'Unlocking stopped at 0% done; the work was thrown away.', 'no dividing by zero');

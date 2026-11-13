@@ -348,6 +348,89 @@ export function scoresOf(entry) {
   return `nudity ${(score('porn') + score('hentai')).toFixed(2)}, suggestive ${score('sexy').toFixed(2)}`;
 }
 
+// --- Pictures that waited for a verdict -----------------------------------------------------------------
+// A picture stays hidden until the background script has judged it (content.js), however long that takes. A
+// verdict can be slow (a big picture fetched again from a slow site, the second judge's model loading) or
+// never come at all, which once left a captcha's tiles blank (1.26.1). So from 1.27.0 the content script
+// says when a picture it asked about has had no verdict after WAIT_MS (its own constant, 20 seconds), and
+// the background script notes it here: the page's site, the picture's address, how long it had waited and
+// what the background script was doing for it at that moment (fetching it, judging it, asking the second
+// judge, or nothing, the request never having reached it); and when the verdict comes after all, how long
+// it took and what it was. The rows are laid among every try (tries.html) and go into the saved file, so a
+// picture left blank can be understood. The picture itself stays hidden until judged, as before: showing
+// it unjudged after a wait would be a change of strictness, not a note.
+
+/** Storage key of the record, oldest first; the latest MAX_WAITING are kept. */
+export const WAITING = 'picturesWaiting';
+export const MAX_WAITING = 200;
+/** The same picture on the same site is one note within this long (each frame of a page asks about its own). */
+export const NOTE_WAITING_WITHIN_MS = 60_000;
+
+/** What the background script can be doing for a picture (background.js stageOf), and the row's words for it. */
+export const STAGES = {
+  fetching: 'being fetched',
+  judging: 'with the first judge',
+  second: 'with the second judge',
+  copying: 'being copied for the record',
+  noting: 'being noted in the record',
+};
+const NO_STAGE = 'no judgment under way';
+
+const seconds = (ms) => Math.max(0, Math.round((Number(ms) || 0) / 1000));
+
+/**
+ * Notes a picture that has waited `waited` milliseconds for a verdict without one: { at, site: the page's
+ * host, url: the picture's address (cut as the record cuts them), waited: in whole seconds, stage: one of
+ * STAGES' keys or null, kind: 'video' for a video's frame, left out for a picture }. The same picture on the
+ * same site, noted within NOTE_WAITING_WITHIN_MS and not judged since, is not noted again. Returns the new
+ * list, oldest first, capped, or the list as it was.
+ */
+export function recordWaiting(record, { at, site, url, waited, stage, kind }) {
+  const list = Array.isArray(record) ? record : [];
+  const kept = String(url ?? '').slice(0, URL_LENGTH);
+  const last = list[list.length - 1];
+  if (last && last.site === site && last.url === kept && !last.judged && at - last.at < NOTE_WAITING_WITHIN_MS) return list;
+  const entry = { at, site, url: kept, waited: seconds(waited), stage: typeof stage === 'string' && stage in STAGES ? stage : null, ...(kind === 'video' ? { kind } : {}) };
+  const all = [...list, entry];
+  return all.length > MAX_WAITING ? all.slice(all.length - MAX_WAITING) : all;
+}
+
+/**
+ * Notes that the verdict came after all: the latest entry for the picture on the site that is still waiting
+ * gains judged: { after: how long it took, in whole seconds, outcome: 'shown', 'hidden' or 'unjudged' (the
+ * judgment failed, and the picture was shown as it is) }. Returns the new list, or the list as it was when
+ * no entry waits for it.
+ */
+export function settleWaiting(record, { site, url, waited, outcome }) {
+  const list = Array.isArray(record) ? record : [];
+  const kept = String(url ?? '').slice(0, URL_LENGTH);
+  const index = list.findLastIndex((entry) => entry?.site === site && entry?.url === kept && !entry?.judged);
+  if (index === -1) return list;
+  const result = ['shown', 'hidden', 'unjudged'].includes(outcome) ? outcome : 'unjudged';
+  return list.map((entry, i) => (i === index ? { ...entry, judged: { after: seconds(waited), outcome: result } } : entry));
+}
+
+/** The record's entries that are well-formed, oldest first, as stored; junk is passed over. */
+export function waitingList(stored) {
+  return (Array.isArray(stored) ? stored : []).filter((entry) => Number.isFinite(entry?.at) && typeof entry.site === 'string' && typeof entry.url === 'string');
+}
+
+/**
+ * What a row says of a picture that waited: "Picture unjudged after 20 s: being fetched" while no verdict
+ * has come, "Picture judged after 47 s: shown" (or hidden) once it has, and "Picture shown unjudged after
+ * 47 s" when the judgment failed; "Video" for a video's frame.
+ */
+export function describeWaiting(entry) {
+  const what = entry?.kind === 'video' ? 'Video' : 'Picture';
+  const judged = entry?.judged;
+  if (judged && typeof judged === 'object') {
+    const after = `${Math.max(0, Number(judged.after) || 0)} s`;
+    if (judged.outcome === 'unjudged') return `${what} shown unjudged after ${after}`;
+    return `${what} judged after ${after}: ${judged.outcome === 'hidden' ? 'hidden' : 'shown'}`;
+  }
+  return `${what} unjudged after ${Math.max(0, Number(entry?.waited) || 0)} s: ${STAGES[entry?.stage] ?? NO_STAGE}`;
+}
+
 // --- Fetching a picture or a video whole ---------------------------------------------------------------
 // The background script fetches a picture whole to judge it and to copy it, and the Every try page fetches
 // a video whole to show it again. A body is read only up to a cap (1.18.3), so that a huge file, or an

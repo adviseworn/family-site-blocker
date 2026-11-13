@@ -1,0 +1,226 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/fsb_toolbar"
+    android:orientation="vertical">
+
+    <androidx.appcompat.widget.Toolbar
+        android:id="@+id/toolbar"
+        android:layout_width="match_parent"
+        android:layout_height="?attr/actionBarSize"
+        android:background="@color/fsb_toolbar"
+        app:navigationIcon="@drawable/mozac_ic_back_24"
+        app:navigationIconTint="@color/fsb_toolbar_text"
+        app:title="@string/lock_title"
+        app:titleTextColor="@color/fsb_toolbar_text" />
+
+    <ScrollView
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:padding="16dp">
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/lock_intro"
+                android:textAppearance="?attr/textAppearanceBodyMedium"
+                android:textColor="@color/fsb_toolbar_text" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="24dp"
+                android:text="@string/lock_setup_heading"
+                android:textAppearance="?attr/textAppearanceTitleMedium"
+                android:textColor="@color/fsb_toolbar_text" />
+
+            <TextView
+                android:id="@+id/setupNote"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:text="@string/lock_setup_note"
+                android:textAppearance="?attr/textAppearanceBodyMedium"
+                android:textColor="@color/fsb_toolbar_hint" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:text="@string/lock_permission_accessibility"
+                android:textAppearance="?attr/textAppearanceBodyLarge"
+                android:textColor="@color/fsb_toolbar_text" />
+
+            <TextView
+                android:id="@+id/accessibilityStatus"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:textAppearance="?attr/textAppearanceBodyMedium"
+                android:textColor="@color/fsb_toolbar_hint" />
+
+            <Button
+                android:id="@+id/accessibilityButton"
+                style="@style/Widget.Material3.Button.OutlinedButton"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/lock_permission_accessibility_button" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:text="@string/lock_permission_admin"
+                android:textAppearance="?attr/textAppearanceBodyLarge"
+                android:textColor="@color/fsb_toolbar_text" />
+
+            <TextView
+                android:id="@+id/adminStatus"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:textAppearance="?attr/textAppearanceBodyMedium"
+                android:textColor="@color/fsb_toolbar_hint" />
+
+            <Button
+                android:id="@+id/adminButton"
+                style="@style/Widget.Material3.Button.OutlinedButton"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/lock_permission_admin_button" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="24dp"
+                android:text="@string/lock_heading"
+                android:textAppearance="?attr/textAppearanceTitleMedium"
+                android:textColor="@color/fsb_toolbar_text" />
+
+            <TextView
+                android:id="@+id/status"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:textAppearance="?attr/textAppearanceBodyLarge"
+                android:textColor="@color/fsb_toolbar_text" />
+
+            <ProgressBar
+                android:id="@+id/progress"
+                style="?android:attr/progressBarStyleHorizontal"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:max="1000"
+                android:visibility="gone" />
+
+            <TextView
+                android:id="@+id/browsers"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:textAppearance="?attr/textAppearanceBodyMedium"
+                android:textColor="@color/fsb_toolbar_hint" />
+
+            <LinearLayout
+                android:id="@+id/waitRow"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/lock_wait_label"
+                    android:textAppearance="?attr/textAppearanceBodyLarge"
+                    android:textColor="@color/fsb_toolbar_text" />
+
+                <Spinner
+                    android:id="@+id/waitChooser"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="12dp"
+                    android:layout_weight="1" />
+            </LinearLayout>
+
+            <Button
+                android:id="@+id/turnOn"
+                style="@style/Widget.Material3.Button"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:text="@string/lock_turn_on" />
+
+            <Button
+                android:id="@+id/startUnlocking"
+                style="@style/Widget.Material3.Button.OutlinedButton"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:text="@string/lock_start_unlocking" />
+
+            <Button
+                android:id="@+id/stopUnlocking"
+                style="@style/Widget.Material3.Button.OutlinedButton"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:text="@string/lock_stop_unlocking" />
+
+            <Button
+                android:id="@+id/lengthen"
+                style="@style/Widget.Material3.Button.TextButton"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/lock_lengthen" />
+
+            <Button
+                android:id="@+id/lockAgain"
+                style="@style/Widget.Material3.Button"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:text="@string/lock_lock_again" />
+
+            <Button
+                android:id="@+id/turnOff"
+                style="@style/Widget.Material3.Button.TextButton"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/lock_turn_off" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="24dp"
+                android:text="@string/lock_record_heading"
+                android:textAppearance="?attr/textAppearanceTitleMedium"
+                android:textColor="@color/fsb_toolbar_text" />
+
+            <TextView
+                android:id="@+id/record"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:lineSpacingExtra="4dp"
+                android:textAppearance="?attr/textAppearanceBodyMedium"
+                android:textColor="@color/fsb_toolbar_text" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="24dp"
+                android:text="@string/lock_limits"
+                android:textAppearance="?attr/textAppearanceBodyMedium"
+                android:textColor="@color/fsb_toolbar_hint" />
+        </LinearLayout>
+    </ScrollView>
+</LinearLayout>

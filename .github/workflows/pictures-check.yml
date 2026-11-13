@@ -1,8 +1,8 @@
-# Checks the picture filter against real pictures (#50), which the tests can't do because they never
-# contact a real website: with the extension loaded in Chromium on a GitHub-hosted Mac, each picture in
-# test/real-pictures.txt is judged by the real classifier exactly as a page's picture would be, and its
-# scores and verdicts are printed against what the list expects. Extra addresses can be given when
-# starting the run. Start it from the Actions tab with "Run workflow".
+# Checks the picture filter against real pictures, which the tests can't do because they never contact a real
+# website: with the extension loaded in Chromium, each picture in test/real-pictures.txt is judged by the real
+# classifier exactly as a page's picture would be, and its scores and verdicts are printed against what the
+# list expects (npm run check:pictures). Extra addresses can be given when starting the run.
+# Start it from the Actions tab with "Run workflow".
 name: Real pictures check
 
 on:
@@ -12,16 +12,20 @@ on:
         description: 'More picture addresses to judge, separated by spaces (printed, not judged against anything)'
         required: false
         default: ''
-  push:
-    branches: [pictures] # so it can run from its own branch before it's on main
 
 permissions:
   contents: read
 
+env:
+  npm_config_fund: 'false'
+  npm_config_audit: 'false'
+  npm_config_update_notifier: 'false'
+
 jobs:
-  pictures:
-    runs-on: macos-latest
-    timeout-minutes: 15
+  pictures-check:
+    # Ubuntu 24.04 by name: Playwright 1.56.0 has no Chromium for Ubuntu 26.04, which ubuntu-latest has become.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v5
 
@@ -32,9 +36,9 @@ jobs:
       - name: Install Playwright and its Chromium
         run: |
           npm install
-          npx playwright install chromium
+          npx playwright install --with-deps chromium
 
       - name: Judge the pictures with the extension in Chromium
         env:
-          PICTURE_URLS: ${{ github.event.inputs.urls }}
+          PICTURE_URLS: ${{ inputs.urls }}
         run: npm run check:pictures

@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.coordinatorlayout.widget.CoordinatorLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+
+    <com.google.android.material.appbar.AppBarLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="@color/fsb_toolbar"
+        app:elevation="0dp">
+
+        <mozilla.components.browser.toolbar.BrowserToolbar
+            android:id="@+id/toolbar"
+            android:layout_width="match_parent"
+            android:layout_height="56dp"
+            android:background="@color/fsb_toolbar" />
+
+        <mozilla.components.feature.findinpage.view.FindInPageBar
+            android:id="@+id/findInPage"
+            android:layout_width="match_parent"
+            android:layout_height="56dp"
+            android:background="@color/fsb_toolbar"
+            android:elevation="10dp"
+            android:padding="4dp"
+            android:visibility="gone"
+            app:findInPageNoMatchesTextColor="@color/photonRed50"
+            app:findInPageQueryTextColor="@color/fsb_toolbar_text"
+            app:findInPageQueryHintTextColor="@color/fsb_toolbar_hint"
+            app:findInPageResultCountTextColor="@color/fsb_toolbar_text"
+            app:findInPageButtonsTint="@color/fsb_toolbar_text" />
+    </com.google.android.material.appbar.AppBarLayout>
+
+    <mozilla.components.ui.widgets.VerticalSwipeRefreshLayout
+        android:id="@+id/swipeToRefresh"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        app:layout_behavior="@string/appbar_scrolling_view_behavior">
+
+        <mozilla.components.concept.engine.EngineView
+            android:id="@+id/engineView"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent" />
+    </mozilla.components.ui.widgets.VerticalSwipeRefreshLayout>
+</androidx.coordinatorlayout.widget.CoordinatorLayout>

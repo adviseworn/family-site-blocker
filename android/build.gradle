@@ -1,0 +1,15 @@
+buildscript {
+    repositories {
+        google()
+        mavenCentral()
+    }
+    dependencies {
+        // The Android Gradle plugin compiles Kotlin itself, with the Kotlin plugin found on this classpath.
+        // Mozilla's libraries are built with Kotlin 2.4, newer than the one the Android plugin bundles.
+        classpath(libs.kotlin.gradle.plugin)
+    }
+}
+
+plugins {
+    alias(libs.plugins.android.application) apply false
+}

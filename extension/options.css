@@ -542,6 +542,17 @@ code {
   color: var(--bad);
 }
 
+/* A picture that waited long for its verdict (1.27.0): marked while none has come, ordinary once it has;
+   under the words, the address, as on a hidden picture's row. */
+.day tr.waiting td:last-child {
+  color: var(--bad);
+  white-space: normal;
+}
+
+.day tr.waiting.judged td:last-child {
+  color: inherit;
+}
+
 /* A picture or video the picture filter kept hidden, among the tries: what the record says, the score that
    decided and the mark of a close call beside it, and under them the address, cut short when long, which
    copies when clicked, with Look at it. */
@@ -720,6 +731,12 @@ code {
 
 #lockbox input[type="text"] {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+/* The reason typed under Something else (1.28.0) is words, not a password: the page's own type, under the menu. */
+#lockbox #lockbox-why-other {
+  margin-top: 0.5rem;
+  font-family: inherit;
 }
 
 .button.secondary,

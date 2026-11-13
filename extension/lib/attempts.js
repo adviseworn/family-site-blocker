@@ -11,7 +11,7 @@
 // the oldest go, once there are more than MAX_ATTEMPTS. HISTORY_SCAN holds when the history was last
 // looked through, and what that found.
 import { LOCK_NAME, lockChangeWords, lockChanges } from './lock.js';
-import { isVideo } from './pictures.js';
+import { describeWaiting, isVideo, waitingList } from './pictures.js';
 import { kindOfVisit, normalize } from './watching.js';
 
 export const ATTEMPTS = 'attempts';
@@ -259,9 +259,11 @@ function midnightAfter(day) {
  * address, the two scores the pages show (nudity: porn and hentai together; suggestive) and its mark,
  * hidden by mistake or rightly hidden, in columns of their own, empty on a try's row. From 1.22.0 the
  * Firefox lock's record (lib/lock.js) is rows among them too, "Firefox lock" in the site column and
- * whether it was found in force in the result column, as on Every try.
+ * whether it was found in force in the result column, as on Every try; and from 1.27.0 the pictures that
+ * waited for a verdict (lib/pictures.js WAITING), with the row's words in the result column and the address
+ * in its own.
  */
-export function toCsv(attempts, watching, pictures = [], lock = []) {
+export function toCsv(attempts, watching, pictures = [], lock = [], waiting = []) {
   const cell = (text) => (/[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text);
   const row = (fields) => fields.map((field) => cell(String(field ?? ''))).join(',');
   const score = (entry, name) => Math.max(0, Number(entry?.scores?.[name]) || 0);
@@ -279,7 +281,8 @@ export function toCsv(attempts, watching, pictures = [], lock = []) {
     ],
   }));
   const changes = lockChanges(lock).map((entry) => ({ at: entry.at, fields: [localIso(entry.at), LOCK_NAME, lockChangeWords(entry), '', '', '', ''] }));
-  const lines = ['when,site,result,address,nudity,suggestive,mark', ...[...tries, ...hidden, ...changes].sort((a, b) => a.at - b.at).map((item) => row(item.fields))];
+  const waited = waitingList(waiting).map((entry) => ({ at: entry.at, fields: [localIso(entry.at), entry.site, describeWaiting(entry), entry.url, '', '', ''] }));
+  const lines = ['when,site,result,address,nudity,suggestive,mark', ...[...tries, ...hidden, ...changes, ...waited].sort((a, b) => a.at - b.at).map((item) => row(item.fields))];
   return `${lines.join('\n')}\n`;
 }
 

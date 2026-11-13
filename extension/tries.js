@@ -3,20 +3,22 @@
 // band in its day with the visits to listed sites from then under it; the pictures and videos the picture
 // filter kept hidden (lib/pictures.js), a row each with why, the score that decided and the address, where the
 // picture can be looked at (below); the locked-away password's record (lib/lockbox.js), a row each in
-// the words of the password's page; and from 1.22.0 the Firefox lock's record (lib/lock.js), a row for
-// each time the add-on found the lock in force or not.
+// the words of the password's page; from 1.22.0 the Firefox lock's record (lib/lock.js), a row for
+// each time the add-on found the lock in force or not; and from 1.27.0 the pictures that waited long for a
+// verdict (lib/pictures.js WAITING), a row each, saying what the judge was doing and when the verdict came.
 // The record page (attempts.html) shows the record summed up and links here, for the whole record, for one
 // site (tries.html#site=<the site>, from the by-site table there) or for the times the add-on was off
 // alone (tries.html#off, from "Was it ever off?" there); the pictures page links here for the pictures
 // alone (tries.html#pictures, and #site=<the site>&pictures for one site's), the password's page for
-// its entries alone (tries.html#password), and this page's own line for the lock's alone (tries.html#lock).
+// its entries alone (tries.html#password), and this page's own lines for the lock's alone (tries.html#lock)
+// and for the pictures that waited alone (tries.html#waiting).
 // Like the other pages, this one only reads the records, apart from noting the looks at hidden pictures;
 // nothing here can clear them (see lib/attempts.js).
 import { ATTEMPTS, LABELS, offDuring, outcome, summarize, timeline, toCsv } from './lib/attempts.js';
 import { LOCK_CHANGES, LOCK_NAME, lockChangeWords, lockChanges } from './lib/lock.js';
 import { EVENTS, EVENTS_SINCE, beginningOf, describeEvent, describeRecord, loadBox } from './lib/lockbox.js';
-import { dayFormat, element, hiddenWords, lockWords, lookWords, offVisitsWords, offWords, plural, showVersion, timeFormat, timeOn, tries as triesWord, whenFormat } from './lib/page.js';
-import { COPIES_KEPT, PICTURES, URL_LENGTH, VIDEO_LENGTH, WHY_LENGTH, bodyUpTo, borderline, copyKey, decidingScore, describeHidden, isData, isPage, isVideo, isVideoType, lookedAt } from './lib/pictures.js';
+import { dayFormat, element, hiddenWords, lockWords, lookWords, offVisitsWords, offWords, plural, showVersion, timeFormat, timeOn, tries as triesWord, waitingWords, whenFormat } from './lib/page.js';
+import { COPIES_KEPT, PICTURES, URL_LENGTH, VIDEO_LENGTH, WAITING, WHY_LENGTH, bodyUpTo, borderline, copyKey, decidingScore, describeHidden, describeWaiting, isData, isPage, isVideo, isVideoType, lookedAt, waitingList } from './lib/pictures.js';
 import { WATCHING, normalize } from './lib/watching.js';
 
 const api = globalThis.browser ?? globalThis.chrome;
@@ -28,16 +30,17 @@ let pictures = []; // the pictures and videos hidden, as stored: oldest first
 let watching = null; // when the extension was running (lib/watching.js): places the visits from the history, and holds the times it was off
 let lockbox = { events: [], since: null }; // the locked-away password's record: its entries, oldest first, and when it began
 let lock = []; // the Firefox lock's record (lib/lock.js): what each check that differed from the last found, oldest first
+let waiting = []; // the pictures that waited long for a verdict (lib/pictures.js WAITING), oldest first
 
 /**
  * What the address asks for: one site (tries.html#site=example.com), or null for every site; only the
  * times the add-on was off (tries.html#off); only the pictures hidden (tries.html#pictures, with a site
- * or not); only the locked-away password's record (tries.html#password); or only the Firefox lock's
- * (tries.html#lock).
+ * or not); only the locked-away password's record (tries.html#password); only the Firefox lock's
+ * (tries.html#lock); or only the pictures that waited for a verdict (tries.html#waiting).
  */
 function asked() {
   const params = new URLSearchParams(location.hash.replace(/^#/, ''));
-  return { site: params.get('site') || null, onlyOff: params.has('off'), onlyPictures: params.has('pictures'), onlyPassword: params.has('password'), onlyLock: params.has('lock') };
+  return { site: params.get('site') || null, onlyOff: params.has('off'), onlyPictures: params.has('pictures'), onlyPassword: params.has('password'), onlyLock: params.has('lock'), onlyWaiting: params.has('waiting') };
 }
 
 /** The pictures hidden as entries for the timeline, newest first: { at, picture: the record's entry }. */
@@ -45,6 +48,9 @@ const pictureEntries = (list) => list.map((picture) => ({ at: picture.at, pictur
 
 /** The Firefox lock's record as entries for the timeline, newest first: { at, lock: the record's entry }. */
 const lockEntries = (list) => list.map((entry) => ({ at: entry.at, lock: entry })).reverse();
+
+/** The pictures that waited for a verdict as entries for the timeline, newest first: { at, waiting: the record's entry }. */
+const waitingEntries = (list) => list.map((entry) => ({ at: entry.at, waiting: entry })).reverse();
 
 /**
  * The password's record as entries for the timeline, newest first: { at, password: the entry } for each,
@@ -95,20 +101,40 @@ function pictureRow({ at, picture }, day) {
   what.append(element('small', decidingScore(picture), { class: 'picture-scores' }));
   if (close) what.append(element('small', 'borderline', { class: 'borderline-mark' }));
   const where = element('div', null, { class: 'picture-where' });
-  // A data: address is the picture itself, written out, and reads as nothing: its start and its length stand for it.
-  const address = isData(picture.url) ? `${picture.url.slice(0, 40)}… (${picture.url.length.toLocaleString()} characters)` : picture.url;
-  const copy = element('button', null, { type: 'button', class: 'picture-url', title: 'Copy the address' });
-  copy.append(element('span', address)); // the span is what is cut short with an ellipsis (options.css)
-  copy.addEventListener('click', () => copyAddress(picture.url, copy, address));
   const look = element('button', 'Look at it', { type: 'button', class: 'secondary small look' });
   look.addEventListener('click', () => lookAt(picture));
-  where.append(copy, look);
+  where.append(addressButton(picture.url), look);
   what.append(where);
   const notes = lookWords(picture, day);
   if (notes) what.append(element('p', notes, { class: 'picture-notes' }));
   if (shown.has(key)) what.append(lookBox(picture, shown.get(key)));
   if (lookedAt(picture)) what.append(marksFor(picture));
   row.append(element('td', timeFormat.format(at)), element('td', picture.site), what);
+  return row;
+}
+
+/** A picture's address as a button that copies it when clicked (1.21.0), cut short with an ellipsis when long (options.css). */
+function addressButton(url) {
+  // A data: address is the picture itself, written out, and reads as nothing: its start and its length stand for it.
+  const address = isData(url) ? `${url.slice(0, 40)}… (${url.length.toLocaleString()} characters)` : url;
+  const copy = element('button', null, { type: 'button', class: 'picture-url', title: 'Copy the address' });
+  copy.append(element('span', address)); // the span is what is cut short
+  copy.addEventListener('click', () => copyAddress(url, copy, address));
+  return copy;
+}
+
+/**
+ * The row of a picture that waited long for a verdict (lib/pictures.js WAITING, 1.27.0): when, the site, what
+ * the record says (how long it had waited and what the judge was doing, or when the verdict came and what it
+ * was), and under that the address, which copies when clicked. Marked while no verdict has come (options.css).
+ */
+function waitingRow({ at, waiting: entry }) {
+  const row = element('tr', null, { class: entry.judged ? 'waiting judged' : 'waiting' });
+  const what = element('td', describeWaiting(entry));
+  const where = element('div', null, { class: 'picture-where' });
+  where.append(addressButton(entry.url));
+  what.append(where);
+  row.append(element('td', timeFormat.format(at)), element('td', entry.site), what);
   return row;
 }
 
@@ -388,6 +414,10 @@ function renderDays(days) {
         body.append(pictureRow(entry, day));
         continue;
       }
+      if (entry.waiting) {
+        body.append(waitingRow(entry));
+        continue;
+      }
       if (entry.password || entry.began) {
         const row = element('tr', null, { class: entry.began ? 'password began' : 'password' });
         row.append(element('td', timeFormat.format(entry.at)), element('td', PASSWORD), element('td', entry.began ? entry.began.what : describeEvent(entry.password, { brief: true })));
@@ -413,9 +443,13 @@ function renderDays(days) {
   $('days').replaceChildren(fragment);
 }
 
-function renderSummary(shown, { site, onlyOff, onlyPictures, onlyPassword, onlyLock }, off, tracked, hidden) {
+function renderSummary(shown, { site, onlyOff, onlyPictures, onlyPassword, onlyLock, onlyWaiting }, off, tracked, hidden) {
   const counts = summarize(shown, watching);
   const summary = $('summary');
+  if (onlyWaiting) {
+    summary.textContent = waitingWords(waiting) || 'No picture has waited long for a verdict.';
+    return;
+  }
   if (onlyLock) {
     summary.textContent = lockWords(lock) || 'Nothing is known yet about the Firefox lock: the add-on checks whenever Firefox starts.';
     return;
@@ -452,41 +486,45 @@ let offShown = '';
 const offPart = (state) => JSON.stringify(normalize(state).off);
 
 async function render() {
-  const stored = await api.storage.local.get([ATTEMPTS, PICTURES, WATCHING, LOCK_CHANGES]);
+  const stored = await api.storage.local.get([ATTEMPTS, PICTURES, WATCHING, LOCK_CHANGES, WAITING]);
   attempts = Array.isArray(stored[ATTEMPTS]) ? stored[ATTEMPTS] : [];
   pictures = Array.isArray(stored[PICTURES]) ? stored[PICTURES] : [];
   watching = stored[WATCHING] ?? null;
   offShown = offPart(watching);
   lockbox = await loadBox(api.storage.local);
   lock = lockChanges(stored[LOCK_CHANGES]);
+  waiting = waitingList(stored[WAITING]);
   const { off, periods } = normalize(watching);
-  const { site, onlyOff, onlyPictures, onlyPassword, onlyLock } = asked();
-  const alone = onlyPictures || onlyPassword || onlyLock; // one part of the record by itself, without the tries
+  const { site, onlyOff, onlyPictures, onlyPassword, onlyLock, onlyWaiting } = asked();
+  const alone = onlyPictures || onlyPassword || onlyLock || onlyWaiting; // one part of the record by itself, without the tries
   let shown = site ? attempts.filter((attempt) => attempt.site === site) : attempts;
   if (onlyOff) shown = shown.filter((attempt) => offDuring(off, attempt.at));
   if (alone) shown = [];
   // The pictures hidden go in among every try and among one site's tries, and are shown alone; the
   // password's entries and the lock's go in among every try and are shown alone; the times off are shown with the tries alone.
-  const hidden = onlyOff || onlyPassword || onlyLock ? [] : site ? pictures.filter((picture) => picture.site === site) : pictures;
+  const hidden = onlyOff || onlyPassword || onlyLock || onlyWaiting ? [] : site ? pictures.filter((picture) => picture.site === site) : pictures;
   const everything = !site && !onlyOff && !alone;
   const password = onlyPassword || everything ? passwordEntries(lockbox) : [];
   const changes = onlyLock || everything ? lockEntries(lock) : [];
-  const only = [onlyOff ? 'the times the add-on was off' : '', onlyPictures ? 'the pictures hidden' : '', onlyPassword ? 'the locked-away password' : '', onlyLock ? 'the Firefox lock' : ''].filter(Boolean);
+  // The pictures that waited go in among every try and among one site's tries, and are shown alone (1.27.0).
+  const waited = onlyWaiting || everything ? waitingEntries(waiting) : site && !onlyOff && !alone ? waitingEntries(waiting.filter((entry) => entry.site === site)) : [];
+  const only = [onlyOff ? 'the times the add-on was off' : '', onlyPictures ? 'the pictures hidden' : '', onlyPassword ? 'the locked-away password' : '', onlyLock ? 'the Firefox lock' : '', onlyWaiting ? 'the pictures that waited for a verdict' : ''].filter(Boolean);
   $('filter').hidden = !site && only.length === 0;
   $('filter-site').textContent = [site, ...only].filter(Boolean).join(', ');
   $('filter-clear').textContent = site ? 'Show every site' : 'Show every try';
-  document.title = `Family Site Blocker record: ${site ?? (onlyOff ? 'while the add-on was off' : onlyPictures ? 'the pictures hidden' : onlyPassword ? 'the locked-away password' : onlyLock ? 'the Firefox lock' : 'every try')}`;
-  renderSummary(shown, { site, onlyOff, onlyPictures, onlyPassword, onlyLock }, off, periods.length > 0, hidden);
+  document.title = `Family Site Blocker record: ${site ?? (onlyOff ? 'while the add-on was off' : onlyPictures ? 'the pictures hidden' : onlyPassword ? 'the locked-away password' : onlyLock ? 'the Firefox lock' : onlyWaiting ? 'the pictures that waited' : 'every try')}`;
+  renderSummary(shown, { site, onlyOff, onlyPictures, onlyPassword, onlyLock, onlyWaiting }, off, periods.length > 0, hidden);
   $('pictures-intro').hidden = hidden.length === 0;
   $('check-line').hidden = hidden.length === 0;
   $('pictures-alone').hidden = onlyPictures;
   $('password-intro').hidden = password.length === 0 || onlyPassword;
   $('lock-intro').hidden = changes.length === 0 || onlyLock;
+  $('waiting-intro').hidden = waited.length === 0 || onlyWaiting;
   $('save-file').hidden = attempts.length === 0;
   // A site with neither tries nor pictures shows nothing, not even the times the add-on was off; every
   // other view lays those in, except the pictures', the password's and the lock's alone.
-  const nothing = site && shown.length === 0 && hidden.length === 0;
-  const days = nothing ? [] : timeline(shown, alone ? null : watching, [...pictureEntries(hidden), ...password, ...changes]);
+  const nothing = site && shown.length === 0 && hidden.length === 0 && waited.length === 0;
+  const days = nothing ? [] : timeline(shown, alone ? null : watching, [...pictureEntries(hidden), ...password, ...changes, ...waited]);
   $('all').hidden = days.length === 0;
   const back = placeInRow();
   renderDays(days);
@@ -515,13 +553,14 @@ function saveFile() {
   const pad = (n) => String(n).padStart(2, '0');
   const name = `family-site-blocker-record-${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}.csv`;
   const link = document.createElement('a');
-  link.href = URL.createObjectURL(new Blob([toCsv(attempts, watching, pictures, lock)], { type: 'text/csv' }));
+  link.href = URL.createObjectURL(new Blob([toCsv(attempts, watching, pictures, lock, waiting)], { type: 'text/csv' }));
   link.download = name;
   document.body.append(link);
   link.click();
   link.remove();
   setTimeout(() => URL.revokeObjectURL(link.href), 60_000);
-  const among = [pictures.length ? 'the pictures hidden' : '', lock.length ? 'the Firefox lock’s rows' : ''].filter(Boolean).join(' and ');
+  const parts = [pictures.length ? 'the pictures hidden' : '', lock.length ? 'the Firefox lock’s rows' : '', waiting.length ? 'the pictures that waited for a verdict' : ''].filter(Boolean);
+  const among = parts.length > 1 ? `${parts.slice(0, -1).join(', ')} and ${parts[parts.length - 1]}` : parts.join('');
   $('save-status').textContent = `Saved ${name} to your downloads: the whole record, oldest first${among ? `, ${among} among the tries` : ''}.`;
 }
 
@@ -532,7 +571,7 @@ window.addEventListener('hashchange', () => render().catch(() => {}));
 // differently, so only a change in the times off counts.)
 api.storage.onChanged.addListener((changes, area) => {
   if (area !== 'local') return;
-  if (changes[ATTEMPTS] || changes[PICTURES] || changes[EVENTS] || changes[EVENTS_SINCE] || changes[LOCK_CHANGES]) render();
+  if (changes[ATTEMPTS] || changes[PICTURES] || changes[EVENTS] || changes[EVENTS_SINCE] || changes[LOCK_CHANGES] || changes[WAITING]) render();
   else if (changes[WATCHING] && offPart(changes[WATCHING].newValue) !== offShown) render();
 });
 

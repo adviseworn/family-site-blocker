@@ -7,7 +7,7 @@ import { LOCK_CHANGES, describeLock, lockChanges, lockInForce, managedStamp, own
 import { BOX, EVENTS, PROGRESS, describeBox, loadBox } from './lib/lockbox.js';
 import { MY_LIST_CHANGED, myList, saveMyList } from './lib/mylist.js';
 import { everyTryShows, everyTryWords } from './lib/page.js';
-import { PICTURES, STRICTNESS, STRICTNESS_CHOICES, countHidden, hiddenBySite, strictnessOf } from './lib/pictures.js';
+import { PICTURES, STRICTNESS, STRICTNESS_CHOICES, WAITING, countHidden, hiddenBySite, strictnessOf, waitingList } from './lib/pictures.js';
 import { ENGINES } from './lib/safesearch.js';
 import { UNLISTED } from './lib/suspects.js';
 import { WATCHING, normalize } from './lib/watching.js';
@@ -153,7 +153,8 @@ const lockState = (async () => {
   if (lockInForce(state)) [state.stamp, state.ownStamp] = await Promise.all([managedStamp(api.storage), ownStamp(api.runtime)]);
   return state;
 })();
-// Which system this is: the lock's profile is for a Mac, so the page offers it there only.
+// Which system this is: the lock's profile is for a Mac, so the page offers it there only; a phone (Firefox for
+// Android) takes no lock at all, and the line says so.
 const platform = Promise.resolve().then(() => api.runtime.getPlatformInfo()).catch(() => ({ os: '' }));
 
 async function checkLock() {
@@ -166,13 +167,13 @@ async function checkLock() {
   }
   const readme = ({ anchor, text }) => {
     const link = document.createElement('a');
-    link.href = `https://github.com/adviseworn/family-site-blocker#${anchor}`;
+    link.href = `https://adviseworn.github.io/family-site-blocker-updates/#${anchor}`;
     link.target = '_blank';
     link.rel = 'noopener';
     link.textContent = text;
     return link;
   };
-  const described = describeLock(state);
+  const described = describeLock({ ...state, phone: (await platform).os === 'android' });
   status.replaceChildren(...described.parts.map((part) => (typeof part === 'string' ? part : readme(part))));
   markLine('lock', described.state);
   // On a Mac, when the line asks for the lock's profile to be installed, the page hands out the add-on's own
@@ -265,7 +266,7 @@ let offShown = '';
 const offPart = (state) => JSON.stringify(normalize(state).off);
 
 async function renderAttempts() {
-  const [stored, { events }] = await Promise.all([api.storage.local.get([ATTEMPTS, UNLISTED, PICTURES, WATCHING, LOCK_CHANGES]), loadBox(api.storage.local)]);
+  const [stored, { events }] = await Promise.all([api.storage.local.get([ATTEMPTS, UNLISTED, PICTURES, WATCHING, LOCK_CHANGES, WAITING]), loadBox(api.storage.local)]);
   const attempts = Array.isArray(stored[ATTEMPTS]) ? [...stored[ATTEMPTS]].reverse() : [];
   const watching = stored[WATCHING] ?? null; // places the visits from the history (lib/watching.js)
   offShown = offPart(watching);
@@ -275,9 +276,9 @@ async function renderAttempts() {
   const rows = table.querySelector('tbody');
   rows.replaceChildren();
 
-  // Every try holds the tries, the times the extension was off, the pictures hidden, the password's record
-  // and the Firefox lock's: the links to it and to the record page show whenever it has any of them, and the count is the tries.
-  $('record-links').hidden = !everyTryShows({ attempts, off: normalize(watching).off, events, pictures: Array.isArray(stored[PICTURES]) ? stored[PICTURES] : [], lock: lockChanges(stored[LOCK_CHANGES]) });
+  // Every try holds the tries, the times the extension was off, the pictures hidden, the password's record,
+  // the Firefox lock's and the pictures that waited for a verdict: the links to it and to the record page show whenever it has any of them, and the count is the tries.
+  $('record-links').hidden = !everyTryShows({ attempts, off: normalize(watching).off, events, pictures: Array.isArray(stored[PICTURES]) ? stored[PICTURES] : [], lock: lockChanges(stored[LOCK_CHANGES]), waiting: waitingList(stored[WAITING]) });
   $('every-try').textContent = everyTryWords(attempts.length);
 
   if (attempts.length === 0) {
@@ -311,7 +312,7 @@ async function renderAttempts() {
 // page adds to it (unless the box holds unsaved edits, which must not be thrown away).
 api.storage.onChanged.addListener((changes, area) => {
   if (area !== 'local') return;
-  if (changes[ATTEMPTS] || changes[UNLISTED] || changes[PICTURES] || changes[EVENTS] || changes[LOCK_CHANGES]) renderAttempts();
+  if (changes[ATTEMPTS] || changes[UNLISTED] || changes[PICTURES] || changes[EVENTS] || changes[LOCK_CHANGES] || changes[WAITING]) renderAttempts();
   else if (changes[WATCHING] && offPart(changes[WATCHING].newValue) !== offShown) renderAttempts();
   if (changes[BOX] || changes[PROGRESS] || changes[EVENTS]) renderLockbox();
   if (changes[MY_LIST_CHANGED] && $('custom').value === loaded) refresh().catch(() => {});

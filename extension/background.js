@@ -10,7 +10,7 @@
 // as a module (manifest.json: background.type).
 import { ATTEMPTS, HISTORY_SCAN, bookmarksTo, hostOf, listedDomain, mergeVisits, record } from './lib/attempts.js';
 import { LOCK_CHANGES, locked, recordLock } from './lib/lock.js';
-import { COPIES, COPY_SIZE, PICTURES, PICTURE_LENGTH, SHOWN, STRICTNESS, URL_LENGTH, bodyUpTo, copiesByKey, copyKey, hashOf, hideAgain, isPage, keepCopy, markAlike, noteLook, recordHidden, sameHidden, showAgain, shownAgain, strictnessOf, verdict } from './lib/pictures.js';
+import { COPIES, COPY_SIZE, PICTURES, PICTURE_LENGTH, SHOWN, STRICTNESS, URL_LENGTH, WAITING, bodyUpTo, copiesByKey, copyKey, hashOf, hideAgain, isPage, keepCopy, markAlike, noteLook, recordHidden, recordWaiting, sameHidden, settleWaiting, showAgain, shownAgain, strictnessOf, verdict } from './lib/pictures.js';
 import { BLOCK_PAGE, PAGE_BLOCK_FIRST_ID, domainsOf, pageBlockRules } from './lib/rules.js';
 import { UNLISTED, tallyUnlisted } from './lib/suspects.js';
 import { BEAT_EVERY_MINUTES, WATCHING, beat, earliestLiveTry, gapsOf, normalize, noteGaps, started } from './lib/watching.js';
@@ -79,6 +79,11 @@ api.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message?.type === 'judge-video-frame') {
     judgeFrame(message, sender).then(sendResponse, (error) => sendResponse({ error: String(error?.message ?? error) }));
     return true;
+  }
+  if (message?.type === 'picture-waiting') {
+    // A page says a picture has had no verdict in a while, or has had one at last (content.js watched): noted in the record (noteWaiting).
+    noteWaiting(message, sender);
+    return undefined;
   }
   if (message?.type === 'picture-status') {
     sendResponse({ backend: backendInUse(), judged: judgedCount, second: secondCount, hidden: hiddenCount, failed: failedCount, frames: frameCount, videos: videoCount });
@@ -458,7 +463,9 @@ async function sweepTabs() {
 // is slow and so only looks at what the first found. Verdicts are remembered by address, so a picture
 // shown twice is judged once, and a hidden picture is noted in the record with the deciding scores, so a
 // wrong verdict can be seen and understood, and the picture marked hidden by mistake, after which it is
-// shown again (judgePicture below).
+// shown again (judgePicture below). A verdict that is slow in coming, or never comes, is noted too (1.27.0):
+// the page says when it has waited WAIT_MS (content.js), and what this script was doing for the picture at
+// that moment goes into the note (noteWaiting, underWay), so a picture left blank can be understood.
 // For a video, the content script sends frames as it plays (small JPEGs, as data: addresses), which are
 // judged the same way but not remembered: no two frames are alike, and a frame has no address.
 const MAX_REMEMBERED = 2000;
@@ -471,6 +478,30 @@ let hiddenCount = 0;
 let failedCount = 0; // pictures that couldn't be fetched or decoded, and so were shown
 let frameCount = 0; // video frames judged
 let videoCount = 0; // videos hidden
+
+// What this script is doing for each address a page waits on, for the record of pictures that waited
+// (lib/pictures.js WAITING, 1.27.0): address -> { asked: how many judgments of it are under way, stage: one
+// of lib/pictures.js STAGES' keys }. Gone once the last judgment of the address has answered.
+const underWay = new Map();
+
+/** Marks what this script is doing for an address while a judgment of it is under way. */
+function stageOf(url, stage) {
+  const state = underWay.get(url);
+  if (state) state.stage = stage;
+}
+
+/** Runs a judgment of an address with the address marked under way, so that noteWaiting can say what this script was doing for it. */
+async function underway(url, run) {
+  const state = underWay.get(url) ?? { asked: 0, stage: 'fetching' };
+  underWay.set(url, state);
+  state.asked += 1;
+  try {
+    return await run();
+  } finally {
+    state.asked -= 1;
+    if (state.asked === 0 && underWay.get(url) === state) underWay.delete(url);
+  }
+}
 
 function currentStrictness() {
   strictness ??= api.storage.local.get(STRICTNESS).then((stored) => strictnessOf(stored[STRICTNESS]));
@@ -490,8 +521,12 @@ api.storage.onChanged.addListener((changes, area) => {
 function scoresFor(url, judge = 'first') {
   const remembered = judge === 'second' ? secondOpinions : judgments;
   if (!remembered.has(url)) {
+    stageOf(url, judge === 'second' ? 'second' : 'fetching');
     const scores = pictureBytes(url)
-      .then((blob) => judgeBytes(blob, url, judge))
+      .then((blob) => {
+        stageOf(url, judge === 'second' ? 'second' : 'judging');
+        return judgeBytes(blob, url, judge);
+      })
       .then((scores) => {
         if (judge === 'second') secondCount += 1;
         else judgedCount += 1;
@@ -717,11 +752,17 @@ const siteOf = (sender) => hostOf(sender?.tab?.url ?? sender?.url ?? '') ?? 'unk
  */
 async function judgePicture(url, sender, again = false) {
   if (typeof url !== 'string' || !/^(?:https?|data):/i.test(url)) return { hide: false, reason: null };
+  return underway(url, () => judgeAddress(url, sender, again));
+}
+
+/** judgePicture's work, with the address marked under way (underway) and the stage noted as it goes (stageOf). */
+async function judgeAddress(url, sender, again) {
   const [first, setting] = await Promise.all([scoresFor(url), currentStrictness()]);
   let result = verdict(first, setting);
   if (!result.hide) return { ...result, scores: first };
   // The second opinion (1.20.0): the bigger model judges a picture the first would hide, and decides. When
   // it can't (its model didn't load, say), the first verdict stands, and the picture is hidden.
+  stageOf(url, 'second');
   const second = await scoresFor(url, 'second').catch(() => null);
   const scores = second ?? first;
   const opinions = second ? { scores, first } : { scores };
@@ -733,13 +774,37 @@ async function judgePicture(url, sender, again = false) {
   let copy = null;
   if (shownAgain(shown, { url })) return { hide: false, reason: null, ...opinions, shown: true };
   if (shown.some((entry) => entry?.copy)) {
+    stageOf(url, 'copying');
     copy = await smallCopy(url).catch(() => null);
     if (copy && shownAgain(shown, { copy })) return { hide: false, reason: null, ...opinions, shown: true };
   }
   if (again) return { ...result, ...opinions };
   hiddenCount += 1;
+  stageOf(url, 'noting');
   await noteHidden({ site: siteOf(sender), url, reason: result.reason, scores, copy: copy ?? (() => smallCopy(url)) });
   return { ...result, ...opinions };
+}
+
+/**
+ * Notes a picture that has had no verdict in a while, in the record of pictures that waited (lib/pictures.js
+ * WAITING, 1.27.0), with what this script is doing for its address (underWay), or, with `outcome` given,
+ * that the verdict came after all and what it was; written in turn with the record's other changes. The
+ * page's content script sends both (content.js watched).
+ */
+function noteWaiting({ url, waited, outcome, kind }, sender) {
+  if (typeof url !== 'string') return Promise.resolve();
+  const at = Date.now();
+  const site = siteOf(sender);
+  const stage = underWay.get(url)?.stage ?? null;
+  writing = writing
+    .then(async () => {
+      const stored = (await api.storage.local.get(WAITING))[WAITING];
+      const list = Array.isArray(stored) ? stored : [];
+      const updated = outcome ? settleWaiting(list, { site, url, waited, outcome }) : recordWaiting(list, { at, site, url, waited, stage, kind });
+      if (updated !== list) await api.storage.local.set({ [WAITING]: updated });
+    })
+    .catch(() => {});
+  return writing;
 }
 
 // A frame of a video, judged like a picture (the second judge deciding when the first would hide it) but
@@ -747,29 +812,36 @@ async function judgePicture(url, sender, again = false) {
 // one (not a blob: the page made), else its poster's, else the page's.
 async function judgeFrame({ frame, src, poster }, sender) {
   if (typeof frame !== 'string' || !/^data:image\//i.test(frame)) return { hide: false, reason: null };
-  const [blob, setting] = await Promise.all([fetch(frame).then((response) => response.blob()), currentStrictness()]);
-  let scores;
-  try {
-    scores = await judgeBytes(blob, 'video-frame');
-  } catch (error) {
-    failedCount += 1;
-    throw error;
-  }
-  frameCount += 1;
-  let result = verdict(scores, setting);
-  if (result.hide) {
-    const second = await judgeBytes(blob, 'video-frame', 'second').catch(() => null);
-    if (second) {
-      scores = second;
-      result = verdict(second, setting);
+  // Marked under way by the address the page's content script watches the frame under (content.js): the video's, its poster's or its page's.
+  const watchedAs = [src, poster, sender?.url ?? sender?.tab?.url ?? ''].find((address) => /^https?:/i.test(address ?? '')) ?? '';
+  return underway(watchedAs, async () => {
+    stageOf(watchedAs, 'judging');
+    const [blob, setting] = await Promise.all([fetch(frame).then((response) => response.blob()), currentStrictness()]);
+    let scores;
+    try {
+      scores = await judgeBytes(blob, 'video-frame');
+    } catch (error) {
+      failedCount += 1;
+      throw error;
     }
-  }
-  if (result.hide) {
-    videoCount += 1;
-    const page = sender?.tab?.url ?? sender?.url ?? '';
-    const url = [src, poster, page].find((address) => /^https?:/i.test(address ?? '')) ?? page;
-    await noteHidden({ site: siteOf(sender), url, kind: 'video', reason: result.reason, scores });
-  }
-  return { ...result, scores };
+    frameCount += 1;
+    let result = verdict(scores, setting);
+    if (result.hide) {
+      stageOf(watchedAs, 'second');
+      const second = await judgeBytes(blob, 'video-frame', 'second').catch(() => null);
+      if (second) {
+        scores = second;
+        result = verdict(second, setting);
+      }
+    }
+    if (result.hide) {
+      videoCount += 1;
+      const page = sender?.tab?.url ?? sender?.url ?? '';
+      const url = [src, poster, page].find((address) => /^https?:/i.test(address ?? '')) ?? page;
+      stageOf(watchedAs, 'noting');
+      await noteHidden({ site: siteOf(sender), url, kind: 'video', reason: result.reason, scores });
+    }
+    return { ...result, scores };
+  });
 }
 

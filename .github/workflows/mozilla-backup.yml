@@ -1,0 +1,45 @@
+# Saves every version Mozilla has signed, 1.1.1 on, in the releases, so the project keeps its own copies
+# (scripts/amo-backup.mjs): a version whose release lacks its signed file gets it, and a version with no
+# release gets one, on its tag or on the commit that made the version. What it did, a line a version, is kept
+# as the run's "mozilla-backup" file.
+# Start it from the Actions tab with "Run workflow". It needs the two repository secrets the sign job uses,
+# AMO_JWT_ISSUER and AMO_JWT_SECRET.
+name: Mozilla backup
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write # to add files to the releases, and to make a release
+
+concurrency:
+  group: mozilla-backup
+
+jobs:
+  mozilla-backup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0 # the whole history: a release is made on the commit that made its version
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+
+      - name: Back up what the releases lack
+        shell: bash
+        env:
+          AMO_JWT_ISSUER: ${{ secrets.AMO_JWT_ISSUER }}
+          AMO_JWT_SECRET: ${{ secrets.AMO_JWT_SECRET }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node scripts/amo-backup.mjs "$RUNNER_TEMP/backup" 2>&1 | tee backup.txt
+
+      - name: Keep what it did
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: mozilla-backup
+          path: backup.txt
+          retention-days: 90

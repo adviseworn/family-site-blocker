@@ -1,0 +1,61 @@
+# Tests the Firefox lock with the newest signed release, on Linux, where Firefox reads the same policies from a
+# policies.json next to the program (test/firefox-lock.e2e.mjs): on its own; next to another blocker's policies
+# (with LeechBlock NG, a site blocker from addons.mozilla.org, as that blocker's add-on); arriving after an
+# older signed version (1.1.1, fetched from Mozilla with the API key the sign job uses) was installed by hand
+# and switched off; a new lock reaching a profile that has the older version; and the add-on updating itself
+# from the update manifest.
+# Start it from the Actions tab with "Run workflow", for example after a new release or a new Firefox.
+name: Firefox lock check
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read # the releases
+
+env:
+  npm_config_fund: 'false'
+  npm_config_audit: 'false'
+  npm_config_update_notifier: 'false'
+
+jobs:
+  lock-check:
+    # Ubuntu 24.04 by name, like the browser suites: the Ubuntu this check has been tried on with Firefox.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+
+      - name: Get the newest signed release
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node scripts/release-files.mjs signed 1
+
+      - name: Get an older signed version from Mozilla
+        env:
+          AMO_JWT_ISSUER: ${{ secrets.AMO_JWT_ISSUER }}
+          AMO_JWT_SECRET: ${{ secrets.AMO_JWT_SECRET }}
+        run: node scripts/amo-signed.mjs 1.1.1 older
+
+      - name: Get another blocker's add-on (LeechBlock NG) from addons.mozilla.org
+        run: mkdir -p other && curl -fsSL --retry 3 -o other/leechblock-ng.xpi https://addons.mozilla.org/firefox/downloads/latest/leechblock-ng/latest.xpi
+
+      - name: Get Firefox from Mozilla
+        run: |
+          curl -fsSL --retry 3 -o "$RUNNER_TEMP/firefox.tar" "https://download.mozilla.org/?product=firefox-latest-ssl&os=linux64&lang=en-US"
+          mkdir -p "$HOME/firefox" && tar -xf "$RUNNER_TEMP/firefox.tar" -C "$HOME/firefox" --strip-components=1
+          "$HOME/firefox/firefox" --version
+          ls signed older other
+
+      - name: Install what the tests need
+        run: npm install
+
+      - name: Firefox lock tests
+        run: SIGNED_XPI=$(ls signed/*.xpi) OLDER_XPI=$(ls older/*.xpi) OTHER_XPI=other/leechblock-ng.xpi FIREFOX="$HOME/firefox/firefox" npm run test:firefox-lock 2>&1 | tee lock.tap || true
+
+      - name: Every lock test ran and passed
+        run: node scripts/ci-summary.mjs lock=lock.tap

@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.FamilySiteBlocker" parent="Theme.Material3.DayNight.NoActionBar">
+        <item name="colorPrimary">@color/fsb_green</item>
+        <item name="android:windowBackground">@color/fsb_toolbar</item>
+    </style>
+</resources>

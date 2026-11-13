@@ -198,41 +198,5 @@
         "sub_frame"
       ]
     }
-  },
-  {
-    "id": 1011,
-    "priority": 1,
-    "action": {
-      "type": "modifyHeaders",
-      "requestHeaders": [
-        {
-          "header": "YouTube-Restrict",
-          "operation": "set",
-          "value": "Strict"
-        }
-      ]
-    },
-    "condition": {
-      "requestDomains": [
-        "youtube.com",
-        "youtube-nocookie.com",
-        "youtubei.googleapis.com",
-        "youtube.googleapis.com"
-      ],
-      "resourceTypes": [
-        "main_frame",
-        "sub_frame",
-        "stylesheet",
-        "script",
-        "image",
-        "font",
-        "object",
-        "xmlhttprequest",
-        "ping",
-        "media",
-        "websocket",
-        "other"
-      ]
-    }
   }
 ]

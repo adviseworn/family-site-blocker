@@ -16,7 +16,7 @@ import { MAX_UNLISTED, looksAdult, siteOf, tallyUnlisted } from '../extension/li
 import { addToMyList, myList, saveMyList } from '../extension/lib/mylist.js';
 import { BLOCK_PAGE, CHUNK_SIZE, PAGE_BLOCK_FIRST_ID, PAGE_BLOCK_PRIORITY, buildRules, domainsOf, pageBlockRules } from '../extension/lib/rules.js';
 import { BLOCKLIST_DIR, DOMAINS_PATH, MANIFEST_PATH, MAX_RULESET_BYTES, NEVER_FILE, RULES_DIR, SAFE_SEARCH_PATH, formatManifest, listFiles, loadBlocklists, loadNever, loadRules, renderDomains, renderRulesets, renderSafeSearch, ruleResources } from '../scripts/build-rules.mjs';
-import { ENGINES, FIRST_ID, YOUTUBE, safeSearchAddress, safeSearchRules } from '../extension/lib/safesearch.js';
+import { ENGINES, FIRST_ID, safeSearchAddress, safeSearchRules } from '../extension/lib/safesearch.js';
 import { BANDS, COMMUNITY_PATH, COMMUNITY_URL, LINKS_URL, POPULAR_PATH, POPULAR_SIZE, POPULAR_URL, communityList, inOrder, linkRanks, looksAdult as nameLooksAdult, popularList, rankSites, worthALook } from '../scripts/update-blocklist.mjs';
 import { firefoxManifest, packageFirefox } from '../scripts/package-firefox.mjs';
 import { ADDON_PROFILE_PATH, AGENT_LABEL, AGENT_PATH, FILTER_LIMIT, PROFILE_PATH, SAFE_MODE_KEY_VARIABLE, STAMP_PATH, VERSION as LOCK_VERSION, WHOLE_DOMAINS, XPI_URL, addonStamp, digestOf, filterEntries, filterPattern, filterSites, firefoxPolicies, launchAgent, lockSettings, lockStamp, mobileconfig, onWholeDomain } from '../scripts/firefox-lock.mjs';
@@ -24,7 +24,7 @@ import { STAMP } from '../extension/lib/lock.js';
 import { AGENT_INSTALLED_PATH, PKG_IDENTIFIER, TITLE, VERSION as INSTALLER_VERSION, buildInstaller, conclusion, distribution, pkgName, postinstall, welcome } from '../scripts/mac-installer.mjs';
 import { ICNS_PATH, packageSigned } from '../scripts/package-signed.mjs';
 import { readZip } from '../scripts/read-zip.mjs';
-import { LATEST_NAME, LATEST_URL, SITE_URL, UPDATES_URL, buildSite, compareVersions, describeXpi, updatesManifest } from '../scripts/updates-manifest.mjs';
+import { LATEST_NAME, LATEST_URL, SITE_README, SITE_URL, UPDATES_URL, buildSite, compareVersions, describeXpi, updatesManifest } from '../scripts/updates-manifest.mjs';
 
 const EXT = resolve(dirname(fileURLToPath(import.meta.url)), '..', 'extension');
 const manifest = JSON.parse(readFileSync(join(EXT, 'manifest.json'), 'utf8'));
@@ -361,11 +361,11 @@ test('domainsOf reads back the domains a set of rules was built from, each once'
   assert.ok(domainsOf(rules).includes('exampleadultsite.com'));
 });
 
-test('safe search: each engine gets an allow rule for addresses already strict and a redirect that adds the setting; YouTube gets its header', () => {
+test('safe search: each engine gets an allow rule for addresses already strict and a redirect that adds the setting; YouTube is left alone', () => {
   const safe = safeSearchRules();
   assert.deepEqual(readFileSync(SAFE_SEARCH_PATH, 'utf8'), renderSafeSearch(), 'rules/safe-search.json is up to date (run npm run build)');
   assert.deepEqual(ALL_RULES.filter((rule) => rule.id >= FIRST_ID), safe, 'the manifest loads exactly these');
-  assert.equal(safe.length, ENGINES.length * 2 + 1);
+  assert.equal(safe.length, ENGINES.length * 2, 'two rules an engine, and nothing else: the YouTube header rule went in 1.26.0');
   ENGINES.forEach((engine, i) => {
     const [allow, redirect] = safe.slice(i * 2, i * 2 + 2);
     assert.equal(allow.action.type, 'allow');
@@ -408,10 +408,9 @@ test('safe search: each engine gets an allow rule for addresses already strict a
   for (const url of ['https://www.google.com/', 'https://www.google.com/maps?q=test', 'https://mail.google.com/mail/?q=test', 'https://duckduckgo.com/', 'https://www.bing.com/', 'https://www.youtube.com/results?search_query=test', 'https://example.com/search?q=test', 'https://notgoogle.com/search?q=test']) {
     assert.equal(safeSearchAddress(url), url, `${url} is left alone`);
   }
-  const header = safe.at(-1);
-  assert.deepEqual(header.action, { type: 'modifyHeaders', requestHeaders: [{ header: 'YouTube-Restrict', operation: 'set', value: 'Strict' }] });
-  assert.deepEqual(header.condition.requestDomains, YOUTUBE.domains);
-  assert.ok(header.condition.resourceTypes.includes('main_frame') && header.condition.resourceTypes.includes('xmlhttprequest'), 'page loads and the calls pages make');
+  // Until 1.25.0 a last rule set the YouTube-Restrict header on every request to YouTube, which kept it in Restricted Mode and hid ordinary videos; no rule touches YouTube now.
+  assert.ok(safe.every((rule) => rule.action.type !== 'modifyHeaders'), 'no header rule');
+  assert.ok(!safe.some((rule) => JSON.stringify(rule).toLowerCase().includes('youtube')), 'nothing about YouTube');
   assert.deepEqual(manifest.declarative_net_request.rule_resources.at(-1), { id: 'safe-search', enabled: true, path: 'rules/safe-search.json' });
 });
 
@@ -647,6 +646,7 @@ test('the link to every try, shared by the settings page and the record page: sh
   assert.equal(everyTryShows({ ...nothing, off: [{ from: 1, to: 2, pages: 0 }] }), true, 'a time the add-on was off');
   assert.equal(everyTryShows({ ...nothing, events: [{ at: '2026-11-01T21:00:00Z', event: 'locked' }] }), true, "an entry in the password's record");
   assert.equal(everyTryShows({ ...nothing, lock: [{ at: 1, locked: false, first: true }] }), true, "an entry in the Firefox lock's record (1.22.0)");
+  assert.equal(everyTryShows({ ...nothing, waiting: [{ at: 1, site: 'a.test', url: 'u', waited: 20, stage: null }] }), true, 'a picture that waited for a verdict (1.27.0)');
 });
 
 test("the Firefox lock's record summed up for Every try showing it alone (1.22.0): since when it has been in force, or not", () => {
@@ -868,6 +868,26 @@ test('blocked attempts: the saved file is CSV, oldest first, with local times th
     '',
   ]);
   assert.equal(toCsv([], undefined, [], 'junk'), 'when,site,result,address,nudity,suggestive,mark\n');
+  // The pictures that waited for a verdict are rows too (1.27.0): the row's words in the result column, the address in its own.
+  const withWaiting = toCsv(
+    [{ at: at + 1000, site: 'a.test' }],
+    undefined,
+    [],
+    [],
+    [
+      { at, site: 'slow.test', url: 'http://slow.test/big.jpg', waited: 20, stage: 'fetching', judged: { after: 47, outcome: 'shown' } },
+      { at: at + 2000, site: 'stuck.test', url: 'http://stuck.test/tile.png?a=1,b=2', waited: 20, stage: 'judging' },
+      null,
+    ],
+  ).split('\n');
+  assert.deepEqual(withWaiting.map((line) => line.replace(/^2026-10-18T15:12:\d\d[+-]\d\d:\d\d,/, 'T,')), [
+    'when,site,result,address,nudity,suggestive,mark',
+    'T,slow.test,Picture judged after 47 s: shown,http://slow.test/big.jpg,,,',
+    'T,a.test,Blocked,,,,',
+    'T,stuck.test,Picture unjudged after 20 s: with the first judge,"http://stuck.test/tile.png?a=1,b=2",,,',
+    '',
+  ]);
+  assert.equal(toCsv([], undefined, [], [], 'junk'), 'when,site,result,address,nudity,suggestive,mark\n');
   const offset = lines[1].match(/([+-])(\d\d):(\d\d),/);
   const minutes = (Number(offset[2]) * 60 + Number(offset[3])) * (offset[1] === '-' ? -1 : 1);
   assert.equal(minutes, 0 - new Date(at).getTimezoneOffset() || 0, "the offset is this computer's");
@@ -992,6 +1012,39 @@ test('manifest points at files that exist', () => {
   }
 });
 
+/** Whether a match pattern (manifest.json content_scripts) covers an address: scheme, host (*. takes the subdomains and the domain itself) and path with the query. */
+function matchesPattern(pattern, url) {
+  const [, scheme, host, path] = pattern.match(/^(\*|https?):\/\/([^/]+)(\/.*)$/);
+  const address = new URL(url);
+  if (!(scheme === '*' ? /^https?:$/.test(address.protocol) : address.protocol === `${scheme}:`)) return false;
+  if (!(host.startsWith('*.') ? address.hostname === host.slice(2) || address.hostname.endsWith(host.slice(1)) : address.hostname === host)) return false;
+  const glob = path.split('*').map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('.*');
+  return new RegExp(`^${glob}$`).test(address.pathname + address.search);
+}
+
+test("the picture filter runs in every frame but a captcha's: their pictures are the puzzle (1.26.1)", () => {
+  const [filter, ...others] = manifest.content_scripts;
+  assert.deepEqual(others, [], 'one content script');
+  assert.deepEqual(filter.matches, ['<all_urls>']);
+  assert.equal(filter.all_frames, true, 'pictures inside frames are judged too');
+  assert.equal(filter.run_at, 'document_start', 'before any picture shows');
+  for (const pattern of filter.exclude_matches) assert.match(pattern, /^\*:\/\/(\*\.)?[a-z0-9.-]+\/[^\s]*$/, `${pattern} is a match pattern Chrome and Firefox both read`);
+  const captchaFrames = [
+    'https://client-api.arkoselabs.com/v2/4.6.1/enforcement.html', // Arkose Labs, which GitLab, Roblox and Microsoft use
+    'https://gitlab-api.arkoselabs.com/fc/gc/?token=x',
+    'http://client-api.arkoselabs.com/fc/assets/ec-game-core/game-core/1.0.0/standard/index.html',
+    'https://octocaptcha.com/?origin_page=github_signup', // GitHub's frame around the same captcha
+    'https://newassets.hcaptcha.com/captcha/v1/abc/static/hcaptcha.html',
+    'https://www.google.com/recaptcha/api2/bframe?hl=en',
+    'https://www.google.com/recaptcha/enterprise/anchor?ar=1',
+    'https://www.recaptcha.net/recaptcha/api2/bframe',
+    'https://challenges.cloudflare.com/cdn-cgi/challenge-platform/h/b/turnstile/if/ov2/av0/rcv/x',
+  ];
+  for (const frame of captchaFrames) assert.ok(filter.exclude_matches.some((pattern) => matchesPattern(pattern, frame)), `${frame} is left alone`);
+  const pages = ['https://gitlab.com/users/sign_in', 'https://www.google.com/search?q=recaptcha', 'https://www.google.com/', 'https://example.com/recaptcha/api2/bframe', 'https://arkoselabs.com.example.com/', 'https://cloudflare.com/'];
+  for (const page of pages) assert.ok(!filter.exclude_matches.some((pattern) => matchesPattern(pattern, page)), `${page} is judged`);
+});
+
 test('one manifest works in Chrome, Edge, Brave and Firefox', () => {
   const { background, browser_specific_settings: settings } = manifest;
   // Chrome, Edge and Brave run the service worker; Firefox runs the same file as an event page.
@@ -1011,15 +1064,20 @@ test('one manifest works in Chrome, Edge, Brave and Firefox', () => {
   assert.equal(manifest.options_page, 'options.html');
 });
 
-test('the add-on updates itself from the update files that scripts/updates-manifest.mjs publishes', () => {
-  assert.equal(manifest.browser_specific_settings.gecko.update_url, UPDATES_URL);
+test('the add-on is published on addons.mozilla.org, and copies from before 1.24.0 update from the files scripts/updates-manifest.mjs publishes', () => {
+  // Firefox updates a listed add-on from addons.mozilla.org by itself, and Mozilla's linter rejects update_url on one.
+  assert.equal(manifest.browser_specific_settings.gecko.update_url, undefined, 'no update address of its own');
   assert.ok(UPDATES_URL.startsWith('https://'), 'Firefox only takes update manifests over https');
   assert.equal(UPDATES_URL, `${SITE_URL}updates.json`);
-  // Mozilla's linter rejects update_url on an add-on listed on addons.mozilla.org; this one is self-hosted.
-  const check = readFileSync(join(EXT, '..', '.github', 'workflows', 'firefox-package.yml'), 'utf8');
-  assert.match(check, /addons-linter .*--self-hosted/, 'the package check tells the linter the add-on is self-hosted');
-  const sign = readFileSync(join(EXT, '..', '.github', 'workflows', 'sign-firefox.yml'), 'utf8');
-  assert.match(sign, /uses: \.\/\.github\/workflows\/publish-updates\.yml/, 'signing publishes the update files');
+  const workflows = join(EXT, '..', '.github', 'workflows');
+  const pipeline = readFileSync(join(workflows, 'pipeline.yml'), 'utf8');
+  assert.match(pipeline, /addons-linter /, 'the checks job runs the linter');
+  assert.doesNotMatch(pipeline, /--self-hosted/, 'as addons.mozilla.org does for a listed add-on');
+  assert.match(pipeline, /web-ext@[\d.]+ sign --channel=listed --amo-metadata=/, 'signing publishes the version on addons.mozilla.org, with the page');
+  assert.match(pipeline, /\n {2}update-files:\n[^]*?node scripts\/release-files\.mjs xpis \d+\b[^]*?node scripts\/updates-manifest\.mjs xpis public\n\s+node scripts\/guide\.mjs README\.md public mac\/family-site-blocker-firefox\.mobileconfig\b[^]*?git push -q origin "\$SITE_BRANCH"/, 'the update files, the guide and the lock\'s profile are published on the site, for the older copies, the lock and the settings pages\' links');
+  assert.match(pipeline, /\n {2}sign:\n[^]*?needs\.plan\.outputs\.sign == 'yes'/, 'a run signs only when its plan says so: a version landing on main, or a run started by hand that asks for it');
+  assert.match(readFileSync(join(workflows, 'mozilla-backup.yml'), 'utf8'), /\n {8}run: node scripts\/amo-backup\.mjs "\$RUNNER_TEMP\/backup" /, 'every version Mozilla has signed can be backed up into the releases');
+  assert.ok(!existsSync(join(EXT, '..', '.gitlab-ci.yml')), "GitLab's pipeline file is gone");
 });
 
 test("Firefox's manifest leaves out only background.service_worker, which Mozilla's linter warns about", () => {
@@ -1188,14 +1246,17 @@ test('the update manifest lists every signed version, oldest first, with its add
     assert.match(updates[1].update_hash, /^sha256:[0-9a-f]{64}$/);
     assert.deepEqual(Object.keys(built), ['addons']);
 
-    // The site: the files, the manifest for them, and nothing GitHub Pages would change.
+    // The site: the files and the manifest for them.
     const xpiDir = join(dir, 'xpis');
     mkdirSync(xpiDir);
     for (const { name, data } of xpis) writeFileSync(join(xpiDir, name), data);
     writeFileSync(join(xpiDir, 'notes.txt'), 'ignored');
     const site = join(dir, 'site');
     assert.deepEqual(buildSite(xpiDir, site), ['1.3.2', '1.9.1', '1.10.0']);
-    assert.deepEqual(readdirSync(site).sort(), ['.nojekyll', 'README.md', 'family-site-blocker-1.10.0.xpi', 'family-site-blocker-1.3.2.xpi', 'family-site-blocker-1.9.1.xpi', 'family-site-blocker.xpi', 'index.html', 'updates.json']);
+    assert.deepEqual(readdirSync(site).sort(), ['.nojekyll', 'README.md', 'family-site-blocker-1.10.0.xpi', 'family-site-blocker-1.3.2.xpi', 'family-site-blocker-1.9.1.xpi', 'family-site-blocker.xpi', 'updates.json'], 'the guide and the profile are added by scripts/guide.mjs');
+    assert.equal(readFileSync(join(site, '.nojekyll'), 'utf8'), '', 'GitHub Pages serves the files exactly as they are');
+    assert.equal(readFileSync(join(site, 'README.md'), 'utf8'), SITE_README, "what the site's repository shows on its own page");
+    assert.ok(SITE_README.includes(SITE_URL) && !/git(hub|lab)\.com/.test(SITE_README), 'it points at the site, and at no repository');
     const published = JSON.parse(readFileSync(join(site, 'updates.json'), 'utf8'));
     const listed = published.addons[manifest.browser_specific_settings.gecko.id].updates;
     assert.equal(listed[2].update_link, `${SITE_URL}family-site-blocker-1.10.0.xpi`);

@@ -1,13 +1,23 @@
-# Runs every test suite on a GitHub-hosted Mac: the fast checks, the extension in Chromium (the engine
-# behind Chrome, Edge and Brave) and the extension in Firefox. Runs on every push, or start it by hand
-# from the Actions tab.
+# Runs every test suite on a GitHub-hosted Mac: the fast checks, with the one that needs a Mac (the Finder icon
+# on the .xpi), the extension in Chromium, the extension in Firefox, and the installer package for the launch
+# agent that closes Firefox's Option key, which is built here, installed on this Mac with sudo, checked and
+# taken away again (npm run test:mac-installer; like the lock tests, it only runs on a Mac in CI, because
+# installing changes every account).
+# Start it from the Actions tab with "Run workflow": it never runs on its own, since the Linux machines of
+# "Tests and release" run the same suites on every push, and a private repository's minutes on a Mac count ten
+# times.
 name: Tests on macOS
 
 on:
-  push:
-    paths-ignore:
-      - '**.md' # changes to documentation alone don't need a Mac
   workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  npm_config_fund: 'false'
+  npm_config_audit: 'false'
+  npm_config_update_notifier: 'false'
 
 jobs:
   macos:
@@ -23,50 +33,29 @@ jobs:
       - name: Make sure Firefox is installed
         run: test -d /Applications/Firefox.app || brew install --cask firefox
 
-      - name: Show the Mac and browser versions
-        run: |
-          sw_vers
-          /Applications/Firefox.app/Contents/MacOS/firefox --version
-
       - name: Install Playwright and its Chromium
         run: |
           npm install
           npx playwright install chromium
 
+      - name: Show the Mac and browser versions
+        run: |
+          sw_vers
+          node -e "import('playwright').then(async ({ chromium }) => { const b = await chromium.launch(); console.log('Chromium', b.version()); await b.close(); })"
+          /Applications/Firefox.app/Contents/MacOS/firefox --version
+
       - name: Fast checks
-        shell: bash
-        run: npm test 2>&1 | tee fast.tap
+        run: npm test 2>&1 | tee fast.tap || true
 
       - name: Chromium tests
-        shell: bash
-        run: npm run test:browser 2>&1 | tee chromium.tap
+        run: npm run test:browser 2>&1 | tee chromium.tap || true
 
       - name: Firefox tests
-        shell: bash
-        run: npm run test:firefox 2>&1 | tee firefox.tap
+        run: npm run test:firefox 2>&1 | tee firefox.tap || true
 
-      # The installer package for the launch agent that closes Firefox's Option key: built here, installed
-      # on this Mac with sudo, checked and taken away again.
       - name: Installer package tests
-        shell: bash
-        run: npm run mac-installer && npm run test:mac-installer 2>&1 | tee installer.tap
+        run: (npm run mac-installer && npm run test:mac-installer) 2>&1 | tee installer.tap || true
 
-      # Posts what ran as annotations on the run, and fails if a suite was skipped or ran nothing.
-      - name: Report what ran
-        if: always()
-        shell: bash
-        run: |
-          chromium=$(node -e "import('playwright').then(async ({ chromium }) => { const b = await chromium.launch(); console.log(b.version()); await b.close(); })")
-          firefox=$(/Applications/Firefox.app/Contents/MacOS/firefox --version)
-          echo "::notice title=Machine::$(sw_vers -productName) $(sw_vers -productVersion) on $(uname -m); Chromium $chromium; $firefox"
-          status=0
-          for suite in fast chromium firefox installer; do
-            if [ ! -f "$suite.tap" ]; then echo "::error title=$suite tests::did not run"; status=1; continue; fi
-            count() { grep -E "^# $1 [0-9]+" "$suite.tap" | tail -1 | awk '{print $3}'; }
-            tests=$(count tests); pass=$(count pass); fail=$(count fail); skipped=$(count skipped)
-            echo "::notice title=$suite tests::$tests tests, $pass passed, $fail failed, $skipped skipped"
-            if [ "${tests:-0}" = 0 ] || [ "${skipped:-1}" != 0 ] || [ "${fail:-1}" != 0 ]; then
-              echo "::error title=$suite tests::not every test ran and passed"; status=1
-            fi
-          done
-          exit $status
+      # On a Mac nothing is skipped: every test of every suite has to run and pass.
+      - name: Every test ran and passed
+        run: node scripts/ci-summary.mjs fast=fast.tap chromium=chromium.tap firefox=firefox.tap installer=installer.tap

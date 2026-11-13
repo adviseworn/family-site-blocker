@@ -1,0 +1,358 @@
+# Family Site Blocker's tests and releases on GitHub. One run has up to five jobs, on Linux machines; the first,
+# plan, decides which of the others run (scripts/ci-plan.mjs, which says how in full).
+#
+# On every push to a branch:
+#   checks    the fast checks (npm test), then the Firefox zip (npm run package:firefox) checked with Mozilla's
+#             add-on linter, the same check addons.mozilla.org runs before it publishes a version.
+#   browsers  the extension in Chromium (npm run test:browser, with the Chromium that the playwright version in
+#             package.json expects) and in Firefox (npm run test:firefox, with Mozilla's own Firefox build). It
+#             runs only for a branch that changes something the suites load or run (the add-on, the tests, the
+#             scripts, the lists, package.json or this file, compared with main): a branch that changes only
+#             the Android app or the guide skips it.
+# The checks appear on the branch's pull request, which is merged once they pass. The push that merges it
+# doesn't run them a second time when main then holds exactly the files that passed (a pull request that was
+# up to date with main); anything else that reaches main is tested there first.
+# When a version lands on main (a push that changes extension/manifest.json):
+#   sign          gets the version published on addons.mozilla.org and signed, checks the signed file, and
+#                 publishes the release, tagged v<version> on the commit: the signed .xpi, the zip that gives
+#                 it the add-on's icon on a Mac, and the Firefox lock's profile. If Mozilla already has the
+#                 version, it downloads that signed file instead of uploading again.
+#                 Mozilla publishes a version once its automatic check passes, but holds some for a reviewer,
+#                 which can take days. The job waits for the approval only a little: 5 minutes (the repository
+#                 variable APPROVAL_WAIT_MINUTES changes that, in whole minutes), and not at all while the
+#                 add-on has no public version on Mozilla's site. A version still held then stays at Mozilla,
+#                 uploaded, and the job fails, saying so: once Mozilla's email says it is approved, start this
+#                 workflow by hand on main with "sign" ticked (and "publish" too, to publish the update files
+#                 in the same run), and it downloads the signed file and finishes the release.
+#   update-files  builds the update manifest and the newest signed .xpi files from the releases, and the guide
+#                 (the README rendered, scripts/guide.mjs) with the lock's profile beside it, and pushes them
+#                 to the project's public site (scripts/updates-site.mjs says where: the GitHub Pages site of
+#                 a repository of its own, which anyone can fetch without signing in). The Firefox lock
+#                 installs from there, and copies from before 1.24.0 update from there.
+# Started by hand (the Actions tab → Tests and release → Run workflow): every suite, whatever changed; or, on
+# main with "sign" or "publish" ticked, those jobs alone, without the tests.
+#
+# The sign job needs two repository secrets (Settings → Secrets and variables → Actions), the two parts of an
+# API key from https://addons.mozilla.org/developers/addon/api/key/ : AMO_JWT_ISSUER (the "JWT issuer") and
+# AMO_JWT_SECRET (the "JWT secret"). The update-files job needs a third, UPDATES_DEPLOY_KEY: the private half of
+# an SSH key whose public half is a deploy key with write access on the site's repository (the README's "Let it
+# update itself" has the steps). The release itself takes the run's own token.
+#
+# The other workflows are all started by hand: the Firefox lock check (lock-check.yml), the real pictures check
+# (pictures-check.yml), the Mozilla backup (mozilla-backup.yml), the Android app (android.yml), and the two
+# that need a Mac, the tests on macOS (macos.yml) and the Mac files for a release (mac-installer.yml).
+name: Tests and release
+
+on:
+  push:
+    branches: ['**'] # branches only: a release makes a tag, and nothing runs for it
+  workflow_dispatch:
+    inputs:
+      sign:
+        description: "Sign main's version with Mozilla and publish its release (no tests)"
+        type: boolean
+        default: false
+      publish:
+        description: 'Publish the update files and the guide on the site (no tests)'
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+# A newer push to a branch stops the run of the older one. Runs on main are never stopped: each has a group of
+# its own.
+concurrency:
+  group: tests-and-release-${{ github.ref_name == github.event.repository.default_branch && github.run_id || github.ref_name }}
+  cancel-in-progress: true
+
+env:
+  npm_config_fund: 'false'
+  npm_config_audit: 'false'
+  npm_config_update_notifier: 'false'
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read # which pull request a commit on main came from
+      actions: read # whether the tests passed on that pull request's head
+    outputs:
+      checks: ${{ steps.plan.outputs.checks }}
+      browsers: ${{ steps.plan.outputs.browsers }}
+      sign: ${{ steps.plan.outputs.sign }}
+      site: ${{ steps.plan.outputs.site }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0 # the whole history: the plan compares the push with main
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+
+      - name: Decide which jobs run
+        id: plan
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          SIGN: ${{ inputs.sign }}
+          PUBLISH: ${{ inputs.publish }}
+        run: node scripts/ci-plan.mjs
+
+  checks:
+    needs: plan
+    if: needs.plan.outputs.checks == 'yes'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+
+      - name: Install what the checks need
+        run: npm install
+
+      - name: Fast checks
+        run: npm test 2>&1 | tee fast.tap || true
+
+      # One fast check needs a Mac (the Finder icon on the .xpi) and is skipped here by design.
+      - name: Every fast check ran and passed
+        run: node scripts/ci-summary.mjs --allow-skips=1 fast=fast.tap
+
+      - name: Build the Firefox zip
+        run: npm run package:firefox
+
+      # Checked as a listed add-on: from 1.24.0 it is published on addons.mozilla.org, so its manifest carries
+      # no update_url, which the linter would flag (until 1.23.0 the add-on was self-hosted, and the linter was
+      # told so, with the linter's self-hosted switch, which allowed one).
+      - name: Mozilla's add-on linter on the zip
+        run: |
+          npx --yes addons-linter dist/family-site-blocker-firefox.zip --output json --boring --max-manifest-version=3 > lint.json || true
+          node scripts/lint-firefox-report.mjs lint.json
+
+  browsers:
+    needs: plan
+    if: needs.plan.outputs.browsers == 'yes'
+    # Ubuntu 24.04 by name: Playwright 1.56.0 has no Chromium for Ubuntu 26.04, which ubuntu-latest has become.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+
+      - name: Get Firefox from Mozilla
+        run: |
+          curl -fsSL --retry 3 -o "$RUNNER_TEMP/firefox.tar" "https://download.mozilla.org/?product=firefox-latest-ssl&os=linux64&lang=en-US"
+          mkdir -p "$HOME/firefox" && tar -xf "$RUNNER_TEMP/firefox.tar" -C "$HOME/firefox" --strip-components=1
+
+      - name: Install Playwright and its Chromium
+        run: |
+          npm install
+          npx playwright install --with-deps chromium
+
+      - name: Show the machine and browser versions
+        run: |
+          grep PRETTY_NAME /etc/os-release
+          node -e "import('playwright').then(async ({ chromium }) => { const b = await chromium.launch(); console.log('Chromium', b.version()); await b.close(); })"
+          "$HOME/firefox/firefox" --version
+
+      - name: Chromium tests
+        run: npm run test:browser 2>&1 | tee chromium.tap || true
+
+      - name: Firefox tests
+        run: FIREFOX="$HOME/firefox/firefox" npm run test:firefox 2>&1 | tee firefox.tap || true
+
+      - name: Every browser test ran and passed
+        run: node scripts/ci-summary.mjs chromium=chromium.tap firefox=firefox.tap
+
+  sign:
+    needs: [plan, checks, browsers]
+    # After the tests of the same run, when it has any: a test job the plan left out counts as passed.
+    if: ${{ !cancelled() && needs.plan.outputs.sign == 'yes' && (needs.checks.result == 'success' || needs.checks.result == 'skipped') && (needs.browsers.result == 'success' || needs.browsers.result == 'skipped') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45 # room for a long APPROVAL_WAIT_MINUTES
+    concurrency:
+      group: sign-with-mozilla # one signing at a time
+    permissions:
+      contents: write # to publish the release
+    env:
+      AMO_JWT_ISSUER: ${{ secrets.AMO_JWT_ISSUER }}
+      AMO_JWT_SECRET: ${{ secrets.AMO_JWT_SECRET }}
+      WEB_EXT_API_KEY: ${{ secrets.AMO_JWT_ISSUER }}
+      WEB_EXT_API_SECRET: ${{ secrets.AMO_JWT_SECRET }}
+      APPROVAL_WAIT_MINUTES: ${{ vars.APPROVAL_WAIT_MINUTES }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0 # the whole history: the release notes are the title of the commit that made the version
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+
+      - name: Check that the API key is saved
+        run: |
+          if [ -z "$AMO_JWT_ISSUER" ] || [ -z "$AMO_JWT_SECRET" ]; then
+            echo "::error title=No API key::Save AMO_JWT_ISSUER and AMO_JWT_SECRET under Settings → Secrets and variables → Actions. They come from https://addons.mozilla.org/developers/addon/api/key/"
+            exit 1
+          fi
+
+      - name: Build the Firefox package
+        id: build
+        run: |
+          npm run package:firefox
+          VERSION=$(node -p "require('./extension/manifest.json').version")
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          if gh release view "v$VERSION" > /dev/null 2>&1; then
+            if [ "$GITHUB_EVENT_NAME" = push ]; then
+              # A push that touched manifest.json without raising the version, or a second run for the same one.
+              echo "release=no" >> "$GITHUB_OUTPUT"
+              echo "::notice title=Already released::Version $VERSION is already signed and released; nothing to do."
+              exit 0
+            fi
+            echo "::error title=Already released::Version $VERSION is already signed and released. Raise version in extension/manifest.json first."
+            exit 1
+          fi
+          echo "release=yes" >> "$GITHUB_OUTPUT"
+
+      # How long to wait for Mozilla's approval, in minutes. Mozilla holds the first public version for a
+      # reviewer, which takes days, so while the add-on's page isn't public (its address in Mozilla's API answers
+      # only once a version is approved) the job doesn't wait at all; after that, APPROVAL_WAIT_MINUTES or 5.
+      - name: How long to wait for Mozilla
+        if: steps.build.outputs.release == 'yes'
+        run: |
+          if curl -fs -o /dev/null "https://addons.mozilla.org/api/v5/addons/addon/family-site-blocker/"; then
+            AMO_WAIT_MINUTES="${APPROVAL_WAIT_MINUTES:-5}"
+          else
+            AMO_WAIT_MINUTES=0
+            echo "The add-on has no public version on addons.mozilla.org yet, so its versions wait for a reviewer."
+          fi
+          echo "Waiting up to $AMO_WAIT_MINUTES minutes for Mozilla's approval."
+          echo "AMO_WAIT_MINUTES=$AMO_WAIT_MINUTES" >> "$GITHUB_ENV"
+
+      # Mozilla won't take the same version twice. If it already has this one (uploaded by hand, or by a run
+      # that stopped later on, or didn't wait for a reviewer), download its signed file; otherwise upload it
+      # with the page's words (scripts/amo-metadata.mjs: the release notes are the title of the commit that made
+      # the version) and wait that long for Mozilla to approve and sign it.
+      - name: Get the file signed by Mozilla
+        if: steps.build.outputs.release == 'yes'
+        run: |
+          later="Mozilla's email says when it's approved: then start Tests and release by hand on main (the Actions tab, Run workflow) with sign ticked, and publish too, to publish the update files in the same run. It downloads the signed file and publishes the release."
+          found=0
+          node scripts/amo-signed.mjs "$VERSION" web-ext-artifacts || found=$?
+          if [ "$found" = 3 ]; then
+            made=$(node scripts/version-commit.mjs "$VERSION" || echo "$GITHUB_SHA")
+            node scripts/amo-metadata.mjs "$VERSION" "$GITHUB_SHA" "$(git log -1 --format=%s "$made")" > dist/amo-metadata.json
+            npx --yes web-ext@10.7.0 sign --channel=listed --amo-metadata=dist/amo-metadata.json --source-dir=dist/firefox --artifacts-dir=web-ext-artifacts --approval-timeout=$((AMO_WAIT_MINUTES * 60000)) || {
+              echo "::error title=Not signed yet::Mozilla hasn't approved and signed $VERSION in this run (see the log above). If the upload went through and the version is waiting for a reviewer: $later"
+              exit 1
+            }
+            # With no wait at all, web-ext stops once Mozilla's automatic check has passed, and leaves no file.
+            if ! ls web-ext-artifacts/*.xpi > /dev/null 2>&1; then
+              echo "::error title=Uploaded, not signed yet::$VERSION is at Mozilla, waiting for its approval. $later"
+              exit 1
+            fi
+          elif [ "$found" = 4 ]; then
+            echo "::error title=Not signed yet::Mozilla has $VERSION and hasn't approved it. $later"
+            exit 1
+          elif [ "$found" != 0 ]; then
+            exit "$found"
+          fi
+
+      - name: Check the signed file and make the Mac zip
+        if: steps.build.outputs.release == 'yes'
+        run: |
+          signed=$(ls web-ext-artifacts/*.xpi)
+          node scripts/check-signed.mjs "$signed" dist/firefox
+          npm run package:signed -- "$signed"
+          cp "$signed" "dist/family-site-blocker-$VERSION.xpi"
+          echo "::notice title=Signed::$(node scripts/check-signed.mjs "$signed" dist/firefox | sed 's/^[^:]*: *//'); sha256 $(sha256sum "$signed" | cut -c1-16)…"
+
+      # The release is made on this commit, with its tag, and holds the three files.
+      - name: Publish the release
+        if: steps.build.outputs.release == 'yes'
+        run: |
+          node scripts/release-notes.mjs "$VERSION" > "$RUNNER_TEMP/notes.md"
+          gh release create "v$VERSION" "dist/family-site-blocker-$VERSION.xpi" "dist/family-site-blocker-$VERSION.zip" mac/family-site-blocker-firefox.mobileconfig \
+            --target "$GITHUB_SHA" --title "Family Site Blocker $VERSION" --notes-file "$RUNNER_TEMP/notes.md" --latest
+          echo "::notice title=Released::$(gh release view "v$VERSION" --json url --jq .url)"
+
+  update-files:
+    needs: [plan, sign]
+    # After the sign job when the run has one, and only when it went well; alone when the run is for publishing.
+    if: ${{ !cancelled() && needs.plan.outputs.site == 'yes' && (needs.sign.result == 'success' || (needs.sign.result == 'skipped' && needs.plan.outputs.sign == 'no')) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    concurrency:
+      group: update-files # one push to the site at a time
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+
+      - name: Check that the deploy key is saved
+        env:
+          UPDATES_DEPLOY_KEY: ${{ secrets.UPDATES_DEPLOY_KEY }}
+        run: |
+          if [ -z "$UPDATES_DEPLOY_KEY" ]; then
+            echo "::error title=No deploy key::Save UPDATES_DEPLOY_KEY under Settings → Secrets and variables → Actions: the private half of an SSH key whose public half is a deploy key with write access on the site's repository. The README's \"Let it update itself\" section has the steps."
+            exit 1
+          fi
+
+      - name: Get the newest signed versions from the releases
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node scripts/release-files.mjs xpis 5 # the newest five: Firefox only ever wants the newest
+
+      - name: Build the site
+        id: build
+        run: |
+          npm install
+          node scripts/updates-manifest.mjs xpis public
+          node scripts/guide.mjs README.md public mac/family-site-blocker-firefox.mobileconfig # the guide as the site's front page, and the lock's profile
+          echo "repository=$(node -e "import('./scripts/updates-site.mjs').then((site) => console.log(site.SITE_REPOSITORY))")" >> "$GITHUB_OUTPUT"
+          echo "branch=$(node -e "import('./scripts/updates-site.mjs').then((site) => console.log(site.SITE_BRANCH))")" >> "$GITHUB_OUTPUT"
+          echo "url=$(node -e "import('./scripts/updates-site.mjs').then((site) => console.log(site.SITE_URL))")" >> "$GITHUB_OUTPUT"
+          echo "newest=$(node -e "const updates = Object.values(require('./public/updates.json').addons)[0].updates; console.log(updates.at(-1).version)")" >> "$GITHUB_OUTPUT"
+          ls -l public
+
+      # The site's repository takes the push from the deploy key alone. GitHub's own keys, which say the machine
+      # answering is GitHub's, come from GitHub's API.
+      - name: Push it to the site's repository
+        env:
+          UPDATES_DEPLOY_KEY: ${{ secrets.UPDATES_DEPLOY_KEY }}
+          GH_TOKEN: ${{ github.token }}
+          SITE_REPOSITORY: ${{ steps.build.outputs.repository }}
+          SITE_BRANCH: ${{ steps.build.outputs.branch }}
+          SITE_URL: ${{ steps.build.outputs.url }}
+          NEWEST: ${{ steps.build.outputs.newest }}
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "$UPDATES_DEPLOY_KEY" > ~/.ssh/updates_key
+          chmod 600 ~/.ssh/updates_key
+          gh api meta --jq '.ssh_keys[] | "github.com \(.)"' >> ~/.ssh/known_hosts
+          export GIT_SSH_COMMAND="ssh -i ~/.ssh/updates_key -o IdentitiesOnly=yes"
+          # Start from the branch as it is, or from nothing if the repository was just made and is still empty.
+          git clone -q --depth 1 "git@github.com:$SITE_REPOSITORY.git" "$RUNNER_TEMP/site"
+          cd "$RUNNER_TEMP/site"
+          if git fetch -q --depth 1 origin "$SITE_BRANCH" 2> /dev/null; then git checkout -q -B "$SITE_BRANCH" FETCH_HEAD; else git checkout -q -B "$SITE_BRANCH"; fi
+          git rm -rfq --ignore-unmatch . > /dev/null
+          cp -R "$GITHUB_WORKSPACE/public/." .
+          git add -A
+          if git diff --cached --quiet; then
+            echo "::notice title=Site::Already published, newest $NEWEST: $SITE_URL"
+            exit 0
+          fi
+          git -c user.name="Family Site Blocker" -c user.email="family-site-blocker@users.noreply.github.com" commit -q -m "Family Site Blocker $NEWEST"
+          git push -q origin "$SITE_BRANCH"
+          echo "::notice title=Site::Published, newest $NEWEST: $SITE_URL (GitHub Pages takes a minute or two to show it)"
