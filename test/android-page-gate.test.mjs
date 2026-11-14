@@ -5,7 +5,7 @@
 // those parts, the few lines whose loss would show nowhere else: the app would still build and browse, with a
 // listed site open at a start where the add-on's rules are not in force.
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { test } from 'node:test';
 
 const read = (path) => readFileSync(new URL(`../android/${path}`, import.meta.url), 'utf8');
@@ -52,6 +52,22 @@ test("the tabs of the last run come back only then, and a window is there from t
   const application = kotlin('BrowserApplication');
   assert.match(application, /components\.engine\.speculativeCreateSession\(\)\n\s*restoreTabs\(\)\n/, 'the empty window comes first');
   assert.match(application, /private fun restoreTabs\(\) = components\.addOnRules\.whenStarted \{/, 'the tabs wait for the rules');
+});
+
+test('the add-on switches off no rule set it ships, which the app would take for rules that never start', () => {
+  // The bridge says the rules have started only when every rule set the manifest ships switched on is in force
+  // (RULE_SETS in android-bridge.js). An add-on that switched one of them off itself would never be heard to say
+  // yes: the app would hold every web page and install the add-on again and again. Whoever needs such a switch
+  // has to teach the bridge first which rule sets have to be in force.
+  const extension = new URL('../extension/', import.meta.url);
+  const scripts = [
+    ...readdirSync(extension, { recursive: true }).filter((name) => /\.(js|mjs|html)$/.test(name)).map((name) => new URL(name, extension)),
+    new URL('../android/app/src/main/extension/android-bridge.js', import.meta.url),
+  ];
+  assert.ok(scripts.length > 10, "the add-on's scripts and pages are read");
+  for (const script of scripts) {
+    assert.doesNotMatch(readFileSync(script, 'utf8'), /updateEnabledRulesets/, `${script.pathname.split('/extension/')[1]} switches a rule set on or off`);
+  }
 });
 
 test('the browser says so while it waits', () => {

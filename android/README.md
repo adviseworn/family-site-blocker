@@ -45,7 +45,9 @@ So the add-on says for itself whether its rules have started, and the app goes b
 - `app/src/main/extension/android-bridge.js` asks Firefox which of the add-on's rule sets are in force. Firefox
   answers only once every list is read, and with an error when the rule engine did not start for this copy of
   the add-on. The script says yes only when the answer names every rule set the add-on ships switched on
-  (`manifest.json`), and tells the app yes or no each time the add-on's background page starts.
+  (`manifest.json`), and tells the app yes or no each time the add-on's background page starts. So the add-on
+  must never switch one of those rule sets off itself: the app would wait for a yes that cannot come.
+  `test/android-page-gate.test.mjs` holds the add-on's files to that.
 - Until the app has heard yes, no web page opens. A page it is asked for (the address bar, a search, a link or
   text from another app) waits and opens then, the tabs of the last run come back then, and a line under the
   address bar says that Family Site Blocker is starting. An empty tab and the add-on's own pages open at once.
