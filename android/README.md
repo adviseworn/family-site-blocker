@@ -17,12 +17,14 @@ or anyone else's help.
   `scripts/package-firefox.mjs` does). Gecko installs it as a built-in extension from
   `resource://android/assets/extensions/family-site-blocker/`; built-in extensions need no Mozilla signature
   and never show up in an add-on manager.
+- [uBlock Origin](https://github.com/gorhill/uBlock), which blocks the advertisements, built in the same way
+  beside the add-on and left as Mozilla's add-on site hands it out (see "Ad blocking" below).
 - The app's own code (`app/src/main/java`): one activity, the browser screen (toolbar, page, menu), a tabs grid,
   downloads, prompts, site permissions, find in page, the long-press menu and the default-browser request.
 
 Nothing in the app can switch the add-on off: no about:config, no add-on installs from web pages, no remote
 debugging, no private tabs (where add-ons do not run), no add-on manager. The menu's Settings, Every try and
-Is it working? items open the add-on's own pages.
+Is it working? items open the add-on's own pages. uBlock Origin has no off switch either, and no settings.
 
 ## The lock
 
@@ -270,6 +272,93 @@ and the app heard the add-on at its next start. Gecko notes the app's install pa
 away. `AddOnBridge` answers the add-on with a plain true or false on purpose: GeckoView cannot hand a JSON
 object back, and the add-on's message would never be answered.
 
+## Ad blocking
+
+The app blocks advertisements with [uBlock Origin](https://github.com/gorhill/uBlock), Raymond Hill's ad
+blocker, the one Mozilla recommends for Firefox on a computer and on Android. It runs beside Family Site
+Blocker as a second built-in extension, with its own lists as it ships them (advertisements, trackers and
+sites that spread malware), and it keeps those lists up to date from the web by itself. It is in the phone
+app only: the add-on for a computer's browser is as it was, and uBlock Origin can be installed there from
+Mozilla's or Chrome's store as ever.
+
+**Where it comes from.** It is not in this repository. The build fetches the file Mozilla's add-on site hands
+to Firefox (`fetchUBlockOrigin` in `app/build.gradle`), checks it against the SHA-256 in `gradle.properties`
+and stops if it differs, and unpacks it into the APK's assets, every file as it is (`copyUBlockOrigin`). Gecko
+installs it from `resource://android/assets/extensions/ublock-origin/` under its own id,
+`uBlock0@raymondhill.net`. The three lines in `gradle.properties` (`fsbUBlockOriginVersion`,
+`fsbUBlockOriginUrl`, `fsbUBlockOriginSha256`) are one object at
+`https://addons.mozilla.org/api/v5/addons/addon/ublock-origin/`: `current_version.version`, and under
+`current_version.file` the `url` and the `hash`. A newer uBlock Origin is those three lines and a new build.
+The first build needs the network for it; the file then stays in `app/build/ublock-origin`.
+
+uBlock Origin keeps its words in a folder named `_locales`, and Android's packager leaves every assets folder
+out whose name starts with an underscore. Without that folder Gecko does not install it, so `app/build.gradle`
+gives the packager its own list of what to leave out, less that one rule (`ignoreAssetsPattern`).
+
+**Its licence.** uBlock Origin is under the GNU General Public License, version 3. The app carries it whole
+and unchanged, with its licence file (`LICENSE.txt` in that assets folder) and Mozilla's signature, and
+changes nothing in it: every rule the app sets for it is in the app's own code. Its source is at
+https://github.com/gorhill/uBlock, each version under its tag. Whoever hands the APK on hands uBlock Origin
+on with it, under that licence.
+
+**Its settings are shut.** In Firefox, uBlock Origin has a dashboard. Here it must not, for three reasons. Its
+own filters can restyle or script any page, and one line of them would show every picture the picture filter
+has hidden. Its lists can be swapped for any list on the web. And it can be switched off, wholly or for a
+site. So:
+
+- The app shows no button for it, has no add-on manager, and Android gives an add-on neither a long-press
+  menu nor keyboard shortcuts.
+- No page of an add-on opens in a tab, however it is asked for (typed, a link, a link from another app),
+  except Family Site Blocker's own pages and the one page uBlock Origin shows in place of a page it has
+  stopped whole (`document-blocked.html`). `AddOnPages` decides, and the browser's request interceptor in
+  `Components` asks it before Gecko goes anywhere. Gecko gives every add-on's pages an address that can be
+  typed, and that stopped page shows uBlock Origin's in the address bar, so leaving out the button would not
+  be enough.
+- An add-on's address is its own from the day Gecko first installs it, and Gecko reports it a moment after
+  each start. The app keeps the last report in its preferences, so that the rule holds from the first moment
+  of a start, and "This site is blocked" opens then too.
+- Gecko does not ask about every page: one out of a tab's history (Back, Forward, a tab that comes back
+  after a start) loads unasked. The first check keeps such a page out of every tab's history, so there
+  should be none to come back. In case one does, there is a second look, `AddOnPagesWatch` in the browser's
+  store: it sees the address Gecko reports for where a tab has arrived, and closes a tab that has come to a
+  page which does not open, its history with it.
+- uBlock Origin itself asks for a tab when it wants to show its settings, for instance when a link that adds
+  a filter list is tapped on one of the sites that offer them. A tab it asks for gets none
+  (`BrowserApplication`, `turnAway`).
+
+What is left of it on screen is the stopped page ("uBlock Origin has prevented the following page from
+loading"), which shows when the address of an advertiser, a tracker or a site on its malware list is opened
+as a page of its own. Its Proceed button lets that one site's page through, for a while or, with "Don't warn
+me again about this site" ticked, for good. That switches no ad blocking off anywhere else, and Family Site
+Blocker's own list is not uBlock Origin's to open.
+
+**What it does not have.** No off switch for one site: a page that breaks under the blocker stays broken
+until a list is corrected, which uBlock Origin's own lists do for well-known sites. No count of what was
+blocked.
+
+**Its first start.** The first start after uBlock Origin has arrived, with the app newly installed or
+updated from a build without it, has a gap: a page that loads in its first moments, before uBlock Origin is
+up, shows its advertisements until it is reloaded. A tab that comes back at that start is such a page. While
+uBlock Origin then reads its lists for the first time, some seconds on a phone, pages wait. At every later
+start Gecko holds a page back until uBlock Origin is up, so there is no gap, and the wait is a short one.
+
+**Trying it.** `app/src/test` holds the rule for add-on pages (`AddOnPagesTest`). On a phone or an emulator:
+a page with advertisements shows none; `https://doubleclick.net/` shows uBlock Origin's stopped page; the
+address on that page with `dashboard.html` in place of `document-blocked.html…` opens nothing, typed or sent
+as a link; the "add it to your ad blocker" links on https://easylist.to/ open nothing; and a listed site
+still shows "This site is blocked". The app's log names each page turned away (`adb logcat -s Components
+BrowserApplication UBlockOrigin AddOnPages`).
+
+An emulator without hardware acceleration is too slow for the first start: Gecko's watchdog for slow scripts
+stops uBlock Origin while it first reads its lists, and no page loads after that, nor after a restart. Gecko
+reads preferences for a test from `/data/local/tmp/io.gitlab.adviseworn.familysiteblocker-geckoview-config.yaml`.
+With `dom.max_script_run_time`, `dom.max_ext_content_script_run_time` and `dom.max_chrome_script_run_time`
+set to 0 under `prefs:` there, uBlock Origin reads its lists through, in about ten minutes. A debug build
+reads that file always. A release build reads it once the phone has been told, over a cable, that the app
+is its debug app: `adb shell am set-debug-app --persistent io.gitlab.adviseworn.familysiteblocker`, and
+`adb shell am clear-debug-app` to take that back. A rule in `app/proguard-rules.pro` keeps the library that
+reads the file whole; without it a release build stopped at its start on such a phone.
+
 ## Versions
 
 The app takes its version name from the add-on's `manifest.json`: bumping the add-on's version bumps the app.
@@ -338,6 +427,11 @@ Firefox releases every four weeks. Each release needs `android-components` bumpe
 `gradle/libs.versions.toml` (the matching GeckoView comes with it) and a new build. Google Play's `targetSdk`
 rule moves once a year; `compileSdk`, `targetSdk` and the AndroidX versions follow Mozilla's
 `gradle/libs.versions.toml` at the release tag.
+
+uBlock Origin releases every few weeks too. Its lists update by themselves on the phone, so an older one
+still blocks; a new build is the time to take the newest (the three lines in `gradle.properties`, see "Ad
+blocking"). After a new one, look once that it has brought no new page that should open and no new way to
+its settings: `AddOnPages` lets one page of it through by name.
 
 A raised `targetSdk` changes how Android treats the app, but only on phones that run that Android or a later
 one. At 36, Back stopped reaching an activity's `onBackPressed`: from 1.29.0 to 1.30.0 build 25, Back closed
