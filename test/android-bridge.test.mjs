@@ -1,5 +1,6 @@
 // The Android app's line from the add-on to the app (android/app/src/main/extension/android-bridge.js):
-// what it sends about the bedtime and about the rules, and that it keeps trying until the app has answered.
+// what it sends about the bedtime and about the rules, that it keeps trying until the app has answered, and
+// that it holds a line open to the app, which is what keeps the add-on's background page awake there.
 // The script is loaded here with a stand-in for the browser's API; in the app it runs as a second background
 // script.
 import assert from 'node:assert/strict';
@@ -16,13 +17,16 @@ const MANIFEST = JSON.parse(readFileSync(new URL('../extension/manifest.json', i
  * the bedtime, in turn: a value, or an Error to throw. `rules` is what the browser says when asked for the rule
  * sets in force: their names, an Error, or nothing for a browser that is still reading them and does not answer;
  * `rulesAnswers` are the app's to what it is told of the rules. What is sent about the rules is kept apart
- * (`sentOfRules`), so that `sent` holds the bedtime's messages alone.
+ * (`sentOfRules`), so that `sent` holds the bedtime's messages alone. `lines` are the lines to the app that
+ * were asked for, each with what was sent over it and a `close` that ends it as the browser would; with
+ * `noLine`, an Error, the browser refuses to open one.
  */
-function fakeBrowser({ stored, answers = [], rules, rulesAnswers = [true] } = {}) {
+function fakeBrowser({ stored, answers = [], rules, rulesAnswers = [true], noLine } = {}) {
   const listeners = { storage: [], alarms: [] };
   const sent = [];
   const sentOfRules = [];
-  const state = { stored, rules };
+  const lines = [];
+  const state = { stored, rules, noLine };
   const next = (list) => {
     const answer = list.length > 1 ? list.shift() : list[0];
     if (answer instanceof Error) throw answer;
@@ -46,6 +50,23 @@ function fakeBrowser({ stored, answers = [], rules, rulesAnswers = [true] } = {}
     },
     runtime: {
       getManifest: () => MANIFEST,
+      connectNative: (app) => {
+        if (state.noLine) throw state.noLine;
+        const gone = [];
+        const line = {
+          app,
+          open: true,
+          posted: [],
+          postMessage: (message) => line.posted.push(message),
+          onDisconnect: { addListener: (listener) => gone.push(listener) },
+          close: () => {
+            line.open = false;
+            gone.forEach((listener) => listener(line));
+          },
+        };
+        lines.push(line);
+        return line;
+      },
       // A test may put its own answers to the bedtime in place of `bedtime`; the rules go their own way.
       bedtime: sendNativeMessage,
       sendNativeMessage: async (app, message) => {
@@ -55,7 +76,7 @@ function fakeBrowser({ stored, answers = [], rules, rulesAnswers = [true] } = {}
       },
     },
   };
-  return { api, sent, sentOfRules, state, listeners };
+  return { api, sent, sentOfRules, lines, state, listeners };
 }
 
 let loads = 0;
@@ -269,4 +290,78 @@ test('a browser that is still reading the rules holds nothing else up: the bedti
   assert.equal(started, true);
   assert.equal(fake.sent.length, 1);
   assert.deepEqual(fake.sentOfRules, [], 'nothing is said of the rules before the browser has answered');
+});
+
+/** Runs something with the clock standing at a time of the test's choosing, which is what the bridge reads. */
+async function at(time, run) {
+  const now = Date.now;
+  Date.now = () => time;
+  try {
+    return await run();
+  } finally {
+    Date.now = now;
+  }
+}
+/** When the bridge of these tests is loaded, and so when it opens its first line. */
+const START = 1_800_000_000_000;
+
+test('the add-on holds one line open to the app from its start, under the name the app listens to, and sends nothing over it', async () => {
+  const fake = fakeBrowser({ stored: NINE_TO_FIVE, answers: [true], rules: LISTS });
+  const { bridge } = await load(fake, { rules: true });
+  assert.equal(fake.lines.length, 1);
+  assert.equal(fake.lines[0].app, 'familySiteBlocker');
+  assert.equal(fake.lines[0].open, true);
+
+  // An alarm, and asking again: the line that is open is the one.
+  fake.listeners.alarms[0]({ name: 'heartbeat' });
+  await bridge.tell();
+  assert.equal(bridge.stayAwake(), true);
+  assert.equal(fake.lines.length, 1);
+  assert.deepEqual(fake.lines[0].posted, [], 'the line is only held');
+});
+
+test('a line that goes after it has held is opened again at once', async () => {
+  const fake = fakeBrowser({ answers: [true] });
+  const { bridge } = await at(START, () => load(fake));
+  await at(START + bridge.HELD_MS, () => fake.lines[0].close());
+  assert.equal(fake.lines.length, 2);
+  assert.equal(fake.lines[1].open, true);
+
+  // The old line going once more is not the open one going.
+  await at(START + 3 * bridge.HELD_MS, () => fake.lines[0].close());
+  assert.equal(fake.lines.length, 2);
+  assert.equal(bridge.stayAwake(), true);
+  assert.equal(fake.lines.length, 2);
+});
+
+test('a line that goes at once is left to the next alarm, not asked for over and over', async () => {
+  const fake = fakeBrowser({ answers: [true] });
+  const { bridge } = await at(START, () => load(fake));
+  await at(START + bridge.HELD_MS - 1, () => fake.lines[0].close());
+  assert.equal(fake.lines.length, 1, 'not opened again by itself');
+
+  // The alarm opens one, and that one going at once is left to the alarm after it.
+  await at(START + 60_000, () => fake.listeners.alarms[0]({ name: 'heartbeat' }));
+  assert.equal(fake.lines.length, 2, 'the alarm opens one');
+  await at(START + 60_000 + bridge.HELD_MS - 1, () => fake.lines[1].close());
+  assert.equal(fake.lines.length, 2);
+  await at(START + 120_000, () => fake.listeners.alarms[0]({ name: 'heartbeat' }));
+  assert.equal(fake.lines.length, 3);
+  await bridge.tell();
+});
+
+test('a browser that cannot open the line is asked again with every alarm, and the app is told everything meanwhile', async () => {
+  const fake = fakeBrowser({ stored: NINE_TO_FIVE, answers: [true], rules: LISTS, noLine: new Error('Native messaging not allowed') });
+  const { bridge, started, startedRules } = await load(fake, { rules: true });
+  assert.equal(started, true);
+  assert.equal(startedRules, true);
+  assert.equal(fake.lines.length, 0);
+  assert.equal(bridge.stayAwake(), false);
+
+  fake.listeners.alarms[0]({ name: 'heartbeat' });
+  assert.equal(fake.lines.length, 0);
+  fake.state.noLine = undefined;
+  fake.listeners.alarms[0]({ name: 'heartbeat' });
+  assert.equal(fake.lines.length, 1);
+  await bridge.tell();
 });

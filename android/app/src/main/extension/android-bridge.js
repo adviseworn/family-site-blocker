@@ -2,7 +2,7 @@
 //
 // Only the Android app carries this file: its build adds it to the add-on as a second background script,
 // with the two permissions GeckoView wants for it (android/app/build.gradle, copyExtension). It tells the
-// app two things.
+// app two things, and it keeps the add-on's background page awake.
 //
 // What the bedtime is (the setting kept under `bedtime`, lib/bedtime.js), so that the app's lock can do
 // the phone's part of it: turn the other apps away while it lasts, and hold the clock it goes by
@@ -18,6 +18,16 @@
 // sent before that and hands it over then. A telling the app has not answered within ANSWER_MS is given up
 // and tried again: a few times at the start, and then with every alarm (the heartbeat's, once a minute),
 // so that one answer that never comes cannot keep later news from the app.
+//
+// Awake: Firefox puts an add-on's background page to sleep after half a minute with nothing to do, and
+// starts it again for the next thing it listens for. A listed site does not wait for that, since a rule
+// sends it to the block page. But a listed site opened by another road (a web proxy, a translation, an
+// archive) is stopped by background.js, and while that was starting the proxy's page stood in the tab: for
+// a tenth of a second on a computer, for half a minute on a slow emulated phone. Firefox leaves a background
+// page alone while it holds a line open to its app (ext-backgroundPage.js, hasActiveNativeAppPorts), so the
+// add-on holds one open for as long as the app runs (stayAwake). Nothing is sent over it. It costs the
+// memory of a page that would otherwise be let go, the picture filter's code and models with it, which in
+// turn judge the next picture sooner.
 
 const api = globalThis.browser ?? globalThis.chrome;
 /** The name the app listens under (AddOnBridge.kt). */
@@ -121,10 +131,41 @@ export function tellRules() {
   return rulesTurn;
 }
 
+/** How long a line to the app must have held for it to be opened again at once when it goes. */
+export const HELD_MS = 5000;
+
+let line = null; // the line to the app that is open now
+
+/**
+ * Holds a line open to the app, which keeps Firefox from putting this background page to sleep. GeckoView
+ * keeps a line asked for before the app listens and hands it over then, as it does a message. A line that
+ * goes after it has held is opened again at once. One that goes sooner, or that cannot be opened at all, is
+ * left to the next alarm, so that a line the app keeps refusing is not asked for over and over. Says whether
+ * a line is open.
+ */
+export function stayAwake() {
+  if (line) return true;
+  let opened;
+  try {
+    opened = api.runtime.connectNative(APP);
+  } catch {
+    return false;
+  }
+  const since = Date.now();
+  line = opened;
+  opened.onDisconnect.addListener(() => {
+    if (line !== opened) return;
+    line = null;
+    if (Date.now() - since >= HELD_MS) stayAwake();
+  });
+  return true;
+}
+
 api.storage.onChanged.addListener((changes, area) => {
   if (area === 'local' && changes[BEDTIME]) tell();
 });
 api.alarms.onAlarm.addListener(() => {
+  stayAwake();
   tell();
   tellRules();
 });
@@ -139,6 +180,7 @@ async function first(telling) {
   return false;
 }
 
+stayAwake();
 /** The first telling of the bedtime. */
 export const started = first(tell);
 /** The first telling of the rules. */
