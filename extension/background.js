@@ -10,7 +10,7 @@
 // site that is opened by another road, through a web proxy, a translation or an archive (lib/proxies.js;
 // see "Web proxies" below). Chrome, Edge and Brave run it as a service worker; Firefox runs it as an event
 // page. Both load it as a module (manifest.json: background.type).
-import { ATTEMPTS, HISTORY_SCAN, bookmarksTo, hostOf, mergeVisits, record } from './lib/attempts.js';
+import { ATTEMPTS, HISTORY_SCAN, bookmarksTo, hostOf, mergeVisits, record, sameVisit } from './lib/attempts.js';
 import { BEDTIME, BEDTIME_EVENTS, ask, beginsSoon, blockedAt, endOf, keep, minutesAt, nextChange, pageFor, recordBedtime, settingOf, settle, timeWords, undo } from './lib/bedtime.js';
 import { LOCK_CHANGES, locked, recordLock } from './lib/lock.js';
 import { byAnotherRoad, proxyPageBlockRules, siteAt } from './lib/proxies.js';
@@ -377,20 +377,41 @@ async function takeOut(pages, listed) {
 // Only pages in a tab (frameId 0), not frames inside other pages, and not pages Chrome prerenders by
 // itself for addresses it guesses the person might open next. What comes back is what the address is to
 // the lists (lib/proxies.js siteAt): the listed site, and the road to it when that isn't its own address.
-async function listedSite({ frameId, url, documentLifecycle }) {
-  if (frameId !== 0 || documentLifecycle === 'prerender') return null;
-  return siteAt(url, await listedDomains());
+const ownPage = ({ frameId, documentLifecycle }) => frameId === 0 && documentLifecycle !== 'prerender';
+async function listedSite(details) {
+  return ownPage(details) ? siteAt(details.url, await listedDomains()) : null;
 }
 
-async function tried(details) {
+// One visit, one note. The browser reports a page load several times over (the listeners below, and those
+// under "Web proxies"), and on a slow device the reports come many seconds apart, so the clock can't tell
+// them from a second try: what kind of report each is can, and what the tab has shown since
+// (lib/attempts.js sameVisit). That is kept here for each tab, while this script runs.
+const visits = new Map(); // tab id -> what sameVisit keeps of the visit the tab is making
+api.tabs.onRemoved.addListener((tabId) => visits.delete(tabId));
+
+/**
+ * What a reported address is to the lists (null: nothing), and whether the report is of a visit already
+ * noted. `kind` says which report it is, as sameVisit names them. Every report waits here on the lists and
+ * on nothing else, so they are weighed in the order the browser sent them, whatever each does afterwards.
+ */
+async function reported(kind, details) {
+  const found = siteAt(details.url, await listedDomains());
+  if (!ownPage(details) || !(details.tabId >= 0)) return { found, again: false };
+  const { again, visit } = sameVisit(visits.get(details.tabId), { kind, site: found?.site ?? null, at: details.timeStamp ?? Date.now(), request: details.requestId });
+  if (visit) visits.set(details.tabId, visit);
+  return { found, again };
+}
+
+async function tried(kind, details) {
   noteRunning({ fromPage: true }); // every page load the extension sees says it is running
-  const found = await listedSite(details);
+  if (!ownPage(details)) return;
+  const { found, again } = await reported(kind, details);
   if (!found) return;
   // Without access to websites the rules stop the page but can't put the block page in its place (see
   // "Access to websites" below): the tab is sent there from here. So is a try by another road, which the
   // rules may not see at all (see "Web proxies" below); during a bedtime its rules take the page instead.
   if (!(await hasAccess()) || (byAnotherRoad(found) && !(await bedtimeNow()).blocked)) api.tabs.update(details.tabId, { url: BLOCK_PAGE_URL }).catch(() => {});
-  await note({ ...found, at: details.timeStamp ?? Date.now() });
+  if (!again) await note({ ...found, at: details.timeStamp ?? Date.now() });
   sweepSoon(found.site, details.url);
 }
 
@@ -409,11 +430,21 @@ async function opened(details) {
 // Two reports of each navigation, because each misses some. The browser's navigation events see every
 // page load that starts, including one Firefox's own copy of the list stops before any request is made;
 // but Firefox now and then leaves out the first load in a brand-new tab. Its request events see every
-// request that is made, even one the rules then redirect (they run before the rules). lib/attempts.js
-// counts a site reported twice within two seconds once.
+// request that is made, even one the rules then redirect (they run before the rules). The two are one
+// visit, noted once (reported, above).
 const PAGES = { urls: ['<all_urls>'], types: ['main_frame'] };
-api.webNavigation.onBeforeNavigate.addListener(tried);
-api.webRequest.onBeforeRequest.addListener(tried, PAGES);
+api.webNavigation.onBeforeNavigate.addListener((details) => tried('start', details));
+api.webRequest.onBeforeRequest.addListener((details) => tried('request', details), PAGES);
+// A load that fails is no try, but it ends in the browser's own error page, under the address tried, and
+// Chromium says nothing else of that page. A try after it is told by its request as a rule; one that is
+// stopped before any request is made has only this to go by, and without it a third such try in a row
+// would pass for the second one still on its way. A load that is only dropped is "net::ERR_ABORTED"
+// there, and puts nothing in the tab; nor does a link to something that is no web page. Firefox reports
+// its error page as a page at the address, so what it says here isn't weighed: it reports a load as
+// dropped when it only moves to another process, and then as started again.
+api.webNavigation.onErrorOccurred.addListener((details) => {
+  if (isWebPage(details.url) && /^net::(?!ERR_ABORTED$)/.test(details.error ?? '')) reported('failed', details).catch(() => {});
+});
 api.webNavigation.onDOMContentLoaded.addListener(opened);
 api.webNavigation.onCompleted.addListener(opened);
 api.webRequest.onCompleted.addListener(opened, PAGES);
@@ -535,22 +566,27 @@ async function emptyFrame({ tabId, frameId, url }) {
   }
 }
 
-/** A tab or a frame has come to show an address: one by another road is taken out again, and noted if it is the tab's own page. */
-async function shown(details) {
-  if (details.documentLifecycle === 'prerender' || !isWebPage(details.url)) return;
-  const found = siteAt(details.url, await listedDomains());
+/**
+ * A tab or a frame has come to show an address: one by another road is taken out again, and noted if it is
+ * the tab's own page and the visit isn't noted yet (reported, above: the load that brought the page was
+ * noted as it started, as a rule, and the page then changes the tab's address, and its own as it pleases).
+ * What a tab shows that is not a web page is weighed too, because the block page in a tab is what ends a visit.
+ */
+async function shown(kind, details) {
+  if (details.documentLifecycle === 'prerender' || (details.frameId !== 0 && !isWebPage(details.url))) return;
+  const { found, again } = await reported(kind, details);
   if (!byAnotherRoad(found)) return;
   if (details.frameId !== 0) return emptyFrame(details);
   await replacePage(details);
-  await note({ ...found, at: details.timeStamp ?? Date.now() });
+  if (!again) await note({ ...found, at: details.timeStamp ?? Date.now() });
   sweepSoon(found.site, details.url);
 }
-api.webNavigation.onCommitted.addListener(shown);
-api.webNavigation.onHistoryStateUpdated.addListener(shown);
-api.webNavigation.onReferenceFragmentUpdated.addListener(shown);
+api.webNavigation.onCommitted.addListener((details) => shown('page', details));
+api.webNavigation.onHistoryStateUpdated.addListener((details) => shown('address', details));
+api.webNavigation.onReferenceFragmentUpdated.addListener((details) => shown('address', details));
 // A page the browser loaded ahead of time takes over its tab with no navigation of the tab's own; the tab's address changes all the same.
 api.tabs.onUpdated.addListener((tabId, change) => {
-  if (change.url) shown({ tabId, frameId: 0, url: change.url });
+  if (change.url) shown('tab', { tabId, frameId: 0, url: change.url });
 });
 
 // --- Bedtime ---------------------------------------------------------------------------------------------

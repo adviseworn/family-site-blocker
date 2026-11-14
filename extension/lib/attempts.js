@@ -47,11 +47,14 @@ export const LABELS = {
 /** The outcomes that are visits found in the browser's history, however they are placed. */
 export const FROM_HISTORY = ['history', 'off', 'unlisted', 'unseen'];
 
-// Two notes of the same site this close together are one attempt: the browser reports each navigation
-// more than once (see background.js), in no fixed order, and a reload is not a new try. A visit found in
-// the browser's history is no such report (its time is the history's, not the browser's word that this
-// navigation started), so record() doesn't fold a live try into one; the other way round, the history's
-// copy of a live try, is left out by mergeVisits (#125).
+// Two notes of the same site this close together are one attempt: a reload is not a new try, nor is a link
+// pressed twice. The browser also reports each navigation more than once (see background.js), but how far
+// apart those reports come is the device's doing, so they are told apart from a second try by what they
+// are, not by the clock (sameVisit, below); the two seconds still fold what that can't place, such as the
+// reports left over when the browser has restarted the background script in the middle of a load. A visit
+// found in the browser's history is no such report (its time is the history's, not the browser's word that
+// this navigation started), so record() doesn't fold a live try into one; the other way round, the
+// history's copy of a live try, is left out by mergeVisits (#125).
 export const SAME_ATTEMPT_MS = 2000;
 // A page that loads this long after the attempt was noted belongs to that attempt.
 const OPENED_WITHIN_MS = 60_000;
@@ -130,6 +133,89 @@ export function record(attempts, { at, site, opened = false, via, proxy }) {
   const last = list[list.length - 1];
   if (last && last.site === site && !last.from && Math.abs(at - last.at) < SAME_ATTEMPT_MS) return null;
   return trim([...list, { at, site, ...road }]);
+}
+
+// A load that has put nothing in the tab, and of which the browser has said nothing for this long, was
+// dropped without a word: a start after that is a try, whatever sameVisit would make of it.
+const DROPPED_AFTER_MS = 60_000;
+
+/**
+ * Whether a report from a tab is of the visit that tab is already making, which has been noted, and what
+ * to remember of the tab for its next report: { again, visit }.
+ *
+ * One page load reaches the background script as several reports, and how far apart they come is the
+ * device's doing: on a slow phone the reports of one load came ten and eighteen seconds apart, so record()'s
+ * two seconds made three tries of one visit (1.31.0 as first merged), and a page that rewrites its own
+ * address as it loads, as many do, made seven on a computer slowed down to match. So a report of the same
+ * visit is told from a second try by what kind of report it is and what the tab has shown since, not by
+ * the time between them.
+ *
+ * `visit` is what the last call returned for the tab, nothing for a tab not seen before. The report is
+ * { kind, site, at, request }: `site` as record() takes it, or none when the address reported is no try;
+ * `at` the browser's own time for what it reports, which a slow delivery doesn't change; `request` the
+ * browser's name for a request (requestId), which stays the same when the request is redirected; `kind`
+ * one of
+ *   'start'    a load of the address starts in the tab (webNavigation.onBeforeNavigate);
+ *   'request'  a request is made for it (webRequest.onBeforeRequest);
+ *   'page'     a page at the address is put in the tab (webNavigation.onCommitted);
+ *   'address'  the page in the tab wrote the address for itself (onHistoryStateUpdated, onReferenceFragmentUpdated);
+ *   'tab'      the tab's address changed to it (tabs.onUpdated);
+ *   'failed'   the load failed, and the browser's own error page for the address is in the tab. Chromium
+ *              says so in no other way; Firefox reports its error page as a page at the address.
+ * Chromium sends them as start, request, tab, page, and then tab and address each time the page rewrites
+ * its address. Firefox sends page before tab, and delivers a request late, tens of milliseconds after it
+ * was made on a fast computer: after the page it fetched is in the tab, as often as not, and now and then
+ * after the tab has left that page. In both, one load makes one request.
+ *
+ * A visit lasts from its first report until the tab shows something else: as a rule, the block page.
+ * Within it,
+ *  - a load that starts again before anything was in the tab under the site's address is the same load:
+ *    Firefox reports a start twice when the load moves to another process on its way, with the first
+ *    reported as dropped in between. Once a page has been there, the site's own because the block failed
+ *    or the browser's error page because something else stopped the load first, each new start is a try.
+ *    So is a start a minute after the last word of a load that put nothing in the tab;
+ *  - a request is the visit's own, and so is the same request reported again. A second request for the
+ *    address, made after the first, is another load of it, and a try whatever the tab shows: the person
+ *    tried again while the first load was on its way, or the first was dropped without a word, as when
+ *    another add-on cancels it in Firefox. (Tried again at once, it is one try by record()'s two seconds.)
+ *    A request made before the visit began, or before it ended, is of a load already weighed, delivered
+ *    late;
+ *  - the first page put in the tab is the visit's own. A second with no start between them is a page the
+ *    browser kept whole and brought back, and a try;
+ *  - the tab's address changing, the page writing its own address and the load failing are the visit's
+ *    own, however often.
+ * Something else is another page put in the tab, or, once a page has been in the tab under the site's
+ * address, an address that is no try. Before that, the page that was in the tab already may change its own
+ * address while the load is on its way, and that ends nothing; nor does a load that only starts for
+ * another address, such as the block page's when the tab is sent there: the load before it may still win
+ * the tab, as a web proxy's page does when its answer is in already. Once the visit is over, a report of
+ * the site starts a new one, which is how a second try from the block page is a try.
+ */
+export function sameVisit(visit, { kind, site, at, request = null }) {
+  const shows = kind === 'page' || kind === 'address' || kind === 'tab';
+  if (!site) {
+    const ends = visit && visit.over == null && (kind === 'page' || kind === 'failed' || (shows && visit.shown));
+    return { again: false, visit: ends ? { ...visit, over: at } : (visit ?? null) };
+  }
+  const own = visit?.site === site;
+  // A load's failing is never a try by itself: it only says what became of one already noted.
+  if (kind === 'failed') return own && visit.over == null ? { again: true, visit: { ...visit, shown: true, heard: Math.max(visit.heard, at) } } : { again: false, visit: visit ?? null };
+  const asked = kind === 'request' ? request : null;
+  const fresh = { site, since: at, shown: shows, paged: kind === 'page', heard: at, over: null, request: asked, requested: kind === 'request' ? at : null };
+  if (!own) return { again: false, visit: fresh };
+  if (kind === 'request') {
+    // The visit's request once more, or one made before the visit began (give or take what one load's
+    // reports differ by) or before it ended: a load already weighed.
+    if ((asked != null && asked === visit.request) || at < visit.since - SAME_ATTEMPT_MS || (visit.over != null && at < visit.over)) return { again: true, visit };
+    if (visit.over != null) return { again: false, visit: fresh };
+    // The visit's own request: its first, or one the browser gives no name to tell it by.
+    if (visit.requested == null || asked == null) return { again: true, visit: { ...visit, request: visit.request ?? asked, requested: visit.requested ?? at, heard: Math.max(visit.heard, at) } };
+    // Another request than the visit's own: made later, it is another load of the address.
+    return at > visit.requested ? { again: false, visit: fresh } : { again: true, visit };
+  }
+  if (visit.over != null) return { again: false, visit: fresh };
+  if (kind === 'start' ? visit.shown || at - visit.heard >= DROPPED_AFTER_MS : kind === 'page' && visit.paged) return { again: false, visit: fresh };
+  return { again: true, visit: { ...visit, shown: visit.shown || shows, paged: visit.paged || kind === 'page', heard: Math.max(visit.heard, at) } };
 }
 
 /**
