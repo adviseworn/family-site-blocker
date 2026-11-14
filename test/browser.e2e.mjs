@@ -720,6 +720,12 @@ describe('real browser', () => {
     }
 
     const pause = (ms) => new Promise((done) => setTimeout(done, ms));
+    /** Switches the built-in rules off, or on again, from an extension page: a stand-in for a browser where the blocking is off. */
+    const builtInRules = (page, enabled) =>
+      page.evaluate(async (on) => {
+        const ids = chrome.runtime.getManifest().declarative_net_request.rule_resources.map(({ id }) => id);
+        await chrome.declarativeNetRequest.updateEnabledRulesets(on ? { enableRulesetIds: ids } : { disableRulesetIds: ids });
+      }, enabled);
 
     test('each try at a listed site is noted with the time and the site, however the address is written', async () => {
       const page = await freshRecord();
@@ -802,14 +808,8 @@ describe('real browser', () => {
 
     test('a listed site that gets through is marked as opened, not blocked', async () => {
       const page = await freshRecord();
-      // Stand in for a browser where the blocking is off: switch the built-in rules off for a moment.
-      const builtInRules = (enabled) =>
-        page.evaluate(async (on) => {
-          const ids = chrome.runtime.getManifest().declarative_net_request.rule_resources.map(({ id }) => id);
-          await chrome.declarativeNetRequest.updateEnabledRulesets(on ? { enableRulesetIds: ids } : { disableRulesetIds: ids });
-        }, enabled);
       try {
-        await builtInRules(false);
+        await builtInRules(page, false); // stand in for a browser where the blocking is off, for a moment
         assert.equal((await visit(browser.context, BLOCKED_URL)).outcome, 'site loaded');
         let list = await recorded(page, 1);
         const until = Date.now() + 10_000;
@@ -822,14 +822,48 @@ describe('real browser', () => {
         assert.match(await page.locator('#attempts-summary').innerText(), /^1 attempt, the latest at .+\. 1 page opened instead of being blocked\.$/);
         assert.deepEqual((await shown(page)).map((row) => row.slice(1)), [[SITE, 'Opened, not blocked']]);
 
-        await builtInRules(true);
+        await builtInRules(page, true);
         await pause(2100);
         await assertBlocked(BLOCKED_URL);
         list = await recorded(page, 2);
         assert.equal(list[1].opened, undefined, 'blocked again');
         assert.deepEqual(page.errors, []);
       } finally {
-        await builtInRules(true).catch(() => {});
+        await builtInRules(page, true).catch(() => {});
+        await page.close();
+      }
+    });
+
+    test('each try is noted when something else stops the site first and the tab ends at the browser’s own error page every time', async () => {
+      // Another blocker that acts before the extension's rules, say. Chromium then says only that the load failed,
+      // and, the first time, that the tab's address changed: a third try must not pass for the second still on
+      // its way. The stand-in: the built-in rules off, and the site at an https address the stub internet
+      // answers in plain http, which fails by itself.
+      const page = await freshRecord();
+      const tab = await browser.context.newPage();
+      try {
+        await builtInRules(page, false);
+        for (let tries = 1; tries <= 3; tries += 1) {
+          if (tries > 1) await pause(2100); // more than the two seconds that make two notes one try
+          const failure = await tab.goto(`https://${SITE}:444/`).then(() => 'opened', (error) => String(error.message).split('\n')[0]);
+          assert.match(failure, /net::ERR_SSL_PROTOCOL_ERROR/, 'the load fails by itself');
+          const list = await recorded(page, tries);
+          assert.deepEqual(list.map(({ site, opened }) => ({ site, opened })), Array(tries).fill({ site: SITE, opened: undefined }));
+        }
+        // The extension looks through the browser's history a moment after a try and takes the site's pages
+        // out of it (background.js sweepSoon). The next test puts pages there and counts what a look started
+        // by hand finds, so the extension's own look has to be over before it starts: a page of the site put
+        // into the history now is gone once it is (and if it is still there after a long wait, the look was
+        // over before the page was put in). A note too many would be there by then as well.
+        const marker = `http://${SITE}/swept`;
+        await page.evaluate((url) => chrome.history.addUrl({ url }), marker);
+        const kept = () => page.evaluate((url) => chrome.history.getVisits({ url }).then((visits) => visits.length > 0), marker);
+        for (const until = Date.now() + 15_000; (await kept()) && Date.now() < until; ) await pause(150);
+        await page.evaluate((url) => chrome.history.deleteUrl({ url }), marker);
+        assert.equal((await stored(page)).length, 3, 'and no more than that');
+      } finally {
+        await builtInRules(page, true).catch(() => {});
+        await tab.close();
         await page.close();
       }
     });
@@ -1454,6 +1488,8 @@ describe('real browser', () => {
         { headers: { 'content-type': 'text/javascript' } },
       );
       stub.page(`${WORKER_HOST}/framed`, `<!doctype html><title>framed</title><h1>FRONT</h1><iframe id="f" src="/service/${ultraviolet(UNLISTED)}"></iframe>`);
+      // A page that rewrites its own address as it loads, as many do: the tab's address changes three times for one page load.
+      stub.page('allowed.test/rewrites', `<!doctype html><title>rewrites</title><h1>SITE LOADED</h1><script>history.replaceState({}, '', location.href + '&seen=1'); location.hash = 'top';</script>`);
     });
 
     after(async () => {
@@ -1808,6 +1844,109 @@ describe('real browser', () => {
           await settings.evaluate(() => chrome.bookmarks.search('archive.org').then((items) => Promise.all(items.filter((item) => item.url).map((item) => chrome.bookmarks.remove(item.id))))).catch(() => {});
           await settings.evaluate(() => chrome.storage.local.remove(['attempts', 'historyScan'])).catch(() => {});
           await record.close();
+          await settings.close();
+        }
+      });
+
+      // The browser reports one page load to the extension several times over, and on a slow device the
+      // reports, and the extension's own calls, come many seconds apart: the phone app's test phone noted one
+      // visit three times, where only notes within two seconds of each other were taken for one try (1.31.0
+      // as first merged). Here the extension's two calls that move a tab are held back for longer than those
+      // two seconds, as a slow device holds them, so the page is in the tab for a while before the block page
+      // takes it: that made three rows of one visit, and seven of a page that rewrites its own address.
+      const HELD_MS = 2300;
+      const heldTest = (name, fn) => it(name, { timeout: 60_000 }, fn);
+      const named = (path) => `http://allowed.test/${path}?url=${encodeURIComponent(`https://${SITE}/`)}`; // at a host no rule knows: only the background script stops it
+
+      /** Holds back the extension's calls that move a tab by `ms` each, or lets them go as ever with 0; resolves to how many it has held back so far. */
+      async function holdBack(ms) {
+        const background = browser.context.serviceWorkers().find((worker) => worker.url().startsWith(`chrome-extension://${browser.extensionId}/`)) ?? (await browser.context.waitForEvent('serviceworker', { timeout: 10_000 }));
+        return background.evaluate((wait) => {
+          const held = (globalThis.heldBack ??= { run: chrome.scripting.executeScript.bind(chrome.scripting), update: chrome.tabs.update.bind(chrome.tabs), calls: 0 });
+          const later = (call) => async (...args) => {
+            held.calls += 1;
+            await new Promise((done) => setTimeout(done, wait));
+            return call(...args);
+          };
+          chrome.scripting.executeScript = wait ? later(held.run) : held.run;
+          chrome.tabs.update = wait ? later(held.update) : held.update;
+          return held.calls;
+        }, ms);
+      }
+
+      /** Opens an address by another road in a tab while the extension is held back: its page is in the tab first, then the block page; then waits for every call held back to be let go and noted. */
+      async function slowVisit(page, url) {
+        startLoad(page, url);
+        assert.equal(await endsAt(page, /^http:\/\/allowed\.test\//), true, `the page was in the tab first: the tab shows ${await whereIs(page)}`);
+        assert.equal(await endsAt(page, BLOCK_PAGE, 20_000), true, `${url} ended at ${await whereIs(page)}`);
+        await pause(2 * HELD_MS);
+      }
+
+      heldTest('one visit is one row however slow the device, and a second try from the block page is a second row', async () => {
+        const settings = await freshRecord();
+        const page = await browser.context.newPage();
+        try {
+          await holdBack(HELD_MS);
+          await slowVisit(page, named('fetch'));
+          assert.deepEqual(roads(await stored(settings)), [{ site: SITE, via: 'allowed.test' }], 'one visit');
+          await slowVisit(page, named('fetch'));
+          assert.deepEqual(roads(await stored(settings)), [{ site: SITE, via: 'allowed.test' }, { site: SITE, via: 'allowed.test' }], 'a second try');
+          assert.ok((await holdBack(0)) >= 2, 'the extension was held back');
+        } finally {
+          await holdBack(0).catch(() => {});
+          await settings.evaluate(() => chrome.storage.local.remove('attempts')).catch(() => {});
+          await page.close();
+          await settings.close();
+        }
+      });
+
+      heldTest('a page that rewrites its own address as it loads is one row too', async () => {
+        const settings = await freshRecord();
+        const page = await browser.context.newPage();
+        try {
+          await holdBack(HELD_MS);
+          startLoad(page, named('rewrites'));
+          assert.equal(await endsAt(page, /&seen=1#top$/), true, `the page rewrote its address: the tab shows ${await whereIs(page)}`);
+          assert.equal(await endsAt(page, BLOCK_PAGE, 20_000), true, `the tab shows ${await whereIs(page)}`);
+          await pause(2 * HELD_MS);
+          assert.deepEqual(roads(await stored(settings)), [{ site: SITE, via: 'allowed.test' }]);
+          assert.ok((await holdBack(0)) >= 1, 'the extension was held back');
+        } finally {
+          await holdBack(0).catch(() => {});
+          await settings.evaluate(() => chrome.storage.local.remove('attempts')).catch(() => {});
+          await page.close();
+          await settings.close();
+        }
+      });
+
+      heldTest('a second try while the first is still on its way is a second row', async () => {
+        // On a slow device the block page takes its time, and a person who tries again meanwhile has tried
+        // twice, though nothing of the site was in the tab in between: the second load makes a request of
+        // its own, and that is the try. Here a page opens the address, which answers with nothing to show,
+        // and opens it again once more than two seconds have passed; the extension, held back for longer
+        // than that, sends the tab on after both.
+        const settings = await freshRecord();
+        const page = await browser.context.newPage();
+        const tries = [named('nothing'), `${named('nothing')}&again=1`];
+        stub.page('allowed.test/nothing', '', { status: 204 });
+        stub.page(
+          'allowed.test/twice',
+          `<!doctype html><title>twice</title><h1>FRONT</h1>
+          <script>addEventListener('load', () => setTimeout(() => { location.href = ${JSON.stringify(tries[0])}; setTimeout(() => { location.href = ${JSON.stringify(tries[1])}; }, ${HELD_MS}); }, 0));</script>`,
+        );
+        try {
+          stub.clear();
+          await holdBack(2 * HELD_MS);
+          startLoad(page, 'http://allowed.test/twice');
+          assert.equal(await endsAt(page, BLOCK_PAGE, 20_000), true, `the tab shows ${await whereIs(page)}`);
+          assert.equal(stub.requests.filter(({ path }) => path === '/nothing').length, 2, 'the address was asked for twice before the tab was sent on');
+          await pause(2 * HELD_MS);
+          assert.deepEqual(roads(await stored(settings)), [{ site: SITE, via: 'allowed.test' }, { site: SITE, via: 'allowed.test' }]);
+          assert.ok((await holdBack(0)) >= 2, 'the extension was held back');
+        } finally {
+          await holdBack(0).catch(() => {});
+          await settings.evaluate(() => chrome.storage.local.remove('attempts')).catch(() => {});
+          await page.close();
           await settings.close();
         }
       });

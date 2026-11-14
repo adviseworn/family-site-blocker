@@ -8,7 +8,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { FROM_HISTORY, LABELS, MAX_ATTEMPTS, SAME_ATTEMPT_MS, bookmarksTo, bySite, hostOf, listedDomain, mergeVisits, offDuring, outcome as whatHappened, record, summarize, timeline, toCsv } from '../extension/lib/attempts.js';
+import { FROM_HISTORY, LABELS, MAX_ATTEMPTS, SAME_ATTEMPT_MS, bookmarksTo, bySite, hostOf, listedDomain, mergeVisits, offDuring, outcome as whatHappened, record, sameVisit, summarize, timeline, toCsv } from '../extension/lib/attempts.js';
 import { everyTryShows, everyTryWords, lockWords, offVisitsWords, offWords, spanWords } from '../extension/lib/page.js';
 import { GAP_MS, MAX_OFF, MAX_PERIODS, WRITE_EVERY_MS, beat, earliestLiveTry, gapsOf, kindOfVisit, normalize, noteGaps, started, wasRunning } from '../extension/lib/watching.js';
 import { normalizeDomain, parseDomainList } from '../extension/lib/domains.js';
@@ -468,6 +468,122 @@ test('blocked attempts: notes are added oldest first, repeats within two seconds
   assert.deepEqual(tried, [{ at: t, site: 'a.test', from: 'history' }, { at: t + 700, site: 'a.test' }], 'a try right after a visit from the history is new');
   assert.equal(record(tried, { at: t + 900, site: 'a.test' }), null, 'and its second report is the same try');
   assert.equal(record('not a list', { at: t, site: 'a.test' }).length, 1, 'a damaged record starts over');
+});
+
+test('blocked attempts: the reports of one visit are told from a second try by what they are, not by the clock, so a slow device notes one visit once', () => {
+  const S = 'a.test';
+  const T = 'b.test';
+  /** One tab's reports, [kind, site or null, time, request] each, taken as the background script takes them: the ones that would be noted. */
+  const noted = (reports) => {
+    let visit;
+    const notes = [];
+    for (const [kind, site, at, request] of reports) {
+      const before = JSON.stringify(visit);
+      const result = sameVisit(visit, { kind, site, at, request });
+      assert.equal(JSON.stringify(visit), before, 'what was remembered is left as it was');
+      assert.equal(typeof result.again, 'boolean');
+      if (!site) assert.equal(result.again, false, 'an address that is no try is no visit');
+      else if (!result.again && kind !== 'failed') notes.push(`${kind} ${site} ${at}`); // a load's failing is never noted by itself
+      visit = result.visit;
+    }
+    return notes;
+  };
+  /** The same, put into a record as the background script puts them: the times of its rows. */
+  const rows = (reports) =>
+    noted(reports)
+      .map((line) => line.split(' '))
+      .reduce((list, [, site, at]) => record(list, { at: Number(at), site }) ?? list, [])
+      .map(({ at }) => at);
+  // The add-on's own block page taking the tab, as each browser reports it: the load starts, the page is in the tab.
+  const blockPage = (at) => [['start', null, at], ['page', null, at + 20]];
+
+  // Chromium, an address typed, the page's answer in before the tab could be sent on: every report is of the one
+  // visit, however long the device takes over each (here the block page takes the tab 18 seconds in).
+  assert.deepEqual(noted([['start', S, 0], ['request', S, 1, 'a'], ['tab', S, 10_000], ['page', S, 10_003], ...blockPage(18_000)]), ['start a.test 0']);
+  // The same, for a page that rewrites its own address as it loads: the tab's address changes each time.
+  assert.deepEqual(
+    noted([['start', S, 0], ['request', S, 1, 'a'], ['tab', S, 4000], ['page', S, 4002], ['tab', S, 4004], ['address', S, 4006], ['tab', S, 9000], ['address', S, 9001], ...blockPage(18_000)]),
+    ['start a.test 0'],
+  );
+  // Firefox: the start is reported twice when the load moves to another process, the page before the tab's
+  // address, and the request late, with the time it was made.
+  assert.deepEqual(noted([['start', S, 3], ['start', S, 9000], ['page', S, 9016], ['tab', S, 9024], ['request', S, 2, 'a'], ...blockPage(15_000), ['tab', null, 15_030]]), ['start a.test 3']);
+  // And the request delivered after the tab has left: it was made before the visit ended, so it is that visit's.
+  assert.deepEqual(noted([['start', S, 8], ...blockPage(15), ['request', S, 10, 'a']]), ['start a.test 8']);
+  // A request that is redirected is reported again under the same name: still the one load.
+  assert.deepEqual(noted([['start', S, 0], ['request', S, 1, 'a'], ['request', S, 4000, 'a'], ['page', S, 9000]]), ['start a.test 0']);
+
+  // A second try from the block page is a try: the visit ended when the block page took the tab.
+  assert.deepEqual(noted([['start', S, 0], ['request', S, 1, 'a'], ...blockPage(15), ['start', S, 5000], ['request', S, 5001, 'b'], ...blockPage(5015)]), ['start a.test 0', 'start a.test 5000']);
+  assert.deepEqual(noted([['start', S, 8], ...blockPage(15), ['request', S, 10, 'a'], ['start', S, 5000], ['request', S, 5002, 'b']]), ['start a.test 8', 'start a.test 5000'], 'the late request leaves the second try its own');
+  // With no start reported (Firefox leaves out the first load in a brand-new tab), the request is the try.
+  assert.deepEqual(noted([['request', S, 0, 'a'], ['start', S, 5], ['page', S, 40], ['tab', S, 41]]), ['request a.test 0']);
+  assert.deepEqual(noted([['start', S, 0], ...blockPage(15), ['request', S, 5000, 'a']]), ['start a.test 0', 'request a.test 5000'], 'a request made after the visit ended is a new try');
+
+  // Tried again while the first load is still on its way, with nothing of the site in the tab yet: the second
+  // load makes a request of its own, and that is the try. In Chromium's order, then in Firefox's.
+  assert.deepEqual(noted([['start', S, 0], ['request', S, 1, 'a'], ['start', S, 5000], ['request', S, 5001, 'b'], ['page', S, 9000], ['tab', S, 9001]]), ['start a.test 0', 'request a.test 5001']);
+  assert.deepEqual(noted([['start', S, 4], ['request', S, 2, 'a'], ['start', S, 5004], ['start', S, 5010], ['request', S, 5002, 'b'], ['page', S, 9000]]), ['start a.test 4', 'request a.test 5002']);
+  // A link pressed twice in a moment is one try all the same: record() takes two notes that close for one.
+  assert.deepEqual(rows([['start', S, 0], ['request', S, 1, 'a'], ['start', S, 400], ['request', S, 401, 'b']]), [0]);
+  assert.deepEqual(rows([['start', S, 0], ['request', S, 1, 'a'], ['start', S, 5000], ['request', S, 5001, 'b']]), [0, 5001]);
+  // Firefox, as measured: another add-on cancels each load outright, so nothing is ever put in the tab and each
+  // load is reported as dropped in a way that isn't weighed. Three tries, eight seconds apart.
+  assert.deepEqual(
+    noted([['start', S, 2], ['request', S, 1, '34'], ['start', S, 8010], ['request', S, 8009, '38'], ['start', S, 16_020], ['request', S, 16_019, '43']]),
+    ['start a.test 2', 'request a.test 8009', 'request a.test 16019'],
+  );
+  // The block page taking the tab goes unheard, if a browser should ever leave that out: the next try is still a try.
+  assert.deepEqual(noted([['start', S, 0], ['request', S, 1, 'a'], ['start', S, 5000], ['request', S, 5001, 'b'], ['start', S, 9000], ['request', S, 9001, 'c']]), ['start a.test 0', 'request a.test 5001', 'request a.test 9001']);
+  // A request of an earlier load, delivered after the next visit began, is not that visit's: its own comes after.
+  assert.deepEqual(noted([['start', S, 0], ['page', S, 50], ['start', S, 5000], ['request', S, 1, 'a'], ['request', S, 5001, 'b']]), ['start a.test 0', 'start a.test 5000']);
+  // Requests the browser gives no name can't be told apart: they are the visit's own, as its starts are.
+  assert.deepEqual(noted([['start', S, 0], ['request', S, 1], ['start', S, 5000], ['request', S, 5001]]), ['start a.test 0']);
+
+  // Once the site's page has been in the tab, the block has failed, and each page opened there is a try.
+  assert.deepEqual(
+    noted([['start', S, 0], ['request', S, 1, 'a'], ['page', S, 50], ['tab', S, 55], ['start', S, 9000], ['request', S, 9001, 'b'], ['page', S, 9050], ['tab', S, 9055]]),
+    ['start a.test 0', 'start a.test 9000'],
+  );
+  // A page the browser kept whole and brings back has no start: the page itself is the try.
+  assert.deepEqual(noted([['start', S, 0], ['page', S, 50], ['tab', S, 55], ['page', S, 9000], ['tab', S, 9005]]), ['start a.test 0', 'page a.test 9000']);
+  assert.deepEqual(noted([['start', S, 0], ['page', S, 50], ...blockPage(60), ['tab', S, 9000], ['page', S, 9001]]), ['start a.test 0', 'tab a.test 9000']);
+
+  // An address the page writes for itself, with no load: Chromium reports the tab first, Firefox the page.
+  assert.deepEqual(noted([['tab', S, 42], ['address', S, 45], ...blockPage(60), ['tab', S, 3042], ['address', S, 3043]]), ['tab a.test 42', 'tab a.test 3042']);
+  assert.deepEqual(noted([['address', S, 7], ['tab', S, 10], ...blockPage(20), ['address', S, 3006], ['tab', S, 3010]]), ['address a.test 7', 'address a.test 3006']);
+  // Written, left for an address that is no try, and written again: the site's page had been in the tab, so that ended the visit.
+  assert.deepEqual(noted([['address', S, 0], ['tab', S, 1], ['address', null, 500], ['tab', null, 501], ['address', S, 900], ['tab', S, 901]]), ['address a.test 0', 'address a.test 900']);
+  // But the page that was in the tab already may change its own address while the load is on its way: that ends nothing.
+  assert.deepEqual(noted([['start', S, 0], ['request', S, 1, 'a'], ['tab', null, 500], ['address', null, 501], ['page', S, 9000], ['tab', S, 9001]]), ['start a.test 0']);
+  // Nor does a load that starts for another address, the block page's or any: the first may still win the tab.
+  assert.deepEqual(noted([['start', S, 0], ['start', null, 5], ['request', null, 6, 'x'], ['start', S, 9], ['page', S, 12], ['tab', S, 15]]), ['start a.test 0']);
+
+  // A load that fails ends in the browser's own error page under the address tried. Chromium says only that it
+  // failed (and that the tab's address changed, the first time): each try after it is a try all the same.
+  assert.deepEqual(
+    noted([['start', S, 2], ['request', S, 3, 'a'], ['tab', S, 24], ['failed', S, 26], ['start', S, 3022], ['request', S, 3023, 'b'], ['failed', S, 3035], ['start', S, 6037], ['request', S, 6038, 'c'], ['failed', S, 6052]]),
+    ['start a.test 2', 'start a.test 3022', 'start a.test 6037'],
+  );
+  // And when no request is made for it, because something stopped the load before one was: the failing is all there is to go by.
+  assert.deepEqual(noted([['start', S, 2], ['tab', S, 24], ['failed', S, 26], ['start', S, 3022], ['failed', S, 3035], ['start', S, 6037], ['failed', S, 6052]]), ['start a.test 2', 'start a.test 3022', 'start a.test 6037']);
+  // Firefox reports that page as a page at the address, after saying that the load failed; under its own block no request is made.
+  assert.deepEqual(noted([['start', S, 2], ['failed', S, 17], ['page', S, 20], ['tab', S, 24], ['start', S, 3078], ['failed', S, 3083], ['page', S, 3088], ['tab', S, 3092]]), ['start a.test 2', 'start a.test 3078']);
+  // A failure with no try before it is nothing, and leaves a later try its own; another address failing ends a visit, as its error page is in the tab.
+  assert.deepEqual(noted([['failed', S, 5], ['start', S, 900], ['request', S, 901, 'a']]), ['start a.test 900']);
+  assert.deepEqual(noted([['start', S, 0], ['failed', null, 400], ['start', S, 900]]), ['start a.test 0', 'start a.test 900']);
+  assert.deepEqual(sameVisit({ site: T, since: 1, shown: true, paged: true, heard: 1, over: null, request: null, requested: null }, { kind: 'failed', site: S, at: 5 }).again, false);
+  // A load that makes no request (a page made in the browser, say) and is dropped without a word put nothing in
+  // the tab: a start within a minute may be the same load on a slow device, and one after it is a try.
+  assert.deepEqual(noted([['start', S, 0], ['start', S, 59_000]]), ['start a.test 0']);
+  assert.deepEqual(noted([['start', S, 0], ['start', S, 60_001]]), ['start a.test 0', 'start a.test 60001']);
+  assert.deepEqual(noted([['start', S, 0], ['start', S, 40_000], ['start', S, 80_000]]), ['start a.test 0'], 'the minute runs from the last word of the load');
+
+  // Another listed site in the same tab is another visit, and going back to the first one after it, too.
+  assert.deepEqual(noted([['start', S, 0], ['start', T, 300], ['page', T, 350], ['start', S, 600]]), ['start a.test 0', 'start b.test 300', 'start a.test 600']);
+  // A tab that has shown no try keeps nothing.
+  assert.deepEqual(sameVisit(undefined, { kind: 'page', site: null, at: 1 }), { again: false, visit: null });
+  assert.deepEqual(sameVisit(null, { kind: 'start', site: null, at: 1 }), { again: false, visit: null });
 });
 
 test("blocked attempts: visits found in the browser's history are added in time order, marked, each once, and never twice", () => {

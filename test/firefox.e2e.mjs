@@ -471,6 +471,56 @@ describe('Firefox', { skip: findFirefox() ? false : 'no Firefox found (set FIREF
       await assertBlocked(BLOCKED_URL);
     });
 
+    test("each try is noted when something else stops the site first and the tab ends at Firefox's own error page every time", async () => {
+      // Firefox's own copy of the list under the lock, say, or another blocker. Firefox then reports its error
+      // page as a page at the address tried: a third try must not pass for the second still on its way. The
+      // stand-in: the built-in rules off, and the site at an https address, where the stub internet turns the
+      // tunnel down, so the load fails by itself.
+      const settings = tabsAfterInstall.find(({ url }) => url.endsWith('/options.html'));
+      const tab = await browser.newTab();
+      const onSettings = async (script, ...args) => {
+        await browser.fx.send('WebDriver:SwitchToWindow', { handle: settings.handle });
+        try {
+          return await browser.fx.send('WebDriver:ExecuteAsyncScript', { script: `const done = arguments[arguments.length - 1]; ${script}`, args });
+        } finally {
+          await browser.fx.send('WebDriver:SwitchToWindow', { handle: tab });
+        }
+      };
+      const builtInRules = (on) =>
+        onSettings(
+          `const ids = browser.runtime.getManifest().declarative_net_request.rule_resources.map(({ id }) => id);
+          browser.declarativeNetRequest.updateEnabledRulesets(arguments[0] ? { enableRulesetIds: ids } : { disableRulesetIds: ids }).then(() => done('ok'), (error) => done('error: ' + error));`,
+          on,
+        );
+      const stored = () => onSettings("browser.storage.local.get('attempts').then((got) => done(got.attempts ?? []), () => done([]));");
+      try {
+        assert.equal(await builtInRules(false), 'ok');
+        await sleep(2100); // more than the two seconds that make two notes one try
+        const before = (await stored()).length;
+        for (let tries = 1; tries <= 3; tries += 1) {
+          if (tries > 1) await sleep(2100);
+          await browser.fx.send('WebDriver:Navigate', { url: `https://${SITE}/` }).catch(() => {});
+          assert.match(await browser.run('return document.documentURI'), /^about:neterror\?/, 'the load fails by itself');
+          let list = await stored();
+          for (const until = Date.now() + 10_000; list.length < before + tries && Date.now() < until; list = await stored()) await sleep(150);
+          assert.deepEqual(list.slice(before).map(({ site, opened }) => ({ site, opened })), Array(tries).fill({ site: SITE, opened: undefined }), `after try ${tries}`);
+        }
+        // The add-on looks through Firefox's history a moment after a try and takes the site's pages out of
+        // it (background.js sweepSoon). The tests after this one put pages there and count what a look
+        // started by hand finds, so the add-on's own look has to be over before they start: a page of the
+        // site put into the history now is gone once it is (and if it is still there after a long wait, the
+        // look was over before the page was put in). A note too many would be there by then as well.
+        const marker = `http://${SITE}/swept`;
+        assert.equal(await onSettings("browser.history.addUrl({ url: arguments[0] }).then(() => done('ok'), (error) => done('error: ' + error));", marker), 'ok');
+        const kept = () => onSettings('browser.history.getVisits({ url: arguments[0] }).then((visits) => done(visits.length > 0), () => done(false));', marker);
+        for (const until = Date.now() + 15_000; (await kept()) && Date.now() < until; ) await sleep(150);
+        await onSettings('browser.history.deleteUrl({ url: arguments[0] }).then(() => done(true), () => done(false));', marker);
+        assert.equal((await stored()).length, before + 3, 'and no more than that');
+      } finally {
+        assert.equal(await builtInRules(true), 'ok');
+      }
+    });
+
     test("a visit from before the add-on was watching is found in Firefox's history and added with its own date", async () => {
       const settings = tabsAfterInstall.find(({ url }) => url.endsWith('/options.html'));
       await browser.fx.send('WebDriver:SwitchToWindow', { handle: settings.handle });
@@ -1448,6 +1498,8 @@ describe('Firefox', { skip: findFirefox() ? false : 'no Firefox found (set FIREF
         { headers: { 'content-type': 'text/javascript' } },
       );
       stub.page(`${WORKER_HOST}/framed`, `<!doctype html><title>framed</title><h1>FRONT</h1><iframe id="f" src="/service/${ultraviolet(UNLISTED)}"></iframe>`);
+      // A page that rewrites its own address as it loads, as many do: the tab's address changes three times for one page load.
+      stub.page('allowed.test/rewrites', `<!doctype html><title>rewrites</title><h1>SITE LOADED</h1><script>history.replaceState({}, '', location.href + '&seen=1'); location.hash = 'top';</script>`);
     });
 
     after(async () => {
@@ -1738,6 +1790,98 @@ describe('Firefox', { skip: findFirefox() ? false : 'no Firefox found (set FIREF
           (seen) => seen.some((text) => text.includes('through')),
         );
         assert.ok(words.includes(`Visited before the add-on, through ${PROXY}`), JSON.stringify(words));
+      });
+
+      // Firefox reports one page load to the add-on several times over, and on a slow device the reports,
+      // and the add-on's own calls, come many seconds apart: the phone app's test phone noted one visit three
+      // times, where only notes within two seconds of each other were taken for one try (1.31.0 as first
+      // merged). Here the add-on's two calls that move a tab are held back for longer than those two seconds,
+      // as a slow device holds them, so the page is in the tab for a while before the block page takes it:
+      // that made two rows of one visit in Firefox, and six of a page that rewrites its own address.
+      const HELD_MS = 2300;
+      const named = (path) => `http://allowed.test/${path}?url=${encodeURIComponent(`https://${SITE}/`)}`; // at a host no rule knows: only the background script stops it
+
+      /** Holds back the add-on's calls that move a tab by `ms` each, or lets them go as ever with 0; resolves to how many it has held back so far. */
+      const holdBack = (ms) =>
+        onSettings(
+          `browser.runtime.getBackgroundPage().then((background) => {
+            const api = background.browser;
+            const wait = arguments[0];
+            const held = (background.heldBack ??= { run: api.scripting.executeScript.bind(api.scripting), update: api.tabs.update.bind(api.tabs), calls: 0 });
+            const later = (call) => (...args) => {
+              held.calls += 1;
+              return new background.Promise((go) => background.setTimeout(go, wait)).then(() => call(...args));
+            };
+            Object.defineProperty(api.scripting, 'executeScript', { value: wait ? later(held.run) : held.run, configurable: true, writable: true });
+            Object.defineProperty(api.tabs, 'update', { value: wait ? later(held.update) : held.update, configurable: true, writable: true });
+            done(held.calls);
+          }).catch((error) => done('error: ' + error));`,
+          ms,
+        );
+
+      /** Opens an address by another road while the add-on is held back: its page is in the tab first (`shows` its address), then the block page; then waits for every call held back to be let go and noted. */
+      async function slowVisit(url, shows = /^http:\/\/allowed\.test\//) {
+        proxied.fx.send('WebDriver:Navigate', { url }).catch(() => {});
+        assert.match(await until(() => proxied.currentUrl().catch(() => ''), (at) => shows.test(at)), shows, 'the page was in the tab first');
+        await showsBlockPage();
+        await sleep(2 * HELD_MS);
+      }
+
+      test('one visit is one row however slow the device, and a second try from the block page is a second row', async () => {
+        await sleep(2100); // more than the two seconds that make two notes one try
+        const before = (await storedAttempts()).length;
+        try {
+          assert.equal(typeof (await holdBack(HELD_MS)), 'number');
+          await slowVisit(named('fetch'));
+          assert.deepEqual(roads((await storedAttempts()).slice(before)), [{ site: SITE, via: 'allowed.test' }], 'one visit');
+          await slowVisit(named('fetch'));
+          assert.deepEqual(roads((await storedAttempts()).slice(before)), [{ site: SITE, via: 'allowed.test' }, { site: SITE, via: 'allowed.test' }], 'a second try');
+          assert.ok((await holdBack(0)) >= 2, 'the add-on was held back');
+        } finally {
+          await holdBack(0).catch(() => {});
+        }
+      });
+
+      test('a page that rewrites its own address as it loads is one row too', async () => {
+        await sleep(2100);
+        const before = (await storedAttempts()).length;
+        try {
+          assert.equal(typeof (await holdBack(HELD_MS)), 'number');
+          await slowVisit(named('rewrites'), /&seen=1#top$/);
+          assert.deepEqual(roads((await storedAttempts()).slice(before)), [{ site: SITE, via: 'allowed.test' }]);
+          assert.ok((await holdBack(0)) >= 1, 'the add-on was held back');
+        } finally {
+          await holdBack(0).catch(() => {});
+        }
+      });
+
+      test('a second try while the first is still on its way is a second row', async () => {
+        // On a slow device the block page takes its time, and a person who tries again meanwhile has tried
+        // twice, though nothing of the site was in the tab in between: the second load makes a request of
+        // its own, and that is the try. Here a page opens the address, which answers with nothing to show,
+        // and opens it again once more than two seconds have passed; the add-on, held back for longer than
+        // that, sends the tab on after both.
+        const tries = [named('nothing'), `${named('nothing')}&again=1`];
+        stub.page('allowed.test/nothing', '', { status: 204 });
+        stub.page(
+          'allowed.test/twice',
+          `<!doctype html><title>twice</title><h1>FRONT</h1>
+          <script>addEventListener('load', () => setTimeout(() => { location.href = ${JSON.stringify(tries[0])}; setTimeout(() => { location.href = ${JSON.stringify(tries[1])}; }, ${HELD_MS}); }, 0));</script>`,
+        );
+        await sleep(2100);
+        const before = (await storedAttempts()).length;
+        try {
+          stub.clear();
+          assert.equal(typeof (await holdBack(2 * HELD_MS)), 'number');
+          proxied.fx.send('WebDriver:Navigate', { url: 'http://allowed.test/twice' }).catch(() => {});
+          await showsBlockPage();
+          assert.equal(stub.requests.filter(({ path }) => path === '/nothing').length, 2, `the address was asked for twice before the tab was sent on: ${asked()}`);
+          await sleep(2 * HELD_MS);
+          assert.deepEqual(roads((await storedAttempts()).slice(before)), [{ site: SITE, via: 'allowed.test' }, { site: SITE, via: 'allowed.test' }]);
+          assert.ok((await holdBack(0)) >= 2, 'the add-on was held back');
+        } finally {
+          await holdBack(0).catch(() => {});
+        }
       });
     });
 
