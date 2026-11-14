@@ -32,7 +32,6 @@ androidx-swiperefreshlayout = { module = "androidx.swiperefreshlayout:swiperefre
 google-material = { module = "com.google.android.material:material", version.ref = "material" }
 kotlinx-coroutines-android = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-android", version.ref = "coroutines" }
 
-mozilla-browser-domains = { module = "org.mozilla.components:browser-domains", version.ref = "android-components" }
 mozilla-browser-engine-gecko = { module = "org.mozilla.components:browser-engine-gecko", version.ref = "android-components" }
 mozilla-browser-errorpages = { module = "org.mozilla.components:browser-errorpages", version.ref = "android-components" }
 mozilla-browser-icons = { module = "org.mozilla.components:browser-icons", version.ref = "android-components" }
@@ -63,7 +62,6 @@ mozilla-feature-toolbar = { module = "org.mozilla.components:feature-toolbar", v
 mozilla-feature-webcompat = { module = "org.mozilla.components:feature-webcompat", version.ref = "android-components" }
 mozilla-lib-publicsuffixlist = { module = "org.mozilla.components:lib-publicsuffixlist", version.ref = "android-components" }
 mozilla-lib-state = { module = "org.mozilla.components:lib-state", version.ref = "android-components" }
-mozilla-service-location = { module = "org.mozilla.components:service-location", version.ref = "android-components" }
 mozilla-support-appservices = { module = "org.mozilla.components:support-appservices", version.ref = "android-components" }
 mozilla-support-base = { module = "org.mozilla.components:support-base", version.ref = "android-components" }
 mozilla-support-ktx = { module = "org.mozilla.components:support-ktx", version.ref = "android-components" }

@@ -18,6 +18,7 @@ import io.gitlab.adviseworn.familysiteblocker.integration.FindInPageIntegration
 import io.gitlab.adviseworn.familysiteblocker.lock.LockFragment
 import io.gitlab.adviseworn.familysiteblocker.lock.LockState
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.distinctUntilChangedBy
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.mapNotNull
@@ -41,7 +42,6 @@ import mozilla.components.feature.sitepermissions.SitePermissionsRules
 import mozilla.components.feature.sitepermissions.SitePermissionsRules.AutoplayAction
 import mozilla.components.feature.tabs.WindowFeature
 import mozilla.components.feature.tabs.toolbar.TabsToolbarFeature
-import mozilla.components.feature.toolbar.ToolbarAutocompleteFeature
 import mozilla.components.feature.toolbar.ToolbarFeature
 import mozilla.components.lib.state.ext.consumeFlow
 import mozilla.components.support.base.feature.UserInteractionHandler
@@ -71,6 +71,13 @@ class BrowserFragment : Fragment(), UserInteractionHandler {
     private var _binding: FragmentBrowserBinding? = null
     private val binding get() = _binding!!
 
+    /** The toolbar of [binding] with the address bar's own rules on it: what opens or closes the bar goes through here. */
+    private var _addressBar: AddressBar? = null
+    private val addressBar get() = _addressBar!!
+
+    /** Ends the watching of the add-on's rules that [onViewCreated] began. */
+    private var stopWatchingRules: (() -> Unit)? = null
+
     private val defaultBrowserRequest =
         registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
             if (_binding != null && !DefaultBrowser.isDefault(requireContext())) {
@@ -83,6 +90,7 @@ class BrowserFragment : Fragment(), UserInteractionHandler {
     @Suppress("LongMethod")
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View {
         _binding = FragmentBrowserBinding.inflate(inflater, container, false)
+        _addressBar = AddressBar(binding.toolbar)
         val components = components
         val context = requireContext()
 
@@ -103,7 +111,7 @@ class BrowserFragment : Fragment(), UserInteractionHandler {
 
         toolbarFeature.set(
             feature = ToolbarFeature(
-                binding.toolbar,
+                addressBar,
                 components.store,
                 components.sessionUseCases.loadUrl,
                 components.defaultSearchUseCase,
@@ -111,12 +119,6 @@ class BrowserFragment : Fragment(), UserInteractionHandler {
             owner = this,
             view = binding.root,
         )
-        ToolbarAutocompleteFeature(binding.toolbar, components.engine).apply {
-            updateAutocompleteProviders(
-                providers = listOf(components.historyStorage, components.shippedDomainsProvider),
-                refreshAutocomplete = false,
-            )
-        }
         TabsToolbarFeature(
             toolbar = binding.toolbar,
             store = components.store,
@@ -277,17 +279,27 @@ class BrowserFragment : Fragment(), UserInteractionHandler {
                 .collect { noTabs -> if (noTabs) newTab() }
         }
 
-        // A page opening in a new tab (the add-on's settings page on the first start, a link from another app)
-        // takes the address bar out of edit mode, so its address shows.
+        // Another tab coming to the front (the add-on's settings page on the first start, a link from another
+        // app) takes the address bar out of edit mode, so that tab's address shows. A fresh tab does not: newTab
+        // has just opened the bar on it. Nor does anything the page in front does by itself, such as moving to
+        // another address while it loads: someone may be typing in the bar.
         consumeFlow(components.store) { flow ->
             flow.mapNotNull { state -> state.selectedTab }
-                .map { tab -> tab.id to tab.content.url }
-                .distinctUntilChanged()
-                .collect { (_, url) -> if (url != NEW_TAB_URL) binding.toolbar.displayMode() }
+                .distinctUntilChangedBy { tab -> tab.id }
+                .collect { tab -> if (tab.content.url != AddressBar.FRESH_TAB) addressBar.displayMode() }
+        }
+
+        // While the add-on's rules have not started no web page opens (AddOnRules), and a line under the bar
+        // says why the screen stays empty.
+        stopWatchingRules = components.addOnRules.watch { state ->
+            binding.rulesStarting.setText(
+                if (state == AddOnRules.State.NOT_STARTED) R.string.rules_not_started else R.string.rules_starting,
+            )
+            binding.rulesStarting.visibility = if (state == AddOnRules.State.STARTED) View.GONE else View.VISIBLE
         }
 
         if (savedInstanceState == null) {
-            if (arguments?.getBoolean(ARG_FOCUS_URL_BAR) == true) binding.toolbar.editMode()
+            if (arguments?.getBoolean(ARG_FOCUS_URL_BAR) == true) addressBar.openEmpty()
             DefaultBrowser.askOnce(requireContext(), components.preferences) { intent ->
                 defaultBrowserRequest.launch(intent)
             }
@@ -319,7 +331,6 @@ class BrowserFragment : Fragment(), UserInteractionHandler {
             )
             setUrlBackground(ContextCompat.getDrawable(context, R.drawable.url_background))
             this.hint = hintText
-            urlFormatter = { url -> if (url == NEW_TAB_URL) "" else url }
         }
         with(binding.toolbar.edit) {
             colors = colors.copy(clear = text, icon = text, hint = hint, text = text)
@@ -402,7 +413,7 @@ class BrowserFragment : Fragment(), UserInteractionHandler {
                 iconsR.drawable.mozac_ic_shield_checkmark_24,
                 iconTint,
             ) {
-                openExtensionPage(FamilySiteBlocker.CHECK_PAGE)
+                openExtensionPage(FamilySiteBlocker.SETTINGS_PAGE, FamilySiteBlocker.IS_IT_WORKING)
             },
             BrowserMenuImageText(getString(R.string.menu_lock), R.drawable.ic_lock_24, iconTint) {
                 showLock()
@@ -417,8 +428,8 @@ class BrowserFragment : Fragment(), UserInteractionHandler {
     }
 
     private fun newTab() {
-        components.tabsUseCases.addTab(NEW_TAB_URL, selectTab = true)
-        binding.toolbar.editMode()
+        components.tabsUseCases.addTab(AddressBar.FRESH_TAB, selectTab = true)
+        addressBar.openEmpty()
     }
 
     private fun share() {
@@ -430,21 +441,26 @@ class BrowserFragment : Fragment(), UserInteractionHandler {
         startActivity(Intent.createChooser(send, getString(R.string.menu_share)))
     }
 
-    /** Opens one of the add-on's pages, going back to its tab when it is already open. */
-    private fun openExtensionPage(page: String) {
+    /**
+     * Opens one of the add-on's pages, going back to its tab when it is already open. With a [part], the page
+     * is opened at that part of it, also when its tab stood at another.
+     */
+    private fun openExtensionPage(page: String, part: String? = null) {
         val url = FamilySiteBlocker.pageUrl(page)
         if (url == null) {
             Snackbar.make(binding.root, R.string.add_on_still_starting, Snackbar.LENGTH_SHORT).show()
             return
         }
+        val wanted = if (part == null) url else "$url#$part"
         val components = components
         val open = components.store.state.tabs.firstOrNull { tab ->
             tab.content.url.substringBefore('#').substringBefore('?') == url
         }
-        if (open != null) {
-            components.tabsUseCases.selectTab(open.id)
+        if (open == null) {
+            components.tabsUseCases.addTab(wanted, selectTab = true)
         } else {
-            components.tabsUseCases.addTab(url, selectTab = true)
+            components.tabsUseCases.selectTab(open.id)
+            if (part != null) components.sessionUseCases.loadUrl(wanted, sessionId = open.id)
         }
     }
 
@@ -479,7 +495,10 @@ class BrowserFragment : Fragment(), UserInteractionHandler {
 
     override fun onDestroyView() {
         super.onDestroyView()
+        stopWatchingRules?.invoke()
+        stopWatchingRules = null
         binding.engineView.setActivityContext(null)
+        _addressBar = null
         _binding = null
     }
 
@@ -488,7 +507,6 @@ class BrowserFragment : Fragment(), UserInteractionHandler {
     }.toIntArray()
 
     companion object {
-        private const val NEW_TAB_URL = "about:blank"
         private const val ARG_FOCUS_URL_BAR = "focus_url_bar"
         private const val REQUEST_KEY_DOWNLOAD_PERMISSIONS = "downloadFeature"
         private const val REQUEST_KEY_PROMPT_PERMISSIONS = "promptFeature"

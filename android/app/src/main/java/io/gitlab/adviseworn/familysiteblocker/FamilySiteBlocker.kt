@@ -10,7 +10,9 @@ object FamilySiteBlocker {
 
     const val SETTINGS_PAGE = "options.html"
     const val EVERY_TRY_PAGE = "tries.html"
-    const val CHECK_PAGE = "check.html"
+
+    /** The part of the settings page headed "Is it working?". */
+    const val IS_IT_WORKING = "working"
 
     private val logger = Logger("FamilySiteBlocker")
 
