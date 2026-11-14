@@ -66,6 +66,39 @@ from that page.
 Not covered: what a page on the screen asks for while the app waits is dropped, not kept for later. And a
 page that is open stays open if the rules were to stop in the middle of a run, which nothing is known to cause.
 
+## The add-on stays awake
+
+Firefox puts an add-on's background page to sleep after half a minute with nothing to do, and starts it again
+for the next thing it listens for. A listed site does not wait for that start: a rule sends it to the block
+page. A listed site opened by another road does (a web proxy, a translation, an archive): the add-on's
+background script is what stops it, and while that was starting, the proxy's page stood in the tab. On a
+computer that is a tenth of a second. On the Android 15 emulator, which is far slower than a phone, the start
+took 23 and 27 seconds in two tries, and the proxy's page stood in the tab for 31 and 33.
+
+So in the app the add-on holds a line open to the app for as long as it runs, and sends nothing over it
+(`stayAwake` in `app/src/main/extension/android-bridge.js`, with `runtime.connectNative`). Gecko leaves a
+background page alone while it holds such a line (`ext-backgroundPage.js`, `hasActiveNativeAppPorts`), and
+GeckoView keeps a line asked for before the app listens and hands it over then. `AddOnBridge` takes the line
+and keeps it, and says so in the log. A line that goes is opened again: at once when it had held for five
+seconds, otherwise with the add-on's next alarm, within a minute, so that a line the app refuses is not asked
+for over and over.
+
+Tried on the Android 15 emulator with the lock on, with a copy of build 29 installed over build 27. The log
+said once that the add-on holds its line open, and in the half hour that followed the page was not started
+again, where before the add-on's own alarm started it every minute. An address that names a listed site was
+sent after two and a half minutes with nothing touched, after five and a half, and after the app had been in
+the background for five: the add-on moved the tab 0.03, 0.3 and 0.4 seconds after the load began, the address
+never reached the tab, and the stand-in for the proxy was not asked for its page once. The page was not
+started again while the app was in the background either. After a restart of the phone the add-on opened its
+line again when the app was opened. Not tried: a real phone, and a night in the background.
+
+The price is memory. The page is no longer let go, and with it stay the picture filter's code and the models
+it has loaded, which in turn judge the next picture without loading them again. On the same emulator, before
+this change, a page with three pictures took the app's main process from 402 MB to 520 MB while they were
+judged, and back to 427 MB once the background page had been let go, three minutes later. With this change
+the same page took it from 454 MB to 531 MB, and there it stayed for the seven minutes it was read: of what
+the picture filter loads, some 50 to 90 MB is now kept for as long as the app runs.
+
 ## Searching
 
 A word typed into the address bar that is no address is searched with Google. So are text marked on a page
@@ -441,7 +474,8 @@ versionCode `1029000`, below every number made this way.
 
 The phone files of 1.30.0 were handed over under names that count from further back, builds 21 to 26, while
 `fsbAppBuild` said 2 to 7; where this file names a build of 1.30.0, it is by that name. From 1.31.0 on
-`fsbAppBuild` is the number in the file's name, starting at 27.
+`fsbAppBuild` is the number in the file's name, starting at 27. Number 28 was a test copy for the emulators
+and reached no phone.
 
 ## Building
 
@@ -531,6 +565,13 @@ phone: install the file over one that carries the older add-on and ask for a lis
 end at "This site is blocked" (`adb logcat` has the app's lines under `AddOnBridge` and `Components`, and
 Gecko's "closed queue" when the swap went wrong). Then start the app afresh and see the tabs come back, and
 open Settings, Every try and Is it working? from the menu.
+
+When Gecko puts an add-on's background page to sleep, and what keeps it from that, is Mozilla's to change too
+(see "The add-on stays awake"). So after a bump, on a test phone: leave the app alone for some minutes and read
+`adb logcat -s AddOnBridge`. It has to say once that the add-on holds its line open, and never that the line
+has closed. "Rules have started" belongs to the app's start, where a slow phone logs it a few times over
+because the app was long in answering, and must not come again minute after minute: that is what a page that
+sleeps and is started by the add-on's alarm logs.
 
 ## Not in the first version
 

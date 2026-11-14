@@ -4,6 +4,7 @@ import android.content.Context
 import io.gitlab.adviseworn.familysiteblocker.lock.BedtimeSetting
 import mozilla.components.concept.engine.EngineSession
 import mozilla.components.concept.engine.webextension.MessageHandler
+import mozilla.components.concept.engine.webextension.Port
 import mozilla.components.concept.engine.webextension.WebExtension
 import mozilla.components.support.base.log.logger.Logger
 import org.json.JSONObject
@@ -15,6 +16,11 @@ import org.json.JSONObject
  * started. The app keeps the bedtime it hears ([BedtimeSetting]) for the lock, which does the phone's part of
  * it, and goes by what it hears of the rules before it opens a web page ([AddOnRules]).
  *
+ * The script also holds a line open to the app for as long as it runs and sends nothing over it. Gecko puts
+ * an add-on's background page to sleep after half a minute with nothing to do, but not one that holds such a
+ * line, and an add-on that is awake stops a listed site opened by another road, a web proxy's say, before
+ * the proxy's page is in the tab. The app has only to take the line and keep it.
+ *
  * Only the add-on's own background page can send here: Gecko takes messages for the app from nowhere else.
  */
 object AddOnBridge {
@@ -23,12 +29,25 @@ object AddOnBridge {
 
     private val logger = Logger("AddOnBridge")
 
+    /** The line the add-on holds open, kept so that nothing here lets go of it. */
+    private var line: Port? = null
+
     /** Starts listening to the add-on, once Gecko has installed it. */
     fun listen(context: Context, extension: WebExtension, rules: AddOnRules) {
         val setting = BedtimeSetting(context)
         extension.registerBackgroundMessageHandler(
             APP,
             object : MessageHandler {
+                override fun onPortConnected(port: Port) {
+                    line = port
+                    logger.info("The add-on holds its line open: its background page stays awake")
+                }
+
+                override fun onPortDisconnected(port: Port) {
+                    line = null
+                    logger.info("The add-on's line has closed")
+                }
+
                 override fun onMessage(message: Any, source: EngineSession?): Any = answer(
                     message,
                     hearRules = { started ->
@@ -50,8 +69,8 @@ object AddOnBridge {
      * A message that isn't one of these is answered false and changes nothing.
      *
      * The answer is a plain true or false on purpose. GeckoView hands the add-on only simple values (a number,
-     * a string, true or false) and its own bundles: answered with a JSONObject it sends nothing back, the
-     * add-on waits for ever, and a background page that waits is never put to sleep.
+     * a string, true or false) and its own bundles: answered with a JSONObject it sends nothing back, and
+     * the add-on's telling is never answered.
      */
     fun answer(message: Any, hearRules: (Boolean) -> Boolean = { false }, hearBedtime: (String) -> Unit): Boolean {
         val json = message as? JSONObject ?: return false
