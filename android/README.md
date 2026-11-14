@@ -334,20 +334,30 @@ Blocker's own list is not uBlock Origin's to open.
 
 **What it does not have.** No off switch for one site: a page that breaks under the blocker stays broken
 until a list is corrected, which uBlock Origin's own lists do for well-known sites. No count of what was
-blocked. And on the first start after the app is installed, uBlock Origin reads its lists first, a few
-seconds on a phone, during which pages wait; a tab that was already open may have loaded before that, and
-shows its advertisements until it is reloaded.
+blocked.
+
+**Its first start.** The first start after uBlock Origin has arrived, with the app newly installed or
+updated from a build without it, has a gap: a page that loads in its first moments, before uBlock Origin is
+up, shows its advertisements until it is reloaded. A tab that comes back at that start is such a page. While
+uBlock Origin then reads its lists for the first time, some seconds on a phone, pages wait. At every later
+start Gecko holds a page back until uBlock Origin is up, so there is no gap, and the wait is a short one.
 
 **Trying it.** `app/src/test` holds the rule for add-on pages (`AddOnPagesTest`). On a phone or an emulator:
 a page with advertisements shows none; `https://doubleclick.net/` shows uBlock Origin's stopped page; the
 address on that page with `dashboard.html` in place of `document-blocked.html…` opens nothing, typed or sent
 as a link; the "add it to your ad blocker" links on https://easylist.to/ open nothing; and a listed site
 still shows "This site is blocked". The app's log names each page turned away (`adb logcat -s Components
-BrowserApplication UBlockOrigin AddOnPages`). On an emulator without hardware acceleration Gecko's watchdog for slow
-scripts stops uBlock Origin while it first reads its lists, and no page loads after that. A debug build reads
-Gecko preferences from `/data/local/tmp/io.gitlab.adviseworn.familysiteblocker-geckoview-config.yaml`; with
-`dom.max_script_run_time`, `dom.max_ext_content_script_run_time` and `dom.max_chrome_script_run_time` set to
-0 under `prefs:` there, it reads them through, in about five minutes.
+BrowserApplication UBlockOrigin AddOnPages`).
+
+An emulator without hardware acceleration is too slow for the first start: Gecko's watchdog for slow scripts
+stops uBlock Origin while it first reads its lists, and no page loads after that, nor after a restart. Gecko
+reads preferences for a test from `/data/local/tmp/io.gitlab.adviseworn.familysiteblocker-geckoview-config.yaml`.
+With `dom.max_script_run_time`, `dom.max_ext_content_script_run_time` and `dom.max_chrome_script_run_time`
+set to 0 under `prefs:` there, uBlock Origin reads its lists through, in about ten minutes. A debug build
+reads that file always. A release build reads it once the phone has been told, over a cable, that the app
+is its debug app: `adb shell am set-debug-app --persistent io.gitlab.adviseworn.familysiteblocker`, and
+`adb shell am clear-debug-app` to take that back. A rule in `app/proguard-rules.pro` keeps the library that
+reads the file whole; without it a release build stopped at its start on such a phone.
 
 ## Versions
 

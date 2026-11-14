@@ -15,3 +15,10 @@
 # Quiet the warnings for the optional back-ends Android Components names but does not ship.
 -dontwarn org.mozilla.**
 -dontwarn mozilla.**
+
+# GeckoView reads Gecko settings for a test from a file (README.md, "Ad blocking", "Trying it") when the build
+# is a debug one, or when the phone has been told over a cable that the app is its debug app
+# (adb shell am set-debug-app). It reads the file with SnakeYAML, whose classes ask for the name of their own
+# package as they load. R8 moves renamed classes out of their package, and a release build then stopped at
+# start on such a phone. Kept whole, the library reads the file in a release build too.
+-keep class org.yaml.snakeyaml.** { *; }

@@ -72,3 +72,9 @@ test('a tab that has arrived at a page which does not open is closed: the second
     'it goes by the address Gecko reports for the tab, and closes that tab',
   );
 });
+
+test('a release build can read the settings file of a test: the library that reads it is kept whole', () => {
+  // Without the rule a release build stops at its start on a phone that names it the debug app, which is how
+  // a slow test phone is got through uBlock Origin's first read of its lists (android/README.md, "Trying it").
+  assert.match(read('app/proguard-rules.pro'), /^-keep class org\.yaml\.snakeyaml\.\*\* \{ \*; \}$/m);
+});
